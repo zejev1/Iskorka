@@ -1,0 +1,55 @@
+name: Iskorka pinned F2 import
+on:
+  push:
+    branches: [bootstrap/iskorka-human-lab]
+    paths: [.github/workflows/iskorka-import.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: iskorka-import
+  cancel-in-progress: false
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bootstrap/iskorka-human-lab
+          fetch-depth: 1
+      - name: Import immutable donor without modifying Ainkrad
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = zejev1/Iskorka
+          test ! -e src/main.ts
+          donor="$RUNNER_TEMP/iskorka-donor"
+          git init "$donor"
+          git -C "$donor" remote add origin https://github.com/zejev1/ainkrad-v0.3.git
+          git -C "$donor" fetch --depth=1 origin 0563af1dc1fea7d2abe76eb17501ef574078b4d2
+          git -C "$donor" checkout --detach FETCH_HEAD
+          test "$(git -C "$donor" rev-parse HEAD)" = 0563af1dc1fea7d2abe76eb17501ef574078b4d2
+          rsync -a --exclude=.git --exclude=.github --exclude=AGENTS.md --exclude=README.md "$donor/" ./
+          printf '%s\n' '{"repository":"zejev1/ainkrad-v0.3","commit":"0563af1dc1fea7d2abe76eb17501ef574078b4d2","confirmedByOwner":true,"stage":"donor-import-not-yet-adapted"}' > iskorka-origin.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          git commit -m 'bootstrap: import confirmed F2 physical world (adaptation pending)'
+          git push origin HEAD:bootstrap/iskorka-human-lab
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify imported donor
+        run: npm run check && npm run build
+      - name: Package source and installed tools for isolated continuation
+        if: always()
+        run: tar --exclude=.git --exclude=dist --exclude=world-workspace.tgz -czf "$RUNNER_TEMP/world-workspace.tgz" .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iskorka-import-workspace
+          path: ${{ runner.temp }}/world-workspace.tgz
+          retention-days: 3
