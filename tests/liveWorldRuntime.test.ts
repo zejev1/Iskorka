@@ -28,7 +28,7 @@ describe('Live world continuity', () => {
     ).toBe(true);
   });
 
-  it('reopens the committed world and Cardinal evidence instead of starting over', async () => {
+  it('reopens the committed Iskorka world instead of starting over', async () => {
     const store = new InMemoryWorldStore();
     const controlLog = new InMemoryAppendOnlyLog();
     const options = {
@@ -69,91 +69,13 @@ describe('Live world continuity', () => {
       resumedFromTick: 2,
       resumedFromWorldMinutes: second.world.calendar.elapsedWorldMinutes,
     });
-    expect(resumed.evaluationCount).toBeGreaterThan(
-      second.evaluationCount,
-    );
+    expect(resumed).not.toHaveProperty('evaluation');
     expect(resumed.recentEvents.length).toBeGreaterThan(0);
   });
-
-  it('lets a fresh Cardinal study pressure without intervening during the first 200 years', async () => {
-    const runtime = await LiveWorldRuntime.create({
-      mode: 'intervene',
-      seed: 'ainkrad-browser-world',
-      worldId: 'fresh-cardinal-world',
-      store: new InMemoryWorldStore(),
-      controlLog: new InMemoryAppendOnlyLog(),
-      disturbances: [
-        { tick: 12, kind: 'resource_shock', magnitude: 0.86 },
-      ],
-    });
-
-    let frame = await runtime.tick();
-    for (let tick = 2; tick <= 24; tick += 1) {
-      frame = await runtime.tick();
-    }
-
-    expect(frame.cardinalActivity.proposalCount).toBeGreaterThan(0);
-    expect(frame.cardinalActivity.authorizationDecisionCount).toBe(0);
-    expect(frame.executedInterventionCount).toBe(0);
-
-    const consoleSnapshot = await runtime.cardinalConsole();
-    expect(consoleSnapshot.laws.length).toBeGreaterThan(0);
-    expect(consoleSnapshot.readableLawReports).toHaveLength(
-      consoleSnapshot.laws.length,
-    );
-    expect(consoleSnapshot.readableInterventionReports).toHaveLength(
-      consoleSnapshot.interventions.length,
-    );
-    expect(consoleSnapshot.worldHealth.title).toBe('Состояние мира Ainkrad');
-    expect(consoleSnapshot.worldHealth.sections.some(
-      (section) => section.id === 'cardinal',
-    )).toBe(true);
-    expect(Array.isArray(consoleSnapshot.deathDiagnostics)).toBe(true);
-    expect(consoleSnapshot.evaluations.length).toBeLessThanOrEqual(160);
-    expect(consoleSnapshot.interventions).toEqual([]);
-    expect(
-      consoleSnapshot.audits.some(
-        (audit) =>
-          consoleSnapshot.evaluations.some(e => e.evaluationId === audit.evaluationId),
-      ),
-    ).toBe(true);
-  });
-
-  it('keeps historic Cardinal learning but resets visible intervention counters per world epoch', async () => {
-    const runtime = await LiveWorldRuntime.create({
-      mode: 'intervene',
-      seed: 'cardinal-epoch-counter-isolation',
-      worldId: 'cardinal-epoch-counter-isolation',
-      store: new InMemoryWorldStore(),
-      controlLog: new InMemoryAppendOnlyLog(),
-      disturbances: [
-        { tick: 12, kind: 'resource_shock', magnitude: 0.86 },
-      ],
-    });
-
-    let prior = await runtime.tick();
-    for (let tick = 2; tick <= 24; tick += 1) prior = await runtime.tick();
-    expect(prior.evaluationCount).toBeGreaterThan(0);
-    expect(prior.evaluation?.experience.totalExperience).toBeGreaterThan(0);
-
-    await runtime.resetWorld('cardinal-epoch-counter-isolation-new');
-    const freshEpoch = await runtime.tick(0);
-    expect(freshEpoch.world.epoch).toBe(2);
-    expect(freshEpoch.evaluationCount).toBe(0);
-    expect(freshEpoch.executedInterventionCount).toBe(0);
-    expect(freshEpoch.cardinalActivity.proposalCount).toBe(0);
-    expect(freshEpoch.cardinalActivity.authorizationDecisionCount).toBe(0);
-    expect(freshEpoch.cardinalActivity.deniedInterventionCount).toBe(0);
-    const consoleSnapshot = await runtime.cardinalConsole();
-    expect(consoleSnapshot.evaluations).toEqual([]);
-    expect(consoleSnapshot.interventions).toEqual([]);
-    expect(consoleSnapshot.outcomes).toEqual([]);
-    expect(consoleSnapshot.audits).toEqual([]);
-  }, 30_000);
 });
 
-describe('Cardinal semantic speed equivalence', () => {
-  it('gives Cardinal identical opportunities at supported ×1 and ×10 for equal Ainkrad time', async () => {
+describe('Physical semantic speed equivalence', () => {
+  it('produces the identical physical world at supported ×1 and ×10 for equal world time', async () => {
     async function runAtSpeed(
       worldSpeedMultiplier: 1 | 10 | 100,
       workerTicks: number,
@@ -173,7 +95,7 @@ describe('Cardinal semantic speed equivalence', () => {
       }
       return {
         world: frame.world,
-        console: await runtime.cardinalConsole(),
+
       };
     }
 
@@ -182,19 +104,5 @@ describe('Cardinal semantic speed equivalence', () => {
 
     expect(atOne.world.calendar.elapsedWorldMinutes).toBe(876_000);
     expect(atTen.world).toEqual(atOne.world);
-    expect(atTen.console.evaluations).toEqual(atOne.console.evaluations);
-    expect(atTen.console.audits).toEqual(atOne.console.audits);
-    expect(
-      atOne.console.evaluations
-        .map((item) => item.evaluatedWorldMinutes)
-        .slice(0, 3),
-    ).toEqual(
-      [8_760, 17_520, 26_280],
-    );
-    expect(
-      atOne.console.evaluations.every(
-        (item) => item.evaluatedWorldMinutes % 8_760 === 0,
-      ),
-    ).toBe(true);
   }, 60_000);
 });

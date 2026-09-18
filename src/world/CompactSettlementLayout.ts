@@ -1,3 +1,4 @@
+import { isHumanLab } from './HumanLabProfile';
 import {repairWorldTerrain,bindWorldTerrain} from './geography/WorldTerrain';
 import {hash} from './geography/TerrainMath';
 import { updateSettlementGeometry } from './SettlementGeometryV21';
@@ -68,7 +69,8 @@ function spreadFoundingHumanSettlements(
   moved: Map<string,{before:WorldPoint2D;after:WorldPoint2D}>,
 ): boolean {
   if (world.terrain) return false;
-  if (!FOUNDING_HUMAN_SETTLEMENTS.every((id) => world.settlements[id])) return false;
+  // Reuse the donor's original founding coordinates even when only its first town is retained.
+  if (!isHumanLab(world) && !FOUNDING_HUMAN_SETTLEMENTS.every((id) => world.settlements[id])) return false;
 
   const unit = (suffix:string) =>
     hash(`${world.id}:epoch:${world.epoch ?? 1}:human-foundations:${suffix}`) / 0x1_0000_0000;
@@ -103,6 +105,7 @@ function spreadFoundingHumanSettlements(
   let changed = false;
   for (const settlementId of FOUNDING_HUMAN_SETTLEMENTS) {
     const town = world.settlements[settlementId];
+    if (!town) continue;
     const center = world.places[town.centerPlaceId];
     if (!center) continue;
     const originalCenter = {x:center.mapX,y:center.mapY};

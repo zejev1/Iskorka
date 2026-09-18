@@ -2,10 +2,10 @@ import type { LiveWorldFrame } from '../runtime/LiveWorldRuntime';
 import { worldExplorationLevel, worldExplorationPercent } from './WorldExplorationProgress';
 
 type AinkradWindow = Window & {
-  __ainkradLatestFrame?: LiveWorldFrame;
+  __iskorkaLatestFrame?: LiveWorldFrame;
 };
 
-const FRAME_EVENT = 'ainkrad:live-world-frame';
+const FRAME_EVENT = 'iskorka:live-world-frame';
 const RECOMPUTE_INTERVAL_MS = 10_000;
 let latestFrame: LiveWorldFrame | undefined;
 let lastComputedAt = Number.NEGATIVE_INFINITY;
@@ -55,7 +55,7 @@ window.addEventListener(FRAME_EVENT, (event) => {
   if (frame) acceptFrame(frame);
 });
 
-const initial = (window as AinkradWindow).__ainkradLatestFrame;
+const initial = (window as AinkradWindow).__iskorkaLatestFrame;
 if (initial) acceptFrame(initial);
 
 // Browser.ts rewrites these labels on accepted worker frames. Re-apply only

@@ -1,7 +1,7 @@
 import type { EventReader } from '../world/events';
 import type { WorldEvent } from '../world/events';
 import type { WorldState } from '../world/types';
-import type { CardinalMetrics, SensorSnapshot } from './types';
+import type { WorldMetrics, SensorSnapshot } from './types';
 import { CANONICAL_WORLD_QUANTUM_MINUTES } from '../v15/WorldTimeContract';
 
 export const WORLD_SENSOR_VERSION = 'ainkrad-world-sensors-0.3.18';
@@ -551,7 +551,7 @@ export class WorldSensors {
       );
     }
 
-    const metrics: CardinalMetrics = {
+    const metrics: WorldMetrics = {
       livingPopulation,
       sapientPopulation,
       raceDiversity,

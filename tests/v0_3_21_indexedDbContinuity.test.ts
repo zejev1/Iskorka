@@ -88,19 +88,19 @@ describe('durable continuity, migration backup and failure atomicity',()=>{
     expect(await raw(dbName,'operations')).toHaveLength(0);
     expect((await raw(dbName,IDENTITY_STORE))[0].revision).toBe(before.revision);
   });
-  it('retains Cardinal journal, personal history and RNG through an update and accelerated continuation',async()=>{
+  it('keeps the controller log empty and retains personal history and RNG through an update and accelerated continuation',async()=>{
     const dbName=name(),bundle=createIndexedDbPersistence(dbName);
     const options={worldId:'continuity',seed:'ainkrad-browser-world',store:bundle.worldStore,controlLog:bundle.controlLog,durable:true};
     const runtime=await LiveWorldRuntime.create(options);let frame=await runtime.tick();
     for(let i=0;i<5;i++)frame=await runtime.tick();
     const old=structuredClone(frame.world),records=await raw(dbName,'stream_records');
-    expect(records.length).toBeGreaterThan(0);
+    expect(records).toEqual([]);
     old.places.resource_field.mapX=56;delete old.places.resource_field.urbanLayoutVersion;
     await raw(dbName,'worlds',s=>s.put(old));
     const restored=await LiveWorldRuntime.create(options),resumed=await restored.tick(0);
     expect(resumed.world.calendar).toEqual(old.calendar);expect(resumed.world.determinism).toEqual(old.determinism);
     expect(resumed.world.agents).toEqual(old.agents);expect(resumed.world.population).toEqual(old.population);
-    expect(resumed.evaluation!.experience.totalExperience).toBeGreaterThanOrEqual(frame.evaluation!.experience.totalExperience);
+    expect(resumed).not.toHaveProperty('evaluation');
     expect(await raw(dbName,'stream_records')).toEqual(records);
     const target=old.calendar.elapsedWorldMinutes+WORLD_MINUTES_PER_YEAR/60;
     restored.setWorldSpeed('century_per_minute',10);

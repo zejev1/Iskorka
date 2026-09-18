@@ -8,7 +8,6 @@ import { offlineWorldMinuteTarget, makeOfflineWorldClockAnchor, parseOfflineWorl
 import { InMemoryWorldStore } from '../src/world/InMemoryWorldStore';
 import { InMemoryAppendOnlyLog } from '../src/persistence/AppendOnlyLog';
 import { createIndexedDbPersistence } from '../src/persistence/IndexedDbPersistence';
-import { LogBackedCardinalJournal } from '../src/cardinal/LogBackedCardinalJournal';
 import { WorldEngine } from '../src/world/WorldEngine';
 import { WORLD_MINUTES_PER_YEAR as YEAR, type WorldSpeedId } from '../src/world/WorldClock';
 import { CANONICAL_WORLD_QUANTUM_MINUTES as Q } from '../src/v15/WorldTimeContract';
@@ -48,10 +47,10 @@ describe('FIX4 responsive external acceleration', () => {
     expect(actual).toEqual(reference.worldSnapshot());
   });
 
-  it('applies lower speed between commits and retains the exact world and Cardinal journal', async () => {
+  it('applies lower speed between commits and retains the exact world and physical state', async () => {
     const runtime = await create();
     await runtime.tick(Q * 6);
-    const before = runtime.worldSnapshot(), journal = await runtime.cardinalConsole();
+    const before = runtime.worldSnapshot();
     runtime.enqueueLiveElapsed(60_000);
     const mailbox = new ExternalClockCommands();
     mailbox.enqueue({ type: 'set_speed', speedId: 'century_per_minute', multiplier: 1, clockRevision: 10 });
@@ -63,7 +62,7 @@ describe('FIX4 responsive external acceleration', () => {
     runtime.discardPendingLiveTime();
     expect(runtime.liveTiming().pendingWorldMinutes).toBe(0);
     expect(runtime.worldSnapshot()).toEqual(before);
-    expect(await runtime.cardinalConsole()).toEqual(journal);
+    expect(runtime).not.toHaveProperty('cardinalConsole');
     await runtime.advanceResponsive(1000);
     expect(runtime.worldSnapshot().calendar.elapsedWorldMinutes).toBeCloseTo(before.calendar.elapsedWorldMinutes + 1 / 60, 7);
   });
@@ -104,15 +103,16 @@ describe('FIX4 responsive external acceleration', () => {
     spy.mockRestore();
   });
 
-  it('aligns fractional restoration with the next exact Cardinal five-year boundary', async () => {
+  it('restores fractional time through exact semantic quanta without a controller boundary', async () => {
     const runtime = await create();
     const beforeBoundary = YEAR * 5 - Q + 123;
     while (!(await runtime.catchUpBatchTo(beforeBoundary, 24)).completed) { /* ordered quanta */ }
     const result = await runtime.catchUpBatchTo(YEAR * 5 + Q * 4, 8);
-    expect(result.currentWorldMinutes).toBe(YEAR * 5);
-    expect(result.cardinalEvaluated).toBe(true);
-    const frame = await runtime.tick(0);
-    expect(frame.evaluation?.evaluatedWorldMinutes).toBe(YEAR * 5);
+    expect(result.currentWorldMinutes).toBe(YEAR * 5 + Q * 4);
+    expect(result.semanticQuantaProcessed).toBe(5);
+    expect(result.completed).toBe(true);
+    expect(result).not.toHaveProperty('cardinalEvaluated');
+    expect((await runtime.tick(0)).world.v15!.simulationClock.pendingWorldMinutes).toBe(0);
   });
 });
 
@@ -212,21 +212,19 @@ describe('FIX4 offline continuity and cancellation', () => {
     expect(() => makeOfflineWorldClockAnchor({ ...old(), targetWorldMinutes: Infinity })).toThrow();
   });
 
-  it('keeps the IndexedDB world, genealogy, RNG and Cardinal evidence through cancel and reload', async () => {
+  it('keeps the IndexedDB world, genealogy, RNG and personal history through cancel and reload', async () => {
     const bundle = createIndexedDbPersistence('fix4-cancel-reload');
     const options = { worldId: 'fix4-durable', seed: 'ainkrad-browser-world', mode: 'observer' as const,
       store: bundle.worldStore, controlLog: bundle.controlLog, durable: true, boundedLiveAcceleration: true };
     const runtime = await LiveWorldRuntime.create(options);
     await runtime.tick(Q * 6);
     const before = runtime.worldSnapshot();
-    const journal = new LogBackedCardinalJournal(bundle.controlLog);
-    const evaluations = await journal.evaluations(before.id);
-    expect(evaluations.length).toBeGreaterThan(0);
+
     runtime.enqueueLiveElapsed(60_000);
     runtime.discardPendingLiveTime();
     const reopened = await LiveWorldRuntime.create(options);
     expect(reopened.worldSnapshot()).toEqual(before);
-    expect(await journal.evaluations(before.id)).toEqual(evaluations);
+    expect(reopened).not.toHaveProperty('cardinalConsole');
     expect(await bundle.worldStore.loadWorld(before.id)).toEqual(before);
   });
 });

@@ -1126,6 +1126,8 @@ export interface WorldV21State {
 }
 
 export interface WorldState {
+  /** Persisted bootstrap identity. Never inferred from a display name. */
+  profile?: 'iskorka-human-lab-v1';
   cartography?: import('./ResidentCartography').WorldCartography;
   terrain?: TerrainFoundation;
   oceanExploration?: import('./geography/OceanExploration').OceanExplorationState;

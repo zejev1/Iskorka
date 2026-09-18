@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ainkrad v0.3</title>
+  <title>Искорка · 0.1.0</title>
 </head>
 <body>
-  <div id="app">Запуск Ainkrad...</div>
+  <div id="app">Запуск Искорки...</div>
 
   <script>
     // Read-only worker-frame bridge for presentation extensions. It does not
@@ -18,8 +18,8 @@
           super(url, options);
           this.addEventListener('message', (event) => {
             if (event.data?.type !== 'frame' || !event.data.frame) return;
-            window.__ainkradLatestFrame = event.data.frame;
-            window.dispatchEvent(new CustomEvent('ainkrad:live-world-frame', {
+            window.__iskorkaLatestFrame = event.data.frame;
+            window.dispatchEvent(new CustomEvent('iskorka:live-world-frame', {
               detail: event.data.frame,
             }));
           });

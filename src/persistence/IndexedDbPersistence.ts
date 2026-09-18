@@ -850,3 +850,8 @@ export function createIndexedDbPersistence(
     controlLog: new IndexedDbAppendOnlyLog(database),
   };
 }
+
+/** Iskorka needs a physical world store, not an intervention/control journal instance. */
+export function createIndexedDbWorldStore(databaseName = 'iskorka-v0-1-browser-world-v1'): IndexedDbWorldStore {
+  return new IndexedDbWorldStore(openDatabase(databaseName));
+}

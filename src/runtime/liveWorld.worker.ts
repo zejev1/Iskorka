@@ -9,11 +9,10 @@ import { LiveWallClock, liveLoopDelay } from './LiveWallClock';
 import {
   LiveWorldRuntime,
   OFFLINE_CATCH_UP_MAX_BATCH_QUANTA,
-  type CardinalConsoleSnapshot,
   type LiveWorldDisturbance,
   type LiveWorldFrame,
 } from './LiveWorldRuntime';
-import { createIndexedDbPersistence } from '../persistence/IndexedDbPersistence';
+import { createIndexedDbWorldStore } from '../persistence/IndexedDbPersistence';
 import { WorldRevisionConflictError } from '../world/persistence';
 import type {
   WorldSpeedId,
@@ -30,17 +29,15 @@ import type {
 } from '../world/types';
 import type { V19DivineInterpretation } from '../v19/types';
 
-const WORLD_LOCK_NAME = 'ainkrad-v0-3-live-world-writer';
-const WORLD_CHANNEL_NAME = 'ainkrad-v0-3-live-world-frames';
-const CLOCK_CHANNEL_NAME = 'ainkrad-v0-3-world-clock-control';
-const CONSOLE_CHANNEL_NAME = 'ainkrad-v0-3-cardinal-console';
-const RESET_CHANNEL_NAME = 'ainkrad-v0-3-world-reset';
-const OFFLINE_CLOCK_CHANNEL_NAME = 'ainkrad-v0-3-offline-clock';
-const DIVINE_AUDIENCE_CHANNEL_NAME = 'ainkrad-v0-3-divine-audience';
+const WORLD_LOCK_NAME = 'iskorka-v0-1-live-world-writer';
+const WORLD_CHANNEL_NAME = 'iskorka-v0-1-live-world-frames';
+const CLOCK_CHANNEL_NAME = 'iskorka-v0-1-world-clock-control';
+const RESET_CHANNEL_NAME = 'iskorka-v0-1-world-reset';
+const OFFLINE_CLOCK_CHANNEL_NAME = 'iskorka-v0-1-offline-clock';
 const STORAGE_CHECK_INTERVAL_TICKS = 300;
 const AINKRAD_STORAGE_SOFT_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 const AINKRAD_STORAGE_CRITICAL_BUDGET_BYTES = 4 * 1024 * 1024 * 1024;
-const FRAME_PROTOCOL_VERSION = 'ainkrad-live-frame-0.3.21-hotfix.10.4';
+const FRAME_PROTOCOL_VERSION = 'iskorka-live-frame-0.1.0';
 const COMPATIBLE_FRAME_PROTOCOLS = new Set([FRAME_PROTOCOL_VERSION]);
 
 // Test disturbances never run automatically in the persistent live world.
@@ -48,18 +45,11 @@ const disturbances: readonly LiveWorldDisturbance[] = [];
 const recurringDisturbances = [] as const;
 
 type LiveWorldWorkerPayload =
-  | {
+  {
       type: 'frame';
       protocolVersion: typeof FRAME_PROTOCOL_VERSION;
       frame: LiveWorldFrame;
-    }
-  | {
-      type: 'cardinal_console';
-      protocolVersion: typeof FRAME_PROTOCOL_VERSION;
-      requestId: string;
-      snapshot: CardinalConsoleSnapshot;
-    }
-  | {
+    } | {
       type: 'catch_up_progress';
       protocolVersion: typeof FRAME_PROTOCOL_VERSION;
       worldEpoch: number;
@@ -71,15 +61,13 @@ type LiveWorldWorkerPayload =
       estimatedRemainingMs: number | null;
       semanticQuantaProcessed: number;
       completed: boolean;
-    }
-  | {
+    } | {
       type: 'catch_up_recovery';
       protocolVersion: typeof FRAME_PROTOCOL_VERSION;
       message: string;
       batchQuanta: number;
       abandoned: boolean;
-    }
-  | {
+    } | {
       type: 'clock_applied';
       protocolVersion: typeof FRAME_PROTOCOL_VERSION;
       speedId: WorldSpeedId;
@@ -87,33 +75,14 @@ type LiveWorldWorkerPayload =
       worldEpoch: number;
       currentWorldMinutes: number;
       discarded: boolean;
-    }
-  | {
+    } | {
       type: 'fatal';
       protocolVersion: typeof FRAME_PROTOCOL_VERSION;
       message: string;
-    }
-  | {
-      type: 'divine_audience_result';
-      protocolVersion: typeof FRAME_PROTOCOL_VERSION;
-      requestId: string;
-      agentId: string;
-      authorized: boolean;
-      giftGranted?: boolean;
-      burdenApplied?: boolean;
-      contactRecorded?: boolean;
-      interpretation?: V19DivineInterpretation;
-      residentResponse?: string;
-      reason: string;
     };
 
 type LiveWorldWorkerMessage = LiveWorldWorkerPayload & { clockRevision?: number };
 type LiveWorldClockMessage = ExternalClockCommand;
-
-interface CardinalConsoleRequest {
-  type: 'request_cardinal_console';
-  requestId: string;
-}
 
 interface OfflineClockCatchUpMessage {
   type: 'catch_up_world_time';
@@ -122,38 +91,8 @@ interface OfflineClockCatchUpMessage {
   targetWorldMinutes: number;
 }
 
-interface DivineAudiencePauseCommand {
-  type: 'set_divine_audience_pause';
-  paused: boolean;
-}
-
-interface PrivateDivineAudienceCommand {
-  type: 'grant_private_divine_audience';
-  requestId: string;
-  agentId: string;
-  deityId: string;
-  deityName: string;
-  religionName?: string;
-  message?: string;
-  gift?: DivineGiftKind;
-  inheritanceGift?: DivineGiftKind;
-  burden?: DivineBurdenKind;
-  lineageCurse?: boolean;
-  contactKind?: DivineContactKind;
-  relatedPrayerId?: string;
-}
-
 type LiveWorldWorkerCommand =
-  | LiveWorldClockMessage
-  | OfflineClockCatchUpMessage
-  | CardinalConsoleRequest
-  | DivineAudiencePauseCommand
-  | PrivateDivineAudienceCommand
-  | { type: 'reset_world' };
-
-type CardinalConsoleChannelMessage =
-  | CardinalConsoleRequest
-  | Extract<LiveWorldWorkerMessage, { type: 'cardinal_console' }>;
+  LiveWorldClockMessage | OfflineClockCatchUpMessage | { type: 'reset_world' };
 
 const workerScope = self as unknown as {
   postMessage(message: LiveWorldWorkerMessage): void;
@@ -161,17 +100,14 @@ const workerScope = self as unknown as {
 
 const frameChannel = new BroadcastChannel(WORLD_CHANNEL_NAME);
 const clockChannel = new BroadcastChannel(CLOCK_CHANNEL_NAME);
-const consoleChannel = new BroadcastChannel(CONSOLE_CHANNEL_NAME);
 const resetChannel = new BroadcastChannel(RESET_CHANNEL_NAME);
 const offlineClockChannel = new BroadcastChannel(OFFLINE_CLOCK_CHANNEL_NAME);
-const divineAudienceChannel = new BroadcastChannel(DIVINE_AUDIENCE_CHANNEL_NAME);
 let activeRuntime: LiveWorldRuntime | undefined;
 const liveWallClock = new LiveWallClock(performance.now());
 const clockCommands = new ExternalClockCommands();
 let appliedClockRevision = 0;
 let pendingWorldReset = false;
 let pendingOfflineCatchUp: OfflineClockCatchUpMessage | undefined;
-let divineAudiencePaused = false;
 let catchUpBatchQuanta = INITIAL_RAPID_CATCH_UP_BATCH_QUANTA;
 let catchUpBatchCeiling = MAX_RAPID_CATCH_UP_BATCH_QUANTA;
 let appliedSpeedId: WorldSpeedId = DEFAULT_WORLD_SPEED_ID;
@@ -240,111 +176,12 @@ function publishCatchUpRecovery(
   frameChannel.postMessage(recovery);
 }
 
-function applyDivineAudiencePause(message: DivineAudiencePauseCommand): void {
-  if (!divineAudiencePaused && activeRuntime && !pendingOfflineCatchUp) {
-    activeRuntime.enqueueLiveElapsed(liveWallClock.sample(performance.now()));
-  }
-  liveWallClock.reset(performance.now());
-  divineAudiencePaused = message.paused === true;
-}
-
-async function grantPrivateDivineAudience(
-  request: PrivateDivineAudienceCommand,
-  broadcast: boolean,
-): Promise<void> {
-  if (!activeRuntime) return;
-  applyDivineAudiencePause({ type: 'set_divine_audience_pause', paused: true });
-  const record = await activeRuntime.grantPrivateDivineAudience({
-    requestId: request.requestId,
-    agentId: request.agentId,
-    deityId: request.deityId,
-    deityName: request.deityName,
-    ...(request.religionName?.trim()
-      ? { religionName: request.religionName.trim() }
-      : {}),
-    ...(request.message?.trim() ? { message: request.message.trim() } : {}),
-    ...(request.gift ? { gift: request.gift } : {}),
-    ...(request.contactKind ? { contactKind: request.contactKind } : {}),
-    ...(request.inheritanceGift ? { inheritanceGift: request.inheritanceGift } : {}),
-    ...(request.burden ? { burden: request.burden, lineageCurse: Boolean(request.lineageCurse) } : {}),
-    ...(request.relatedPrayerId
-      ? { relatedPrayerId: request.relatedPrayerId }
-      : {}),
-  });
-  const world = activeRuntime.worldSnapshot();
-  const profile = world.v19?.divineAgency.byAgentId[request.agentId];
-  const gift = profile?.gifts.find(
-    (candidate) => candidate.id === `gift:${request.requestId}`,
-  );
-  const contact = profile?.contacts.find(
-    (candidate) => candidate.id === `contact:${request.requestId}`,
-  );
-  const burden = profile?.burdens?.find(
-    (candidate) => candidate.id === `burden:${request.requestId}`,
-  );
-  const result = {
-    type: 'divine_audience_result',
-    protocolVersion: FRAME_PROTOCOL_VERSION, clockRevision: appliedClockRevision,
-    requestId: request.requestId,
-    agentId: request.agentId,
-    authorized: record.authorized,
-    ...(record.authorized
-      ? {
-          giftGranted: Boolean(gift),
-          burdenApplied: Boolean(burden),
-          contactRecorded: Boolean(contact),
-          ...(contact?.interpretation || gift?.interpretation
-            ? { interpretation: contact?.interpretation ?? gift?.interpretation }
-            : {}),
-          ...(contact?.residentResponse || gift?.residentResponse || burden?.residentResponse
-            ? { residentResponse: contact?.residentResponse ?? gift?.residentResponse ?? burden?.residentResponse }
-            : {}),
-        }
-      : {}),
-    reason: record.reason,
-  } as const;
-  workerScope.postMessage(result);
-  if (broadcast) divineAudienceChannel.postMessage(result);
-
-  const frame = await activeRuntime.tick(0);
-  const frameMessage = {
-    type: 'frame',
-    protocolVersion: FRAME_PROTOCOL_VERSION, clockRevision: appliedClockRevision,
-    frame,
-  } as const;
-  workerScope.postMessage(frameMessage);
-  frameChannel.postMessage(frameMessage);
-}
-
 self.addEventListener(
   'message',
   (event: MessageEvent<Partial<LiveWorldWorkerCommand>>) => {
     if (event.data.type === 'reset_world') {
       if (activeRuntime) pendingWorldReset = true;
       else resetChannel.postMessage({ type: 'reset_world' });
-      return;
-    }
-
-    if (event.data.type === 'request_cardinal_console') {
-      const request = event.data as CardinalConsoleRequest;
-      if (!request.requestId?.trim()) return;
-      if (activeRuntime) {
-        void sendCardinalConsole(request.requestId, true);
-      } else {
-        consoleChannel.postMessage(request);
-      }
-      return;
-    }
-    if (event.data.type === 'set_divine_audience_pause') {
-      const message = event.data as DivineAudiencePauseCommand;
-      applyDivineAudiencePause(message);
-      divineAudienceChannel.postMessage(message);
-      return;
-    }
-    if (event.data.type === 'grant_private_divine_audience') {
-      const request = event.data as PrivateDivineAudienceCommand;
-      if (activeRuntime) void grantPrivateDivineAudience(request, true);
-      else divineAudienceChannel.postMessage(request);
       return;
     }
     if (event.data.type === 'catch_up_world_time') {
@@ -370,35 +207,6 @@ self.addEventListener(
   },
 );
 
-async function sendCardinalConsole(
-  requestId: string,
-  broadcast: boolean,
-): Promise<void> {
-  if (!activeRuntime) return;
-  const message = {
-    type: 'cardinal_console',
-    protocolVersion: FRAME_PROTOCOL_VERSION, clockRevision: appliedClockRevision,
-    requestId,
-    snapshot: await activeRuntime.cardinalConsole(),
-  } as const;
-  workerScope.postMessage(message);
-  if (broadcast) consoleChannel.postMessage(message);
-}
-
-consoleChannel.addEventListener(
-  'message',
-  (event: MessageEvent<CardinalConsoleChannelMessage>) => {
-    if (event.data.type === 'request_cardinal_console') {
-      if (activeRuntime) void sendCardinalConsole(event.data.requestId, true);
-      return;
-    }
-    workerScope.postMessage({
-      ...event.data,
-      protocolVersion: FRAME_PROTOCOL_VERSION,
-    });
-  },
-);
-
 resetChannel.addEventListener('message', (event: MessageEvent<{ type: 'reset_world' }>) => {
   if (event.data.type === 'reset_world' && activeRuntime) pendingWorldReset = true;
 });
@@ -412,25 +220,6 @@ offlineClockChannel.addEventListener(
     } catch {
       // Cross-tab messages receive the same strict validation.
     }
-  },
-);
-
-divineAudienceChannel.addEventListener(
-  'message',
-  (event: MessageEvent<
-    DivineAudiencePauseCommand |
-    PrivateDivineAudienceCommand |
-    Extract<LiveWorldWorkerMessage, { type: 'divine_audience_result' }>
-  >) => {
-    if (event.data.type === 'set_divine_audience_pause') {
-      applyDivineAudiencePause(event.data);
-      return;
-    }
-    if (event.data.type === 'grant_private_divine_audience') {
-      if (activeRuntime) void grantPrivateDivineAudience(event.data, true);
-      return;
-    }
-    workerScope.postMessage(event.data);
   },
 );
 
@@ -473,7 +262,7 @@ const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 async function runForever(): Promise<void> {
-  const persistence = createIndexedDbPersistence();
+  const worldStore = createIndexedDbWorldStore('iskorka-v0-1-browser-world-v1');
   if (navigator.storage?.persist) {
     try {
       const persistent = await navigator.storage.persist();
@@ -489,19 +278,17 @@ async function runForever(): Promise<void> {
     }
   }
   const runtime = await LiveWorldRuntime.create({
-    mode: 'intervene',
     seed: 'ainkrad-browser-world',
     worldId: 'ainkrad_live_world',
     disturbances,
     recurringDisturbances,
-    store: persistence.worldStore,
-    controlLog: persistence.controlLog,
+    store: worldStore,
     durable: true,
     boundedLiveAcceleration: true,
   });
   activeRuntime = runtime;
   runtime.setCooperativeExecution(cooperativeWorldTimeExecution(
-    () => clockCommands.revision !== appliedClockRevision || pendingWorldReset || divineAudiencePaused,
+    () => clockCommands.revision !== appliedClockRevision || pendingWorldReset,
     () => pendingOfflineCatchUp || isMaximumAccelerationSpeed(appliedSpeedId) ? 48 : 12,
   ));
   liveWallClock.reset(performance.now());
@@ -513,7 +300,7 @@ async function runForever(): Promise<void> {
     try {
       const command = clockCommands.take();
       if (command) {
-        if (!command.discardPending && !divineAudiencePaused && !pendingOfflineCatchUp) {
+        if (!command.discardPending && !pendingOfflineCatchUp) {
           runtime.enqueueLiveElapsed(liveWallClock.sample(performance.now()));
         }
         runtime.setWorldSpeed(command.speedId, command.multiplier);
@@ -536,11 +323,7 @@ async function runForever(): Promise<void> {
         frameChannel.postMessage(acknowledgement);
         lastFramePostedAt = -Infinity;
       }
-      if (divineAudiencePaused) {
-        liveWallClock.reset(performance.now());
-        await sleep(100);
-        continue;
-      }
+
       if (pendingWorldReset) {
         pendingWorldReset = false;
         pendingOfflineCatchUp = undefined;

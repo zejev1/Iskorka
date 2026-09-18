@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { observeWorldArchitecture } from '../src/cardinal/WorldAuthorityGateway';
 import {
   CENTURY_HUMPBACK_INTERVAL,
   CENTURY_HUMPBACK_LARVA_KILLED_INTERVAL,
@@ -51,11 +50,6 @@ describe('FIX7 demography, century parasite and physical roads', () => {
     expect(byRace.human).toMatchObject({ living: 31, births: 2, deaths: 1 });
     expect(byRace.elf.births).toBe(1);
     expect(byRace.orc.births).toBe(1);
-    expect(observeWorldArchitecture(world)).toMatchObject({
-      livingPopulation: 31,
-      totalBirths: 2,
-      totalDeaths: 1,
-    });
   });
 
   it('keeps one scripted egg and the exact 85% adult threshold', () => {

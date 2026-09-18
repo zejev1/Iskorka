@@ -81,19 +81,18 @@ describe('v0.3.20 startup repair after an earlier completed repair', () => {
     expect((await store.history(state.id)).filter(e => e.payload.migrationMode === 'same_version_additive_schema_repair')).toHaveLength(2);
   });
 
-  it('preserves nonzero Cardinal experience and world time when recovering the same world', async () => {
+  it('preserves personal history and world time when recovering the same world', async () => {
     const options = { worldId: 'elf-cardinal-continuity', seed: 'ainkrad-browser-world',
       mode: 'observer' as const, store: new InMemoryWorldStore(), controlLog: new InMemoryAppendOnlyLog() };
     const runtime = await LiveWorldRuntime.create(options);
     let frame = await runtime.tick();
     for (let i = 0; i < 5; i++) frame = await runtime.tick();
-    const experience = frame.evaluation!.experience.totalExperience;
-    expect(experience).toBeGreaterThan(0);
+    expect(frame).not.toHaveProperty('evaluation');
     const stale = (await options.store.loadWorld(options.worldId))!;
     dropUnrecordedElfEvidence(stale);
     await persist(options.store, stale, 'old-writer-with-cardinal-history');
     const resumed = await (await LiveWorldRuntime.create(options)).tick(0);
-    expect(resumed.evaluation!.experience.totalExperience).toBe(experience);
+    expect(resumed).not.toHaveProperty('evaluation');
     expect(resumed.world.calendar).toEqual(frame.world.calendar);
     expect(resumed.world.agents).toEqual(frame.world.agents);
   });

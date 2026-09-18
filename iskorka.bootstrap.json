@@ -1,13 +1,17 @@
 {
   "schemaVersion": 1,
   "project": "Iskorka",
-  "phase": "bootstrap-preparation",
-  "runtimeImplemented": false,
+  "phase": "physical-world-bootstrap",
+  "runtimeImplemented": true,
   "constitutionSourceSha256": "bbe8f366079f05da899431c37554ee4f8b12f9b88f4102bde1c39b988346870c",
   "donor": {
     "repository": "zejev1/ainkrad-v0.3",
-    "sha": null,
-    "ownerApproval": null
+    "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+    "ownerApproval": {
+      "status": "owner-confirmed-final",
+      "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+      "reference": "18.09.2026: «Уже готова и работает. Поэтому давай делай искорку а не ткст мне плоди»; merged donor PR #8."
+    }
   },
   "initialWorld": {
     "continents": 1,

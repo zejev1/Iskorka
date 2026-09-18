@@ -1,3 +1,4 @@
+import { isHumanLab, ISKORKA_PROFILE, initializeHumanLab, assertHumanLab, ISKORKA_FOUNDER_NAMES } from './HumanLabProfile';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -1354,6 +1355,8 @@ function assertWorldState(value: unknown): asserts value is WorldState {
     }
   }
 
+  if (state.profile !== undefined && state.profile !== ISKORKA_PROFILE) throw new Error('Unsupported world profile.');
+  if (state.profile === ISKORKA_PROFILE) assertHumanLab(state as unknown as WorldState);
   const wildlife = asRecord(state.wildlife, 'World wildlife');
   for (const [populationId, rawPopulation] of Object.entries(wildlife)) {
     const population = asRecord(
@@ -1906,7 +1909,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
       throw new Error('World v15.version must be v15.');
     }
 
-    if (!Array.isArray(v15.genesisTeachers) || v15.genesisTeachers.length !== 4) {
+    if (!Array.isArray(v15.genesisTeachers) || v15.genesisTeachers.length !== (state.profile === ISKORKA_PROFILE ? 0 : 4)) {
       throw new Error('World v15 must contain exactly four Genesis teachers.');
     }
     const genesisDomains = new Set<string>();
@@ -1949,7 +1952,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
         throw new Error('Genesis teachingHistoryIds must contain strings.');
       }
     }
-    if (genesisDomains.size !== 4) {
+    if (genesisDomains.size !== (state.profile === ISKORKA_PROFILE ? 0 : 4)) {
       throw new Error('Genesis teachers must cover four distinct domains.');
     }
 
@@ -3368,7 +3371,7 @@ function mainSettlement(
     .sort();
   return {
     id: 'settlement_ainkrad',
-    name: 'Айнкрад',
+    name: places.commons?.name.includes('Основания') ? 'Основание' : 'Айнкрад',
     kind: 'village',
     centerPlaceId: 'commons',
     centerX: places.commons?.mapX ?? 50,
@@ -3518,6 +3521,7 @@ function createWorldV15State(
   agents: Readonly<Record<string, AgentState>>,
   resourcePool: number,
   elapsedWorldMinutes: number,
+  humanLab = false,
 ): WorldV15State {
   const knowledgeByAgentId: WorldV15State['knowledgeByAgentId'] = {};
   const familyAgencyByAgentId: WorldV15State['familyAgencyByAgentId'] = {};
@@ -3536,7 +3540,7 @@ function createWorldV15State(
   }
 
   let founderSmithAgentId: string | undefined;
-  if (livingFounders.length > 0) {
+  if (!humanLab && livingFounders.length > 0) {
     const smith = [...livingFounders].sort((a, b) => {
       const scoreA = a.skills.craft * 0.5 + a.personality.diligence * 0.28 + a.personality.curiosity * 0.22;
       const scoreB = b.skills.craft * 0.5 + b.personality.diligence * 0.28 + b.personality.curiosity * 0.22;
@@ -3559,7 +3563,7 @@ function createWorldV15State(
 
   return {
     version: 'v15',
-    genesisTeachers: createGenesisTeachers(`${worldId}:epoch:${epoch}`, 0),
+    genesisTeachers: humanLab ? [] : createGenesisTeachers(`${worldId}:epoch:${epoch}`, 0),
     knowledgeByAgentId,
     familyAgencyByAgentId,
     smithingByAgentId,
@@ -3818,7 +3822,7 @@ async function migrateLegacyWorld(
   next.routes = rebuildWorldRoutes(next.places, mutable.routes ?? {});
 
   if (
-    next.growth.stage >= 5 &&
+    !isHumanLab(next) && next.growth.stage >= 5 &&
     !Object.values(next.wildlife).some((population) => population.isMonster)
   ) {
     const habitat = [...next.growth.discoveredRegionIds]
@@ -4509,13 +4513,13 @@ async function repairCompatibleV19World(
     );
     ensureFoundingPrimerV21(next);
     ensureEmbodiedWorldV21(next);
-    repairSapientHomelandGeography(next);
+    if (!isHumanLab(next)) repairSapientHomelandGeography(next);
     removeUnsurveyedHomelandLinksV20(next);
     repairSecretLibraryPlacementV18(next);
     repairCompactSettlementLayout(next);
     reconcileLibraryAdmissions(next, next.calendar.elapsedWorldMinutes);
     repairDeceasedActions(next);
-    ensureCenturyHumpbackState(next);
+    if (!isHumanLab(next)) ensureCenturyHumpbackState(next);
     // Saved worlds may contain a one-sided physical link from an older repair.
     // Reciprocity is a world invariant; restore only the missing reverse edge.
     makeConnectionsReciprocal(next.places);
@@ -4613,6 +4617,7 @@ function goalFromInitialState(agent: Omit<AgentState, 'goal'>, now: number): Age
 }
 
 export interface WorldEngineOptions {
+  profile?: typeof ISKORKA_PROFILE;
   worldId: string;
   seed: string;
   store: WorldStore;
@@ -4692,9 +4697,11 @@ export class WorldEngine {
 
     const rng = new SeededRng(options.seed);
     const useThreeHumanSeeds = options.agentNames === undefined || (options.agentNames?.length ?? 0) >= 30;
-    const names = options.agentNames?.map(toRussianWorldNameV18) ??
-      [...DEFAULT_HUMAN_FOUNDER_NAMES];
-    const humanSeedSettlements = useThreeHumanSeeds
+    const names = options.profile === ISKORKA_PROFILE ? [...ISKORKA_FOUNDER_NAMES] :
+      options.agentNames?.map(toRussianWorldNameV18) ?? [...DEFAULT_HUMAN_FOUNDER_NAMES];
+    const humanSeedSettlements = options.profile === ISKORKA_PROFILE
+      ? drawThreeHumanFoundingSettlements(rng).slice(0, 1)
+      : useThreeHumanSeeds
       ? drawThreeHumanFoundingSettlements(rng)
       : [{ id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
     const foundingLayout = humanSeedSettlements[0].layout;
@@ -4841,6 +4848,7 @@ export class WorldEngine {
 
     const state: WorldState = {
       id: options.worldId,
+      ...(options.profile ? { profile: options.profile } : {}),
       epoch: 1,
       epochStartedAt: now,
       now,
@@ -4897,15 +4905,17 @@ export class WorldEngine {
       wildlife: {},
       agents,
       relationships: {},
-      centuryHumpback: createCenturyHumpbackState(),
+      ...(options.profile === ISKORKA_PROFILE ? {} : { centuryHumpback: createCenturyHumpbackState() }),
       v15: createWorldV15State(
         options.worldId,
         1,
         agents,
         1,
         0,
+        options.profile === ISKORKA_PROFILE,
       ),
     };
+    initializeHumanLab(state);
     applyFounderSmithAgentSeed(state.agents, state.v15!);
     state.v16 = createWorldV16State(state, WORLD_RULES_VERSION);
     state.v18 = createWorldV18State(state, WORLD_RULES_VERSION);
@@ -5008,9 +5018,11 @@ export class WorldEngine {
       async () => {
         const priorSequence = this.state.determinism.eventSequence;
         const rng = new SeededRng(`${seed}:epoch:${nextEpoch}`);
-        const names = founderNames.map(toRussianWorldNameV18);
+        const names = isHumanLab(this.state) ? [...ISKORKA_FOUNDER_NAMES] : founderNames.map(toRussianWorldNameV18);
         const useThreeHumanSeeds = names.length >= 30;
-        const humanSeedSettlements = useThreeHumanSeeds
+        const humanSeedSettlements = isHumanLab(this.state)
+          ? drawThreeHumanFoundingSettlements(rng).slice(0, 1)
+          : useThreeHumanSeeds
           ? drawThreeHumanFoundingSettlements(rng)
           : [{ id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
         const foundingLayout = humanSeedSettlements[0].layout;
@@ -5094,13 +5106,15 @@ export class WorldEngine {
         this.state.wildlife = {};
         this.state.agents = agents;
         this.state.relationships = {};
-        this.state.centuryHumpback = createCenturyHumpbackState();
+        if (!isHumanLab(this.state)) this.state.centuryHumpback = createCenturyHumpbackState();
+        initializeHumanLab(this.state);
         this.state.v15 = createWorldV15State(
           this.state.id,
           nextEpoch,
           agents,
           1,
           0,
+          isHumanLab(this.state),
         );
         applyFounderSmithAgentSeed(this.state.agents, this.state.v15);
         this.state.v16 = createWorldV16State(
@@ -5135,7 +5149,7 @@ export class WorldEngine {
 
         this.stageEvent({
           eventId: this.nextId('world-reset'), worldId: this.state.id, kind: 'world.epoch.started', source: 'player', occurredAt: resetAt,
-          payload: { epoch: nextEpoch, founderCount: names.length, cardinalExperiencePreserved: true },
+          payload: { epoch: nextEpoch, founderCount: names.length },
         });
       },
     );
@@ -5349,7 +5363,7 @@ export class WorldEngine {
     try {
       const effectiveEnvironment = await this.effectiveEnvironment(now);
       this.advanceWildlife(effectiveEnvironment, now);
-      this.advanceMonsterFeeding(now);
+      if (!isHumanLab(this.state)) this.advanceMonsterFeeding(now);
       this.advanceAgingAndMortality(now, elapsedWorldMinutes);
       advanceEmbodiedWorldV21(this.state);
       // Dungeon ecology/discovery is a world service, not a side effect of
@@ -5387,8 +5401,8 @@ export class WorldEngine {
       this.advanceBirths(now, elapsedWorldMinutes);
       this.advanceSettlementsV18(now);
       this.advanceVoluntaryResettlement(now);
-      this.advanceSapientRaces(now);
-      this.advanceCenturyHumpback(now);
+      if (!isHumanLab(this.state)) this.advanceSapientRaces(now);
+      if (!isHumanLab(this.state)) this.advanceCenturyHumpback(now);
       this.advanceSettlementMaterialProjects(now);
       this.advanceSettlementRelationsAndConflict(now);
       advanceEmergentSocietyV21(this.state);
@@ -5434,7 +5448,7 @@ export class WorldEngine {
   private beginSecretLibraryYearV18(livingAgents: readonly AgentState[], now: number): void {
     const minute = this.state.calendar.elapsedWorldMinutes;
     const year = Math.floor(minute / WORLD_MINUTES_PER_YEAR) + 1;
-    if (ensureElfLibraryV20(this.state)) {
+    if (!isHumanLab(this.state) && ensureElfLibraryV20(this.state)) {
       repairCompactSettlementLayout(this.state);
       this.routePathCache?.clear();
       invalidateResidentNavigation(this.state);
@@ -7142,7 +7156,8 @@ export class WorldEngine {
         const livelihood = ensureLivelihoodV18(this.state, agent);
         // mentorIds names resident entities; Genesis is recorded by the lesson receipt.
         if (teacher && instructorId && !livelihood.mentorIds.includes(instructorId)) {
-          livelihood.mentorIds = [...livelihood.mentorIds, instructorId].slice(-32);
+          // Use the same finite bound as ordinary practice and save normalization.
+          livelihood.mentorIds = [...livelihood.mentorIds, instructorId].slice(-12);
         }
       }
     }
@@ -13106,7 +13121,7 @@ export class WorldEngine {
           },
         ]
       : [];
-    if (stage >= 5 && (stage - 5) % 3 === 0) {
+    if (!isHumanLab(this.state) && stage >= 5 && (stage - 5) % 3 === 0) {
       const monsterByBiome: Partial<Record<WorldBiome, WildlifeSpecies>> = {
         forest: 'dire_wolf',
         mountains: 'dire_wolf',

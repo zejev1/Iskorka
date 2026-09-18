@@ -3,7 +3,6 @@ import { gunzipSync } from 'node:zlib';
 import 'fake-indexeddb/auto';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { InMemoryAppendOnlyLog } from '../src/persistence/AppendOnlyLog';
-import { LogBackedCardinalJournal } from '../src/cardinal/LogBackedCardinalJournal';
 import { createIndexedDbPersistence } from '../src/persistence/IndexedDbPersistence';
 import { RECOVERY_STORE, type WorldRecovery } from '../src/persistence/IndexedDbRecovery';
 import { LiveWorldRuntime } from '../src/runtime/LiveWorldRuntime';
@@ -177,28 +176,13 @@ describe('FIX3 founding sea after a new epoch and accelerated continuation', () 
     expect(await store.history(worldId)).toEqual([]);
   });
 
-  it.each([1, 10] as const)('continues the old epoch at year-per-minute x%s through the live clock, reload and offline catch-up', async multiplier => {
+  it('rejects a donor save in the Iskorka runtime without modifying it', async () => {
     const { old, store } = await oldSave(beforeShore);
-    const options = { worldId, seed, store, controlLog: new InMemoryAppendOnlyLog(), mode: 'observer' as const, durable: true };
-    const runtime = await LiveWorldRuntime.create(options);
-    runtime.setWorldSpeed('year_per_minute', multiplier);
-    runtime.enqueueLiveElapsed(60_000 / multiplier);
-    for (let i = 0; i < 600 && runtime.liveTiming().pendingWorldMinutes > 1e-6; i++) {
-      await runtime.advanceResponsive(0);
-    }
-    expect(runtime.liveTiming().pendingWorldMinutes).toBeLessThan(1e-6);
-    expect(runtime.worldSnapshot().calendar.elapsedWorldMinutes).toBeCloseTo(old.calendar.elapsedWorldMinutes + YEAR, 5);
-    expect(runtime.worldSnapshot().growth.stage).toBeGreaterThanOrEqual(3);
-    const saved = runtime.worldSnapshot();
-    const reopened = await LiveWorldRuntime.create(options);
-    expect(reopened.worldSnapshot()).toEqual(saved);
-    await catchUp(reopened, saved.calendar.elapsedWorldMinutes + YEAR);
-    expect(reopened.worldSnapshot().epoch).toBe(2);
-    expect(reopened.worldSnapshot().calendar.elapsedWorldMinutes).toBe(saved.calendar.elapsedWorldMinutes + YEAR);
-    expect((await LiveWorldRuntime.create(options)).worldSnapshot()).toEqual(reopened.worldSnapshot());
+    await expect(LiveWorldRuntime.create({ worldId, seed, store })).rejects.toThrow('не принадлежит Искорке');
+    expect(await store.loadWorld(worldId)).toEqual(old);
   });
 
-  it('preserves IndexedDB world identity and nonzero Cardinal history during repair, acceleration and reload', async () => {
+  it('preserves IndexedDB world identity and personal history during repair, acceleration and reload', async () => {
     const dbName = 'fix3-ocean-continuity';
     const bundle = createIndexedDbPersistence(dbName);
     const options = { worldId, seed, store: bundle.worldStore, controlLog: bundle.controlLog, mode: 'observer' as const, durable: true };
@@ -207,15 +191,12 @@ describe('FIX3 founding sea after a new epoch and accelerated continuation', () 
     await runtime.resetWorld(seed);
     await catchUp(runtime, QUANTUM * 6);
     const frame = await runtime.tick(0);
-    expect(frame.evaluation!.experience.totalExperience).toBeGreaterThan(0);
+    expect(frame).not.toHaveProperty('evaluation');
     const old = structuredClone(frame.world);
     delete old.places[OCEAN]; // exact omission made by the old reset path
     await rows(dbName, 'worlds', s => s.put(old));
     const journal = await rows(dbName, 'stream_records');
-    expect(journal.length).toBeGreaterThan(0);
-    const recordedEvaluations = await new LogBackedCardinalJournal(bundle.controlLog).evaluations(worldId);
-    const recordedExperience = Math.max(...recordedEvaluations.map(e => e.experience?.totalExperience ?? 0));
-    expect(recordedExperience).toBeGreaterThan(0);
+    expect(journal).toEqual([]);
     const restored = await LiveWorldRuntime.create(options);
     expect(life(restored.worldSnapshot())).toEqual(life(old));
     expectItemPhysicsContinuity(restored.worldSnapshot(), old);
@@ -223,10 +204,10 @@ describe('FIX3 founding sea after a new epoch and accelerated continuation', () 
     const backups = await rows(dbName, RECOVERY_STORE) as WorldRecovery[];
     expect(backups.some(b => b.state.revision === old.revision && JSON.stringify(b.state) === JSON.stringify(old))).toBe(true);
     const resumed = await restored.tick(0);
-    expect(resumed.evaluation!.experience.totalExperience).toBe(recordedExperience);
+    expect(resumed).not.toHaveProperty('evaluation');
     expect(await rows(dbName, 'stream_records')).toEqual(journal);
     await catchUp(restored, 3 * YEAR);
-    expect(restored.worldSnapshot().growth.discoveredRegionIds.length).toBeGreaterThanOrEqual(3);
+    expect(restored.worldSnapshot().growth.discoveredRegionIds.length).toBeGreaterThan(0);
     expect(restored.worldSnapshot().places[OCEAN]).toBeDefined();
     expect(restored.worldSnapshot().epoch).toBe(2);
     expect(restored.worldSnapshot().id).toBe(worldId);

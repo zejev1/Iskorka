@@ -1,3 +1,4 @@
+import { isHumanLab } from '../world/HumanLabProfile';
 import {
   ensureSettlementEconomyV16,
   ensureSettlementRelationV16,
@@ -233,6 +234,8 @@ function syncIntoState(
   for (const settlement of Object.values(world.settlements)) {
     state.settlementMarketsById[settlement.id] ??= emptyMarket(settlement.id);
   }
+  // Physical settlement inventories and barter remain active; no dungeon economy is scheduled.
+  if (isHumanLab(world)) return;
   for (const dungeon of Object.values(state.dungeonsById)) {
     renewDungeon(dungeon, world.calendar.elapsedWorldMinutes);
   }
@@ -425,6 +428,7 @@ export function isAdventureCandidateV19(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
 ): boolean {
+  if (isHumanLab(world)) return false;
   if (
     !['human', 'elf', 'dwarf'].includes(agent.race ?? 'human') ||
     !agent.life.alive ||

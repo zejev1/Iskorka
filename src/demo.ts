@@ -1,57 +1,6 @@
-import {
-  runExperiment,
-} from './experiment/ExperimentRunner';
-
-const seed =
-  'ainkrad-demo-seed';
-
-const ticks =
-  30;
-
-const off =
-  await runExperiment(
-    'off',
-    seed,
-    ticks,
-  );
-
-const observer =
-  await runExperiment(
-    'observer',
-    seed,
-    ticks,
-  );
-
-const intervene =
-  await runExperiment(
-    'intervene',
-    seed,
-    ticks,
-  );
-
-console.log(
-  JSON.stringify(
-    {
-      off: {
-        evaluations:
-          off.evaluationCount,
-        interventions:
-          off.interventionCount,
-      },
-      observer: {
-        evaluations:
-          observer.evaluationCount,
-        interventions:
-          observer.interventionCount,
-      },
-      intervene: {
-        evaluations:
-          intervene.evaluationCount,
-        interventions:
-          intervene.interventionCount,
-      },
-    },
-    null,
-    2,
-  ),
-);
+import { LiveWorldRuntime } from './runtime/LiveWorldRuntime';
+import { WORLD_MINUTES_PER_YEAR } from './world/WorldClock';
+const world = await LiveWorldRuntime.create({ seed: 'iskorka-demo' });
+while (!(await world.catchUpBatchTo(WORLD_MINUTES_PER_YEAR)).completed) { /* no semantic steps skipped */ }
+const state = world.worldSnapshot();
+console.log(JSON.stringify({ profile: state.profile, years: state.calendar.elapsedWorldMinutes / WORLD_MINUTES_PER_YEAR, settlements: Object.values(state.settlements).map(s => s.name), population: state.population, people: Object.values(state.agents).map(a => ({ name: a.name, alive: a.life.alive })) }, null, 2));

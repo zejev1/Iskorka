@@ -1,4 +1,4 @@
-export interface CardinalMetrics {
+export interface WorldMetrics {
   livingPopulation: number;
   sapientPopulation: number;
   raceDiversity: number;
@@ -56,7 +56,7 @@ export interface SensorSnapshot {
   observedAt: number;
   /** Canonical Ainkrad time used by every semantic window. */
   observedWorldMinutes: number;
-  metrics: CardinalMetrics;
+  metrics: WorldMetrics;
   evidenceEventIds: string[];
   limitations: string[];
 }

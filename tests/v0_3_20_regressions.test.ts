@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WorldEngine } from '../src/world/WorldEngine';
 import { InMemoryWorldStore } from '../src/world/InMemoryWorldStore';
-import { InMemoryAppendOnlyLog } from '../src/persistence/AppendOnlyLog';
 import { LiveWorldRuntime } from '../src/runtime/LiveWorldRuntime';
 import { WORLD_MINUTES_PER_YEAR, WORLD_SPEED_PRESETS } from '../src/world/WorldClock';
 import { applyDivineActionV19, recordContextualPrayerV19 } from '../src/v19/DivineAgencyV19';
@@ -113,16 +112,15 @@ describe('v0.3.20 lived knowledge, gifts and continuity', () => {
     }
   });
 
-  it('retains displayed Cardinal experience on reload without an extra world tick', async () => {
-    const options = { worldId: 'v20-cardinal-reopen', seed: 'ainkrad-browser-world', store: new InMemoryWorldStore(), controlLog: new InMemoryAppendOnlyLog(), mode: 'intervene' as const };
+  it('retains the physical world on reload without a controller or extra tick', async () => {
+    const options = { worldId: 'iskorka-v20-reopen', seed: 'ainkrad-browser-world', store: new InMemoryWorldStore() };
     const runtime = await LiveWorldRuntime.create(options);
     let frame = await runtime.tick(); for (let i=0;i<5;i++) frame = await runtime.tick();
-    const experience = frame.evaluation!.experience.totalExperience;
-    expect(experience).toBeGreaterThan(0); expect(frame.executedInterventionCount).toBe(0);
+    expect(frame).not.toHaveProperty('evaluation');
     const reopened = await LiveWorldRuntime.create(options);
     const resumed = await reopened.tick(0);
-    expect(resumed.evaluation!.experience.totalExperience).toBeGreaterThanOrEqual(experience);
-    expect(resumed.world.calendar).toEqual(frame.world.calendar);
+    expect(resumed.world).toEqual(frame.world);
+    expect(resumed).not.toHaveProperty('cardinalActivity');
     expect(WORLD_SPEED_PRESETS.some(p => p.id === 'century_per_minute')).toBe(false);
     expect(WORLD_SPEED_PRESETS.some(p => p.id === 'fifty_years_per_minute')).toBe(false);
     expect(WORLD_SPEED_PRESETS.find(p => p.id === 'decade_per_minute')!.worldMinutesPerRealMinute).toBe(10 * WORLD_MINUTES_PER_YEAR);

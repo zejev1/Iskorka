@@ -18,11 +18,9 @@ if (!Number.isFinite(requestedYears) || requestedYears <= 0) {
 const worldStore = new InMemoryWorldStore();
 const controlLog = new InMemoryAppendOnlyLog();
 const runtime = await LiveWorldRuntime.create({
-  mode,
   seed: requestedSeed,
   worldId: `v18-offline-benchmark-${requestedSeed}`,
   store: worldStore,
-  controlLog,
   durable: false,
 });
 const start = performance.now();
@@ -277,8 +275,7 @@ console.log(
   JSON.stringify({
     completed: true,
     requestedYears,
-    mode,
-    elapsedSeconds: Number(((performance.now() - start) / 1_000).toFixed(3)),
+      elapsedSeconds: Number(((performance.now() - start) / 1_000).toFixed(3)),
     living: world.living,
     births: world.births,
     deaths: world.deaths,

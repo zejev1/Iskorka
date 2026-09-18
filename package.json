@@ -1,8 +1,8 @@
 {
-  "name": "ainkrad-v0-3",
-  "version": "0.3.22-f2",
+  "name": "iskorka",
+  "version": "0.1.0",
   "private": true,
-  "description": "Experimental autonomous world for developing and testing Cardinal.",
+  "description": "Искорка: автономный физический мир и человеческий полигон без Cardinal.",
   "type": "module",
   "scripts": {
     "dev": "vite",

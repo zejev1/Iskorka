@@ -25,44 +25,19 @@ describe('SPCK browser UI smoke contract', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(template).toContain('<span>Возраст <strong id="tick-value">');
     expect(template).not.toMatch(/>\s*Тик\s*</);
-    expect(template).toContain('data-console-tab="diagnostics"');
-    expect(template).toContain('id="catch-up-overlay"');
-    expect(template).toContain('id="text-scale"');
-    expect(template).toContain('id="resident-picker"');
-    expect(template).toContain('id="resident-search"');
-    expect(template).toContain('id="resident-profession"');
-    expect(template).toContain('id="resident-adventure"');
-    expect(template).toContain('id="dungeon-count"');
-    expect(template).toContain('id="trade-volume"');
-    expect(template).toContain('id="satiety-value"');
-    expect(template).toContain('id="conversation-feed"');
-    expect(template).toContain('id="prayer-inbox-open"');
-    expect(template).toContain('id="prayer-inbox-list"');
-    expect(template).toContain('id="prayer-filter-settlement"');
-    expect(template).toContain('id="divine-contact-kind"');
-    expect(template).toContain('id="divine-burden"');
-    expect(template).toContain('id="divine-lineage-curse"');
-    expect(template).not.toContain('id="divine-calling"');
-    expect(browserSource).toContain('readableLawReports');
-    expect(browserSource).toContain('readableInterventionReports');
-    expect(browserSource).toContain('deathDiagnostics');
-    expect(browserSource).toContain('worldHealth');
+    for (const id of ['catch-up-overlay', 'text-scale', 'resident-picker', 'resident-search', 'resident-profession', 'satiety-value', 'conversation-feed', 'world-message']) {
+      expect(template).toContain(`id="${id}"`);
+    }
+    for (const id of ['cardinal-console', 'resident-adventure', 'dungeon-count', 'divine-contact-kind', 'prayer-inbox-open']) {
+      expect(template).not.toContain(`id="${id}"`);
+    }
     expect(browserSource).toContain("document.addEventListener('visibilitychange'");
     expect(browserSource).toContain('resumeOfflineClockFromStoredAnchor');
     expect(browserSource).toContain("event.data.type === 'catch_up_progress'");
     expect(browserSource).toContain("event.data.type === 'catch_up_recovery'");
     expect(browserSource).toContain('conversation.observerAudible');
-    expect(browserSource).toContain('prayer.generatedPrayerText');
-    expect(browserSource).toContain('relatedPrayerId: activePrayerId');
-    expect(browserSource).toContain(
-      'cardinalActivity.authorizationDecisionCount > 0',
-    );
-    expect(browserSource).toContain(
-      'подробная запись уже вне короткой ленты',
-    );
     expect(css).toContain('.resident-avatar.is-moving');
     expect(css).toContain('.resident-avatar.is-ambient');
-    expect(css).toContain('.cardinal-console__tabs');
     expect(css).toContain('minmax(138px, 1fr)');
     expect(css).toContain('.map-place:not(.map-place--home)');
     expect(css).toContain('.map-place:not(.is-active) .place-count');

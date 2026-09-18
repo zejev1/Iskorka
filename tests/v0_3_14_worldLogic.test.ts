@@ -1,7 +1,5 @@
+import { ISKORKA_PROFILE } from '../src/world/HumanLabProfile';
 import { describe, expect, it } from 'vitest';
-import { CardinalCore } from '../src/cardinal/CardinalCore';
-import { deriveCardinalExperienceFromCounters } from '../src/cardinal/CardinalExperience';
-import { CardinalWorldArchitect, IndependentWorldAuthorityGateway, observeWorldArchitecture } from '../src/cardinal/WorldAuthorityGateway';
 import { InMemoryAppendOnlyLog } from '../src/persistence/AppendOnlyLog';
 import { LiveWorldRuntime } from '../src/runtime/LiveWorldRuntime';
 import { WorldSensors } from '../src/sensors/WorldSensors';
@@ -23,12 +21,12 @@ describe('v0.3.14 Underworld-style substrate audit', () => {
     const humans = Object.values(frame.world.agents).filter(
       (agent) => agent.life.alive && (agent.race ?? 'human') === 'human',
     );
-    expect(humans).toHaveLength(30);
-    expect(humans.filter((agent) => agent.sex === 'male')).toHaveLength(15);
-    expect(humans.filter((agent) => agent.sex === 'female')).toHaveLength(15);
+    expect(humans).toHaveLength(10);
+    expect(humans.filter((agent) => agent.sex === 'male')).toHaveLength(5);
+    expect(humans.filter((agent) => agent.sex === 'female')).toHaveLength(5);
     expect(humans.every((agent) => agent.life.generation === 0)).toBe(true);
-    expect(new Set(humans.map((agent) => frame.world.places[agent.homeId]?.settlementId))).toEqual(new Set(['settlement_ainkrad','settlement_rulid','settlement_zakkaria']));
-    for (const settlementId of ['settlement_ainkrad','settlement_rulid','settlement_zakkaria']) {
+    expect(new Set(humans.map((agent) => frame.world.places[agent.homeId]?.settlementId))).toEqual(new Set(['settlement_ainkrad']));
+    for (const settlementId of ['settlement_ainkrad']) {
       expect(humans.filter((agent) => frame.world.places[agent.homeId]?.settlementId === settlementId)).toHaveLength(10);
     }
 
@@ -47,7 +45,7 @@ describe('v0.3.14 Underworld-style substrate audit', () => {
 
   it('migrates a critically small existing world without a hidden population rescue cohort', async () => {
     const sourceStore = new InMemoryWorldStore();
-    const source = await WorldEngine.create({ worldId: 'v14-recovery', seed: 'v14-recovery', store: sourceStore });
+    const source = await WorldEngine.create({ worldId: 'v14-recovery', seed: 'v14-recovery', store: sourceStore, profile: ISKORKA_PROFILE });
     const damaged = source.snapshot();
     const agents = Object.values(damaged.agents);
     const survivorIds = agents.slice(0, 2).map((agent) => agent.id);
@@ -113,90 +111,25 @@ describe('v0.3.14 Underworld-style substrate audit', () => {
     }
   }, 30_000);
 
-  it('treats two humans as a critical civilization even without monster pressure', async () => {
-    const sourceStore = new InMemoryWorldStore();
-    const source = await WorldEngine.create({ worldId: 'v14-cardinal-lowpop', seed: 'v14-cardinal-lowpop', store: sourceStore });
-    const damaged = source.snapshot();
-    Object.values(damaged.agents).slice(2).forEach((agent) => { agent.life.alive = false; agent.life.health = 0; });
-    const store = new InMemoryWorldStore();
-    await store.initializeWorld(damaged);
-    const observation = await new WorldSensors(store).observe(damaged, damaged.now);
-    expect(observation.metrics.livingPopulation).toBe(2);
-    expect(observation.metrics.monsterPressure).toBe(0);
-    const evaluation = new CardinalCore().evaluate('intervene', observation);
-    expect(evaluation.detectedProblem?.kind).toBe('civilization_collapse');
-    expect(evaluation.decision).toBe('propose');
-  });
-
-  it('prioritizes emergency fertility and does not make critical survival wait for Cardinal level/cooldown', async () => {
-    const store = new InMemoryWorldStore();
-    const world = await WorldEngine.create({ worldId: 'v14-architect', seed: 'v14-architect', store });
-    const raw = world.snapshot();
-    Object.values(raw.agents).slice(2).forEach((agent) => { agent.life.alive = false; agent.life.health = 0; agent.life.diedAt = raw.now; agent.life.deathCause = 'deprivation'; });
-    raw.population.deaths = 4;
-    raw.population.lastDeathAt = raw.now;
-    raw.now = 240;
-    raw.growth.lastExpansionAt = 0;
-    const experience = deriveCardinalExperienceFromCounters({ observationCycles: 1, ecologyObservationCycles: 0, evaluatedOutcomes: 0, successfulPredictions: 0 });
-    expect(experience.capabilities).not.toContain('world_rule_design');
-    const proposal = new CardinalWorldArchitect().consider(
-      observeWorldArchitecture(raw),
-      experience,
-      [],
-    );
-    expect(proposal?.lawId).toBe('fertility_support');
-    expect(proposal?.mechanism).toBe('fertility_support');
-    expect(proposal?.necessity).toBeGreaterThanOrEqual(0.95);
-
-    // The independent gateway still checks the actual world, original law bounds
-    // and proposal shape, but critical demography bypasses normal learning/cooldown wait.
-    const damaged = world.snapshot();
-    Object.values(damaged.agents).slice(2).forEach((agent) => { agent.life.alive = false; agent.life.health = 0; agent.life.diedAt = damaged.now; agent.life.deathCause = 'deprivation'; });
-    damaged.population.deaths = 4;
-    damaged.population.lastDeathAt = damaged.now;
-    damaged.governance.lastCardinalAuthorityAt = damaged.now;
-    const damagedStore = new InMemoryWorldStore();
-    await damagedStore.initializeWorld(damaged);
-    const damagedWorld = await WorldEngine.open({ worldId: damaged.id, store: damagedStore });
-    const expected = damagedWorld.snapshot();
-    const gateway = new IndependentWorldAuthorityGateway(damagedWorld, 48);
-    const record = await gateway.execute(
-      {
-        ...proposal!,
-        worldId: expected.id,
-        proposedAt: expected.now,
-        proposedWorldMinutes: expected.calendar.elapsedWorldMinutes,
-        evidenceEventIds: [],
-      },
-      expected,
-      experience,
-    );
-    expect(record.authorized).toBe(true);
-    expect(damagedWorld.snapshot().governance.laws.fertility_support.value).toBeGreaterThan(0.55);
-  });
-
-  it('starts a new epoch with thirty founders in three settlements while Cardinal retains all-time experience', async () => {
+  it('starts a new epoch with ten founders in one settlement without carrying over personal relations', async () => {
     const store = new InMemoryWorldStore();
     const controlLog = new InMemoryAppendOnlyLog();
     const runtime = await LiveWorldRuntime.create({ mode: 'observer', seed: 'v14-reset', worldId: 'v14-reset', store, controlLog });
     let before = await runtime.tick();
     before = await runtime.tick();
     before = await runtime.tick();
-    const beforeConsole = await runtime.cardinalConsole();
-    const beforeExperience = beforeConsole.evaluations.at(-1)?.experience.observationCycles ?? 0;
+
     const oldIds = new Set(Object.keys(before.world.agents));
 
     const reset = await runtime.resetWorld('v14-reset-new');
     expect(reset.epoch).toBe(2);
     expect(reset.calendar.elapsedWorldMinutes).toBe(0);
-    expect(humanCount(reset)).toBe(30);
-    expect(Object.keys(reset.wildlife)).toHaveLength(0);
+    expect(humanCount(reset)).toBe(10);
+    expect(Object.values(reset.wildlife).every(p => !p.isMonster)).toBe(true);
+    expect(Object.keys(reset.wildlife).length).toBeGreaterThan(0);
     expect(Object.keys(reset.relationships)).toHaveLength(0);
     expect(Object.keys(reset.agents).some((id) => oldIds.has(id))).toBe(false);
 
     await runtime.tick();
-    const afterConsole = await runtime.cardinalConsole();
-    const afterExperience = afterConsole.evaluations.at(-1)?.experience.observationCycles ?? 0;
-    expect(afterExperience).toBeGreaterThan(beforeExperience);
   });
 });

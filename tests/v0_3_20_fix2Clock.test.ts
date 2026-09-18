@@ -30,7 +30,6 @@ describe('FIX2 elapsed time and bounded live work', () => {
     while (runtime.liveTiming().pendingWorldMinutes > 1e-7) await runtime.advanceResponsive(0, false);
     const actual = await runtime.tick(0), expected = await control.tick(WORLD_MINUTES_PER_YEAR);
     expect(actual.world).toEqual(expected.world);
-    expect((await runtime.cardinalConsole()).evaluations).toEqual((await control.cardinalConsole()).evaluations);
     expect(actual.world.calendar.elapsedWorldMinutes).toBe(WORLD_MINUTES_PER_YEAR);
     // Public snapshots must remain isolated after eliminating internal clones.
     actual.world.agents.agent_1.name = 'caller mutation';

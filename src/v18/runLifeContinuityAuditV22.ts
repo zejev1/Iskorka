@@ -11,8 +11,8 @@ if (!checkpoints.length || checkpoints.some((y, i) => !Number.isFinite(y) || y <
   throw new Error('Checkpoint years must be positive, finite, and strictly increasing.');
 }
 const runtime = await LiveWorldRuntime.create({
-  mode: 'off', seed, worldId: `v18-offline-benchmark-${seed}`,
-  store: new InMemoryWorldStore(), controlLog: new InMemoryAppendOnlyLog(), durable: false,
+  seed, worldId: `v18-offline-benchmark-${seed}`,
+  store: new InMemoryWorldStore(), durable: false,
 });
 const start = performance.now();
 let currentWorldMinutes = 0;
