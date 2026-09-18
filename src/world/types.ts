@@ -1126,6 +1126,8 @@ export interface WorldV21State {
 }
 
 export interface WorldState {
+  /** Explicit persisted policy, absent in the unchanged donor. */
+  profile?: 'iskorka-human-lab-v1';
   cartography?: import('./ResidentCartography').WorldCartography;
   terrain?: TerrainFoundation;
   oceanExploration?: import('./geography/OceanExploration').OceanExplorationState;

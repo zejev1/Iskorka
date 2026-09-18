@@ -3,31 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ainkrad v0.3</title>
+  <meta name="theme-color" content="#132921" />
+  <meta name="description" content="Искорка — независимый физический мир. Первый этап: Основание и десять человеческих Искр." />
+  <link rel="icon" href="data:," />
+  <title>Искорка · Основание</title>
 </head>
 <body>
-  <div id="app">Запуск Ainkrad...</div>
-
-  <script>
-    // Read-only worker-frame bridge for presentation extensions. It does not
-    // alter messages, world state, simulation cadence or resident decisions.
-    (() => {
-      const NativeWorker = window.Worker;
-      window.Worker = class AinkradObservedWorker extends NativeWorker {
-        constructor(url, options) {
-          super(url, options);
-          this.addEventListener('message', (event) => {
-            if (event.data?.type !== 'frame' || !event.data.frame) return;
-            window.__ainkradLatestFrame = event.data.frame;
-            window.dispatchEvent(new CustomEvent('ainkrad:live-world-frame', {
-              detail: event.data.frame,
-            }));
-          });
-        }
-      };
-    })();
-  </script>
-  <script type="module" src="/src/browser.ts"></script>
-  <script type="module" src="/src/presentation/WorldLevelDisplay.ts"></script>
+  <div id="app">Запуск Искорки…</div>
+  <script type="module" src="/src/iskorka/browser.ts"></script>
 </body>
 </html>

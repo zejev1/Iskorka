@@ -850,3 +850,9 @@ export function createIndexedDbPersistence(
     controlLog: new IndexedDbAppendOnlyLog(database),
   };
 }
+
+/** Physics-only persistence. Does not instantiate a control log or an observer. */
+export function createIndexedDbWorldStore(databaseName: string): IndexedDbWorldStore {
+  if (!databaseName.trim()) throw new Error('World database name must not be empty.');
+  return new IndexedDbWorldStore(openDatabase(databaseName));
+}

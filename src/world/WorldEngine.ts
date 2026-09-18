@@ -1,3 +1,4 @@
+import { ISKORKA_PROFILE, ISKORKA_FOUNDERS, isIskorka, finishIskorkaBootstrap, assertIskorkaProfile } from './WorldProfile';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -1906,7 +1907,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
       throw new Error('World v15.version must be v15.');
     }
 
-    if (!Array.isArray(v15.genesisTeachers) || v15.genesisTeachers.length !== 4) {
+    if (!Array.isArray(v15.genesisTeachers) || v15.genesisTeachers.length !== (isIskorka(state) ? 0 : 4)) {
       throw new Error('World v15 must contain exactly four Genesis teachers.');
     }
     const genesisDomains = new Set<string>();
@@ -1949,7 +1950,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
         throw new Error('Genesis teachingHistoryIds must contain strings.');
       }
     }
-    if (genesisDomains.size !== 4) {
+    if (genesisDomains.size !== (isIskorka(state) ? 0 : 4)) {
       throw new Error('Genesis teachers must cover four distinct domains.');
     }
 
@@ -3386,6 +3387,7 @@ function rebuildSettlementProjection(
 ): Record<string, WorldSettlementState> {
   const main = mainSettlement(places, foundedAt);
   const priorMain = prior[main.id];
+  if (priorMain?.name) main.name = priorMain.name;
   if (priorMain?.layoutVersion === 3) {
     main.layoutVersion = 3; main.layoutSignature = priorMain.layoutSignature; main.radius = priorMain.radius; main.boundaryPolygon = priorMain.boundaryPolygon;
   }
@@ -3518,6 +3520,7 @@ function createWorldV15State(
   agents: Readonly<Record<string, AgentState>>,
   resourcePool: number,
   elapsedWorldMinutes: number,
+  humanLab = false,
 ): WorldV15State {
   const knowledgeByAgentId: WorldV15State['knowledgeByAgentId'] = {};
   const familyAgencyByAgentId: WorldV15State['familyAgencyByAgentId'] = {};
@@ -3536,7 +3539,7 @@ function createWorldV15State(
   }
 
   let founderSmithAgentId: string | undefined;
-  if (livingFounders.length > 0) {
+  if (!humanLab && livingFounders.length > 0) {
     const smith = [...livingFounders].sort((a, b) => {
       const scoreA = a.skills.craft * 0.5 + a.personality.diligence * 0.28 + a.personality.curiosity * 0.22;
       const scoreB = b.skills.craft * 0.5 + b.personality.diligence * 0.28 + b.personality.curiosity * 0.22;
@@ -3559,7 +3562,7 @@ function createWorldV15State(
 
   return {
     version: 'v15',
-    genesisTeachers: createGenesisTeachers(`${worldId}:epoch:${epoch}`, 0),
+    genesisTeachers: humanLab ? [] : createGenesisTeachers(`${worldId}:epoch:${epoch}`, 0),
     knowledgeByAgentId,
     familyAgencyByAgentId,
     smithingByAgentId,
@@ -4613,6 +4616,7 @@ function goalFromInitialState(agent: Omit<AgentState, 'goal'>, now: number): Age
 }
 
 export interface WorldEngineOptions {
+  profile?: typeof ISKORKA_PROFILE;
   worldId: string;
   seed: string;
   store: WorldStore;
@@ -4671,6 +4675,7 @@ export class WorldEngine {
     state: WorldState,
   ) {
     assertWorldState(state);
+    assertIskorkaProfile(state);
     this.committedState = structuredClone(state);
     bindWorldTerrain(this.committedState);
     this.rng = new SeededRng('restored-world', state.determinism.rngState);
@@ -4691,11 +4696,15 @@ export class WorldEngine {
     }
 
     const rng = new SeededRng(options.seed);
-    const useThreeHumanSeeds = options.agentNames === undefined || (options.agentNames?.length ?? 0) >= 30;
+    const humanLab = options.profile === ISKORKA_PROFILE;
+    if (humanLab && options.agentNames && options.agentNames.length !== 10) throw new Error('Iskorka requires exactly ten founders.');
+    const useThreeHumanSeeds = !humanLab && (options.agentNames === undefined || (options.agentNames?.length ?? 0) >= 30);
     const names = options.agentNames?.map(toRussianWorldNameV18) ??
-      [...DEFAULT_HUMAN_FOUNDER_NAMES];
-    const humanSeedSettlements = useThreeHumanSeeds
-      ? drawThreeHumanFoundingSettlements(rng)
+      [...(humanLab ? ISKORKA_FOUNDERS : DEFAULT_HUMAN_FOUNDER_NAMES)];
+    // Draw the original F2 placement. Do not relocate its first settlement.
+    const humanSeedSettlements = humanLab
+      ? drawThreeHumanFoundingSettlements(rng).slice(0, 1)
+      : useThreeHumanSeeds ? drawThreeHumanFoundingSettlements(rng)
       : [{ id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
     const foundingLayout = humanSeedSettlements[0].layout;
     const initialPlace = (id: string, kind: WorldPlaceKind, homeIndex = 0) =>
@@ -4840,6 +4849,7 @@ export class WorldEngine {
     const routes = rebuildWorldRoutes(places);
 
     const state: WorldState = {
+      ...(humanLab ? { profile: ISKORKA_PROFILE } : {}),
       id: options.worldId,
       epoch: 1,
       epochStartedAt: now,
@@ -4897,13 +4907,14 @@ export class WorldEngine {
       wildlife: {},
       agents,
       relationships: {},
-      centuryHumpback: createCenturyHumpbackState(),
+      ...(humanLab ? {} : { centuryHumpback: createCenturyHumpbackState() }),
       v15: createWorldV15State(
         options.worldId,
         1,
         agents,
         1,
         0,
+        humanLab,
       ),
     };
     applyFounderSmithAgentSeed(state.agents, state.v15!);
@@ -4928,8 +4939,10 @@ export class WorldEngine {
     }
     reconcileLibraryAdmissions(state, state.calendar.elapsedWorldMinutes, true);
 
+    finishIskorkaBootstrap(state);
     for (const resident of Object.values(state.agents)) observeLocalPlacesV20(state, resident);
     assertWorldState(state);
+    assertIskorkaProfile(state);
     await options.store.initializeWorld(state);
     return new WorldEngine(options.store, state);
   }
@@ -4961,7 +4974,9 @@ export class WorldEngine {
         `World ${options.worldId} uses rules ${state.rulesVersion}; runtime expects ${WORLD_RULES_VERSION}. Explicit migration is required.`,
       );
     }
-    state = await repairCompatibleV19World(options.store, state);
+    // A current Iskorka checkpoint is already canonical. Donor repair must not
+    // re-create excluded subsystems or alter the saved trajectory on every load.
+    if (!isIskorka(state)) state = await repairCompatibleV19World(options.store, state);
     assertWorldState(state);
     return new WorldEngine(options.store, state);
   }
@@ -5008,9 +5023,11 @@ export class WorldEngine {
       async () => {
         const priorSequence = this.state.determinism.eventSequence;
         const rng = new SeededRng(`${seed}:epoch:${nextEpoch}`);
+        const humanLab = isIskorka(this.state);
+        if (humanLab && founderNames.length !== 10) throw new Error('Iskorka requires exactly ten founders.');
         const names = founderNames.map(toRussianWorldNameV18);
-        const useThreeHumanSeeds = names.length >= 30;
-        const humanSeedSettlements = useThreeHumanSeeds
+        const useThreeHumanSeeds = !humanLab && names.length >= 30;
+        const humanSeedSettlements = humanLab ? drawThreeHumanFoundingSettlements(rng).slice(0, 1) : useThreeHumanSeeds
           ? drawThreeHumanFoundingSettlements(rng)
           : [{ id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
         const foundingLayout = humanSeedSettlements[0].layout;
@@ -5094,13 +5111,15 @@ export class WorldEngine {
         this.state.wildlife = {};
         this.state.agents = agents;
         this.state.relationships = {};
-        this.state.centuryHumpback = createCenturyHumpbackState();
+        if (humanLab) delete this.state.centuryHumpback;
+        else this.state.centuryHumpback = createCenturyHumpbackState();
         this.state.v15 = createWorldV15State(
           this.state.id,
           nextEpoch,
           agents,
           1,
           0,
+          humanLab,
         );
         applyFounderSmithAgentSeed(this.state.agents, this.state.v15);
         this.state.v16 = createWorldV16State(
@@ -5130,12 +5149,17 @@ export class WorldEngine {
           this.state.settlements = rebuildSettlementProjection(this.state.places, this.state.settlements, resetAt);
           repairCompactSettlementLayout(this.state);
         }
+        finishIskorkaBootstrap(this.state);
+        if (humanLab) {
+          reconcileLibraryAdmissions(this.state, 0, true);
+          for (const resident of Object.values(this.state.agents)) observeLocalPlacesV20(this.state, resident);
+        }
         this.state.determinism.eventSequence = priorSequence;
         this.rng.restore(rng.snapshot());
 
         this.stageEvent({
           eventId: this.nextId('world-reset'), worldId: this.state.id, kind: 'world.epoch.started', source: 'player', occurredAt: resetAt,
-          payload: { epoch: nextEpoch, founderCount: names.length, cardinalExperiencePreserved: true },
+          payload: { epoch: nextEpoch, founderCount: names.length, ...(humanLab ? { profile: ISKORKA_PROFILE } : { cardinalExperiencePreserved: true }) },
         });
       },
     );
@@ -6618,6 +6642,7 @@ export class WorldEngine {
         this.syncDeterminismState();
         this.state.revision = before.revision + 1;
         assertWorldState(this.state);
+        assertIskorkaProfile(this.state);
 
         const result = await this.store.commit({
           operationId,
@@ -13106,7 +13131,7 @@ export class WorldEngine {
           },
         ]
       : [];
-    if (stage >= 5 && (stage - 5) % 3 === 0) {
+    if (!isIskorka(this.state) && stage >= 5 && (stage - 5) % 3 === 0) {
       const monsterByBiome: Partial<Record<WorldBiome, WildlifeSpecies>> = {
         forest: 'dire_wolf',
         mountains: 'dire_wolf',
@@ -13276,6 +13301,7 @@ export class WorldEngine {
   }
 
   private advanceMonsterFeeding(now: number): void {
+    if (isIskorka(this.state)) return;
     const scheduleTick = this.v15ScheduleTick(now);
     if (
       !Number.isInteger(scheduleTick) ||
@@ -13374,6 +13400,7 @@ export class WorldEngine {
    * other choice into a resident. Fighting is an individual voluntary act.
    */
   private advanceCenturyHumpback(now: number): void {
+    if (isIskorka(this.state)) return;
     const cycle = ensureCenturyHumpbackState(this.state);
     const worldMinutes = this.state.calendar.elapsedWorldMinutes;
     const population = cycle.populationId
@@ -15065,6 +15092,7 @@ export class WorldEngine {
   }
 
   private advanceSapientRaces(now: number): void {
+    if (isIskorka(this.state)) return;
     const scheduleTick = this.v15ScheduleTick(now);
     if (!Number.isInteger(scheduleTick) || scheduleTick < 600 || scheduleTick % 24 !== 0) return;
     const livingHumans = Object.values(this.state.agents).filter(

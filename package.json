@@ -1,18 +1,18 @@
 {
-  "name": "ainkrad-v0-3",
-  "version": "0.3.22-f2",
+  "name": "iskorka",
+  "version": "0.1.0",
   "private": true,
-  "description": "Experimental autonomous world for developing and testing Cardinal.",
+  "description": "Independent human physical world: Iskorka stage 1.",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --minWorkers=1 --maxWorkers=1 --testTimeout=60000",
-    "check": "npm run typecheck && npm run test",
-    "audit:v16-demography": "tsx src/v16/runDemographicAcceptanceV16.ts",
-    "audit:v18-offline": "tsx src/v18/runOfflineCatchUpBenchmarkV18.ts",
-    "demo": "tsx src/demo.ts"
+    "check": "npm run test:profile && npm run typecheck && npm test",
+    "test:iskorka": "vitest run tests/iskorka --minWorkers=1 --maxWorkers=1 --testTimeout=60000",
+    "test:profile": "node --test tools/bootstrap-profile.test.mjs",
+    "test:browser": "node scripts/iskorka-browser-smoke.mjs"
   },
   "engines": {
     "node": ">=22"

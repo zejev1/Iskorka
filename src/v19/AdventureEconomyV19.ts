@@ -1,3 +1,4 @@
+import { isIskorka } from '../world/WorldProfile';
 import {
   ensureSettlementEconomyV16,
   ensureSettlementRelationV16,
@@ -233,6 +234,7 @@ function syncIntoState(
   for (const settlement of Object.values(world.settlements)) {
     state.settlementMarketsById[settlement.id] ??= emptyMarket(settlement.id);
   }
+  if (isIskorka(world)) return;
   for (const dungeon of Object.values(state.dungeonsById)) {
     renewDungeon(dungeon, world.calendar.elapsedWorldMinutes);
   }
@@ -425,6 +427,7 @@ export function isAdventureCandidateV19(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
 ): boolean {
+  if (isIskorka(world)) return false;
   if (
     !['human', 'elf', 'dwarf'].includes(agent.race ?? 'human') ||
     !agent.life.alive ||
