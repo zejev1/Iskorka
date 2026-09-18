@@ -1,0 +1,29 @@
+name: Iskorka verification
+on:
+  push:
+    branches: [main, bootstrap/iskorka-human-lab, bootstrap/iskorka-stage1-spck-20260918]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iskorka-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run verify
+      - name: Keep deployment output
+        uses: actions/upload-artifact@v4
+        with:
+          name: iskorka-static-stage1
+          path: dist/
+          retention-days: 7
