@@ -34,12 +34,12 @@ jobs:
           for op in bundle['operations']:
               p = Path(op['path'])
               assert not p.is_absolute() and '..' not in p.parts and '.git' not in p.parts
+              if '.github' in p.parts:
+                  print(f'Workflow left for the separately authorized connector: {p}')
+                  continue
               before = p.read_bytes() if p.exists() else None
               digest = hashlib.sha256(before).hexdigest() if before is not None else None
-              if p.as_posix() == '.github/workflows/iskorka-import.yml' and digest != op['before']:
-                  assert before and b'0563af1dc1fea7d2abe76eb17501ef574078b4d2' in before and b'Iskorka' in before
-              else:
-                  assert digest == op['before'], f'Concurrent or mismatched input: {p}, {digest}'
+              assert digest == op['before'], f'Concurrent or mismatched input: {p}, {digest}'
               if op.get('delete'):
                   after = None
               elif 'text' in op:
@@ -81,7 +81,6 @@ jobs:
           ''' + s[end:]; p.write_text(s)
           p = Path('iskorka-origin.json'); data = json.loads(p.read_text()); data['stage'] = 'physical-world-bootstrap'; p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
           shutil.rmtree('.bootstrap-transfer')
-          Path('.github/workflows/iskorka-apply.yml').unlink()
           print(f'Applied and checked {len(staged)} source operations; controller sources removed.')
           PY
           git config user.name 'github-actions[bot]'
