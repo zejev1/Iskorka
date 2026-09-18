@@ -1,0 +1,27 @@
+{
+  "name": "iskorka",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent human physical world: Iskorka stage 1.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --minWorkers=1 --maxWorkers=1 --testTimeout=60000",
+    "check": "npm run test:profile && npm run typecheck && npm test",
+    "test:iskorka": "vitest run tests/iskorka --minWorkers=1 --maxWorkers=1 --testTimeout=60000",
+    "test:profile": "node --test tools/bootstrap-profile.test.mjs",
+    "test:browser": "node scripts/iskorka-browser-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "vite": "7.0.4",
+    "tsx": "4.19.3",
+    "typescript": "5.8.3",
+    "vitest": "3.1.1",
+    "fake-indexeddb": "6.2.2"
+  }
+}

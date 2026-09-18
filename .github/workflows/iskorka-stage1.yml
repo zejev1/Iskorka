@@ -1,0 +1,128 @@
+name: Iskorka physical stage 1
+on:
+  push:
+    branches: [bootstrap/iskorka-runtime-stage1]
+    paths-ignore: ['.github/patches/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iskorka-runtime-stage1
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'zejev1/Iskorka' && github.ref == 'refs/heads/bootstrap/iskorka-runtime-stage1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Apply exact locally tested implementation once
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f .github/patches/stage1.1.b64; then
+            python3 - <<'PY'
+          import pathlib,base64,lzma,hashlib,subprocess
+          root=pathlib.Path('.')
+          parts=[root/'.github/patches'/f'stage1.{n}.b64' for n in range(1,5)]
+          patch=lzma.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts),validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='1c24d803c9caa77dab18ab27ff470b16377adaf33d76ccbaf70d8ffb227be968', 'Patch transport integrity failed'
+          assert hashlib.sha256((root/'src/world/WorldEngine.ts').read_bytes()).hexdigest()=='1b60c2e41262cddad59b53e56af0d5fb33da01745447bf7d1eb01622c5ba5c7e', 'Donor changed: refuse overwrite'
+          path=pathlib.Path('/tmp/iskorka-stage1.patch');path.write_bytes(patch)
+          subprocess.run(['git','apply','--check',str(path)],check=True)
+          subprocess.run(['git','apply',str(path)],check=True)
+          for p in parts: p.unlink()
+          PY
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .
+            git commit -m 'feat: launch Iskorka 0.1.0 physical world without Cardinal'
+            git push origin HEAD:bootstrap/iskorka-runtime-stage1
+          fi
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:profile && npm run typecheck
+  physics:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source-sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: All donor regression and Iskorka-specific physics tests
+        run: npm test -- --shard=${{ matrix.shard }}/4 --reporter=default --reporter=json --outputFile=physics-${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iskorka-physics-${{ matrix.shard }}
+          path: physics-${{ matrix.shard }}.json
+          retention-days: 14
+  browser:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source-sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Production build and executable graph isolation gates
+        run: npm run build
+      - name: Install isolated browser test tools without changing the lockfile
+        run: npm install --no-save --package-lock=false playwright@1.55.0 && npx playwright install --with-deps chromium
+      - name: Real desktop and touch browser smoke
+        run: npm run test:browser
+      - name: Package ready-to-serve application and full source
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess,zipfile,json,os
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])
+          sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          pathlib.Path('dist/build.json').write_text(json.dumps({'project':'Iskorka','version':'0.1.0','sourceSha':sha,'donorSha':'0563af1dc1fea7d2abe76eb17501ef574078b4d2','stage':'physical-baseline'},indent=2))
+          with zipfile.ZipFile(out/'Iskorka_v0.1.0_ready.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for p in pathlib.Path('dist').rglob('*'):
+              if p.is_file(): z.write(p,p.relative_to('dist'))
+          with zipfile.ZipFile(out/'Iskorka_v0.1.0_source.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for name in subprocess.check_output(['git','ls-files'],text=True).splitlines():
+              p=pathlib.Path(name)
+              if p.is_file(): z.write(p,name)
+            for p in pathlib.Path('dist').rglob('*'):
+              if p.is_file(): z.write(p,p)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iskorka-stage1-browser-and-build
+          path: |
+            artifacts/browser/
+            dist/isolation-*.json
+            ${{ runner.temp }}/Iskorka_v0.1.0_ready.zip
+            ${{ runner.temp }}/Iskorka_v0.1.0_source.zip
+          retention-days: 14

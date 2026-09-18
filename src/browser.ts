@@ -1,0 +1,3544 @@
+import {TERRAIN_BOUNDS} from './world/geography/TerrainTypes';
+import { MapInteraction } from './presentation/MapInteraction';
+import { installWorldMapGestures } from './presentation/WorldMapGestures';
+import { installObserverChrome } from './presentation/ObserverChrome';
+import { WorldAtlasRenderer } from './presentation/WorldAtlasRenderer';
+import { atlasLevel } from './presentation/WorldAtlasIndex';
+import { physicalPlaceDrawing, applyPhysicalPlaceStyle, visibleMapLabels } from './presentation/MapPlacePresentation';
+import { WorldClockPanel } from './presentation/WorldClockPanel';
+import { worldStorageDiagnostics } from './persistence/WorldSaveSafety';
+import { createSettlementPicker } from './presentation/SettlementPicker';
+import { WorldMapCamera, MAX_VISIBLE_RESIDENTS } from './presentation/WorldMapCamera';
+import { mapDetail, mapScaleBar, mapEntityDepth } from './presentation/WorldMapVisuals';
+import { residentLearningSummary } from './presentation/ResidentLearningView';
+import { townMapFocus, residentMapFocus, settlementMapFocus } from './presentation/WorldMapFocus';
+import { createWorldMapProjection } from './presentation/WorldMapProjection';
+import { GIFT_CATALOG_V20, DIVINE_BURDEN_CATALOG_V22, EXCEPTIONAL_ABILITIES_V22, giftIsHeritableV20, giftMasteryV20 } from './v20/DivineGiftsV20';
+import './browser.css';
+import './presentation/world-map-visuals.css';
+import './presentation/world-atlas.css';
+import type {
+  AuditRecord,
+  CardinalCapability,
+  CardinalDeferReason,
+  CardinalEvaluation,
+  CardinalPredictionMetric,
+  CardinalProblemKind,
+  InterventionKind,
+  InterventionOutcomeRecord,
+  InterventionRecord,
+} from './cardinal/types';
+import type {
+  CardinalConsoleSnapshot,
+  LiveWorldFrame,
+} from './runtime/LiveWorldRuntime';
+import {
+  parseOfflineWorldClockAnchor,
+  type OfflineWorldClockAnchor,
+} from './runtime/OfflineWorldClock';
+import type { WorldEvent } from './world/events';
+import {
+  ageParts,
+  DEFAULT_WORLD_SPEED_ID,
+  DEFAULT_WORLD_SPEED_MULTIPLIER,
+  isMaximumAccelerationSpeed,
+  isWorldSpeedId,
+  isWorldSpeedMultiplier,
+  WORLD_MINUTES_PER_YEAR,
+  WORLD_SPEED_PRESETS,
+  worldCalendarAtMinutes,
+  worldSpeedPreset,
+  type WorldSpeedId,
+  type WorldSpeedMultiplier,
+} from './world/WorldClock';
+import type {
+  AgentActionKind,
+  AgentState,
+  DivineContactKind,
+  DivineGiftKind,
+  DivineBurdenKind,
+  RelationshipState,
+  WildlifeSpecies,
+  WorldPlaceKind,
+  WorldState,
+} from './world/types';
+import type {
+  V19AdventureAbility,
+  V19AdventureRank,
+  V19DivineInterpretation,
+  V19PrayerRecord,
+  V19PrayerTopic,
+} from './v19/types';
+import { projectedResidentPosition } from './presentation/ResidentMotionProjection';
+import {
+  inspectPlaceV16,
+  inspectResidentV16,
+  inspectWildlifeV16,
+  type TruthfulInspectorReportV16,
+} from './v16/TruthfulInspectorsV16';
+import { formatAinkradWorldTime } from './v15/CardinalReadableReport';
+import { worldDurationDescription } from './v15/WorldTimeContract';
+import { residentDecisionReflection } from './world/ResidentDecisionReflection';
+import { worldWeatherV21 } from './v21/WeatherV21';
+import type {
+  V18LivelihoodKind,
+  V18LivelihoodStage,
+} from './v18/types';
+
+const app = document.querySelector<HTMLDivElement>('#app');
+
+if (!app) {
+  throw new Error('Ainkrad browser root not found.');
+}
+
+const actionLabels: Record<AgentActionKind, string> = {
+  rest: 'отдыхает',
+  relax: 'отдыхает на природе',
+  walk: 'гуляет',
+  gather: 'собирает ресурсы',
+  hunt: 'охотится',
+  work: 'работает',
+  socialize: 'общается',
+  help: 'помогает',
+  explore: 'исследует мир',
+  reflect: 'размышляет',
+  bond: 'строит близость',
+  pray: 'ищет высший смысл',
+};
+
+const actionIcons: Record<AgentActionKind, string> = {
+  rest: '☾',
+  relax: '☀',
+  walk: '↝',
+  gather: '✦',
+  hunt: '➶',
+  work: '⚒',
+  socialize: '●●',
+  help: '♥',
+  explore: '⌁',
+  reflect: '…',
+  bond: '∞',
+  pray: '✧',
+};
+
+const livelihoodLabels: Readonly<Record<V18LivelihoodKind, string>> = {
+  undecided: 'дело жизни ещё не выбрано',
+  farmer: 'земледелец',
+  forager: 'собиратель',
+  woodcutter: 'лесоруб',
+  miner: 'рудокоп',
+  fisher: 'рыбак',
+  hunter: 'охотник',
+  artisan: 'ремесленник',
+  smith: 'кузнец',
+  builder: 'строитель',
+  caregiver: 'попечитель',
+  scout: 'разведчик',
+  cartographer: 'картограф',
+  adventurer: 'искатель приключений',
+  warrior: 'воин',
+  teacher: 'наставник',
+  scribe: 'писец',
+  guard: 'страж',
+  spiritual_keeper: 'хранитель традиций',
+};
+
+const livelihoodStageLabels: Readonly<Record<V18LivelihoodStage, string>> = {
+  observing: 'наблюдает',
+  apprentice: 'ученик',
+  practitioner: 'опытный',
+  master: 'мастер',
+};
+
+const adventureRankLabels: Readonly<Record<V19AdventureRank, string>> = {
+  unranked: 'без ранга',
+  F: 'F',
+  E: 'E',
+  D: 'D',
+  C: 'C',
+  B: 'B',
+  A: 'A',
+  S: 'S',
+};
+
+const adventureAbilityLabels: Readonly<Record<V19AdventureAbility, string>> = {
+  guardian_stance: 'стойка защитника',
+  pathfinder: 'следопыт',
+  keen_edge: 'точный удар',
+  rapid_recovery: 'быстрое восстановление',
+  mana_sense: 'чувство маны',
+  treasure_appraisal: 'оценка сокровищ',
+};
+
+const goalLabels: Record<AgentState['goal']['kind'], string> = {
+  recover: 'восстановиться',
+  secure_resources: 'обеспечить себя',
+  connect: 'найти общение',
+  contribute: 'быть полезным',
+  explore: 'узнать новое',
+  reflect: 'разобраться в себе',
+  build_family: 'создать семью',
+  seek_truth: 'понять тайны мира',
+};
+
+const traitLabels: Record<keyof AgentState['personality'], string> = {
+  sociability: 'общительный',
+  diligence: 'деятельный',
+  curiosity: 'любознательный',
+  generosity: 'отзывчивый',
+  resilience: 'стойкий',
+  riskTolerance: 'смелый',
+};
+
+const skillLabels: Record<keyof AgentState['skills'], string> = {
+  gathering: 'сбор',
+  hunting: 'охота',
+  craft: 'ремесло',
+  social: 'общение',
+  exploration: 'исследование',
+};
+
+const raceLabels: Record<NonNullable<AgentState['race']>, string> = {
+  human: 'человек',
+  elf: 'эльф',
+  dwarf: 'гном',
+  goblin: 'гоблин',
+  orc: 'орк',
+  ogre: 'огр',
+};
+
+const raceGroupLabels: Record<NonNullable<AgentState['race']>, string> = {
+  human: 'Люди',
+  elf: 'Эльфы',
+  dwarf: 'Гномы',
+  goblin: 'Гоблины',
+  orc: 'Орки',
+  ogre: 'Огры',
+};
+
+const raceGroupMarkers: Record<NonNullable<AgentState['race']>, string> = {
+  human: '🟨',
+  elf: '🟩',
+  dwarf: '🟧',
+  goblin: '🟪',
+  orc: '🟥',
+  ogre: '🟦',
+};
+
+interface MapPoint {
+  x: number;
+  y: number;
+  label: string;
+  symbol: string;
+}
+
+const publicPlacePoints: Record<string, MapPoint> = {
+  commons: { x: 50, y: 48, label: 'Общая площадь', symbol: '◆' },
+  resource_field: { x: 16, y: 23, label: 'Поле', symbol: '✦' },
+  workshop: { x: 83, y: 25, label: 'Мастерская', symbol: '⚒' },
+  quiet_space: { x: 18, y: 75, label: 'Тихий сад', symbol: '♣' },
+  outskirts: { x: 82, y: 76, label: 'Окраина', symbol: '▲' },
+  meadow: { x: 8, y: 13, label: 'Дикий луг', symbol: '❀' },
+  forest: { x: 50, y: 12, label: 'Северный лес', symbol: '♠' },
+  shore: { x: 92, y: 88, label: 'Берег моря', symbol: '≈' },
+};
+
+const wildlifeLabels: Record<WildlifeSpecies, string> = {
+  rabbit: 'Кролики',
+  deer: 'Олени',
+  fish: 'Рыба',
+  boar: 'Кабаны',
+  wolf: 'Волки',
+  bird: 'Птицы',
+  dire_wolf: 'Лютоволки',
+  ogre: 'Огры',
+  wraith: 'Тени',
+  century_humpback: 'Столетний горбатник',
+};
+
+const wildlifeIcons: Record<WildlifeSpecies, string> = {
+  rabbit: '🐇',
+  deer: '🦌',
+  fish: '🐟',
+  boar: '🐗',
+  wolf: '🐺',
+  bird: '🐦',
+  dire_wolf: '🐺',
+  ogre: '👹',
+  wraith: '👻',
+  century_humpback: '🪰',
+};
+
+const emotionLabels: Record<keyof AgentState['mind']['emotions'], string> = {
+  joy: 'радость',
+  fear: 'страх',
+  grief: 'горе',
+  awe: 'трепет',
+  hope: 'надежда',
+};
+
+const cardinalCapabilityLabels: Record<CardinalCapability, string> = {
+  world_observation: 'наблюдение мира',
+  autonomy_guard: 'защита автономии',
+  trend_reasoning: 'анализ тенденций',
+  ecosystem_observation: 'наблюдение экосистемы',
+  outcome_learning: 'обучение на последствиях',
+  habitat_support_planning: 'планирование поддержки среды',
+  world_rule_design: 'проектирование законов мира',
+  demographic_stewardship: 'наблюдение поколений',
+  catastrophe_modeling: 'моделирование катастроф',
+};
+
+const cardinalDeferLabels: Record<CardinalDeferReason, string> = {
+  insufficient_persistence:
+    'Cardinal видит риск, но ждёт подтверждения ещё несколькими циклами.',
+  experiment_in_progress:
+    'Предыдущее вмешательство ещё проверяется; накладывать второе нельзя.',
+  autonomy_budget:
+    'Лимит вмешательств исчерпан — миру оставлено время решить проблему самому.',
+  failed_prediction_caution:
+    'Два прошлых прогноза не подтвердились; Cardinal временно воздерживается.',
+  capability_not_ready:
+    'Cardinal ещё не накопил достаточно опыта для такого вмешательства.',
+};
+
+const cardinalProblemLabels: Record<CardinalProblemKind, string> = {
+  civilization_collapse: 'угроза краха человеческой цивилизации',
+  resource_fragility: 'нехватка общих и личных ресурсов',
+  social_fragmentation: 'одиночество и распад социальных связей',
+  safety_instability: 'опасная среда и угроза жизни',
+  conflict_overload: 'слишком высокий уровень конфликтов',
+  ecosystem_fragility: 'истощение животных и среды обитания',
+};
+
+const interventionLabels: Record<InterventionKind, string> = {
+  resource_relief: 'временная ресурсная помощь',
+  open_shared_space: 'временное открытие общего пространства',
+  safety_support: 'временная поддержка безопасности',
+  habitat_support: 'временная поддержка среды обитания',
+};
+
+const predictionMetricLabels: Record<CardinalPredictionMetric, string> = {
+  civilizationCriticality: 'критичность состояния цивилизации',
+  resourcePressure: 'ресурсное давление',
+  socialIsolation: 'социальная изоляция',
+  safetyPressure: 'давление опасности',
+  averageStress: 'средний стресс',
+  wildlifePressure: 'давление на экосистему',
+};
+
+const worldLawMechanismLabels: Record<WorldState['governance']['laws'][string]['mechanism'], string> = {
+  frontier_expansion: 'скорость открытия новых земель',
+  wildlife_recovery: 'восстановление животных',
+  fertility_support: 'условия для рождения детей',
+  resource_regeneration: 'естественное восстановление ресурсов',
+  mystic_resonance: 'сила знамений и мистических явлений',
+  weather_volatility: 'изменчивость погоды',
+  catastrophe_recovery: 'восстановление после катастроф',
+  settlement_cohesion: 'целостность поселений',
+  habitat_integrity: 'совместимость видов и среды',
+  civilization_continuity: 'приоритет продолжения цивилизации',
+};
+
+const phaseLabels = {
+  dawn: 'Рассвет',
+  day: 'День',
+  evening: 'Вечер',
+  night: 'Ночь',
+} as const;
+
+const seasonLabels = {
+  spring: 'Весна',
+  summer: 'Лето',
+  autumn: 'Осень',
+  winter: 'Зима',
+} as const;
+
+const homePoints: readonly MapPoint[] = [
+  { x: 7, y: 49, label: 'Дом Алексея', symbol: '⌂' },
+  { x: 30, y: 8, label: 'Дом Миры', symbol: '⌂' },
+  { x: 69, y: 8, label: 'Дом Кая', symbol: '⌂' },
+  { x: 93, y: 49, label: 'Дом Ноа', symbol: '⌂' },
+  { x: 70, y: 92, label: 'Дом Илана', symbol: '⌂' },
+  { x: 30, y: 92, label: 'Дом Рина', symbol: '⌂' },
+];
+
+app.innerHTML = `
+  <div class="ainkrad-app">
+    <header class="world-header">
+      <div>
+        <p class="eyebrow">v0.3.22.f1</p>
+        <h1 id="world-title">Мир · уровень 1</h1>
+      </div>
+
+      <div class="live-indicator" id="live-indicator">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="live-label">ВОССТАНОВЛЕНИЕ</span>
+      </div>
+    </header>
+
+    <div class="status-strip" aria-label="Состояние мира">
+      <span>Возраст <strong id="tick-value">0 дней</strong></span>
+      <span>Календарь <strong id="time-value">Год 1 · день 1</strong></span>
+      <span>Мир <strong id="world-level-value">ур. 1</strong></span>
+      <span>Искр <strong id="population-value">10</strong></span>
+      <span>Карта <strong id="growth-value">5 мест</strong></span>
+      <span>Cardinal <strong id="cardinal-status-level">ур. 1</strong></span>
+      <span>Животные <strong id="wildlife-value">0</strong></span>
+      <span>Монстры <strong id="monster-value">0</strong></span>
+      <span>Ресурсы <strong id="resource-value">—</strong></span>
+      <span class="save-state">Состояние <strong id="save-value">Загрузка…</strong></span>
+      <details><summary>Данные сохранения</summary><pre id="world-storage-details" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+    </div>
+
+    <section class="external-clock" aria-label="Внешнее управление скоростью мира">
+      <div>
+        <span class="external-clock__label">СКОРОСТЬ ВРЕМЕНИ</span>
+        <strong id="clock-rate-value">1 мин = 1 год</strong>
+      </div>
+      <label>
+        <span class="sr-only">Базовая скорость мира</span>
+        <select id="world-speed-select">
+          ${WORLD_SPEED_PRESETS.map(
+            (preset) =>
+              `<option value="${preset.id}"${preset.id === DEFAULT_WORLD_SPEED_ID ? ' selected' : ''}>${preset.shortLabel}</option>`,
+          ).join('')}
+        </select>
+      </label>
+      <small id="live-clock-throughput" aria-live="polite">Измеряем скорость мира…</small>
+      <small id="offline-clock-status">Загрузка времени мира…</small>
+    </section>
+
+    <section class="maximum-acceleration-mode" id="maximum-acceleration-mode" hidden>
+      <strong>Максимальное ускорение</strong>
+      <p>Карта и подробные панели остановлены. Искры продолжают проживать все шаги мира; управление скоростью остаётся доступно выше.</p>
+    </section>
+
+    <section class="catch-up-overlay" id="catch-up-overlay" aria-live="assertive" hidden>
+      <div class="catch-up-overlay__heading">
+        <div>
+          <span>ПРОДОЛЖЕНИЕ МИРА</span>
+          <strong id="catch-up-title">Подготавливаем быстрый догон…</strong>
+        </div>
+        <b id="catch-up-percent">0%</b>
+      </div>
+      <div class="catch-up-track"><span id="catch-up-bar"></span></div>
+      <p id="catch-up-detail">Продолжаем с сохранённого момента.</p>
+    </section>
+
+    <main class="world-layout">
+      <section class="world-map-shell" aria-label="Растущая карта Ainkrad">
+        <div class="map-toolbar">
+          <strong id="map-scale-value">Уровень мира 1 · 11 локаций</strong>
+          <div class="map-toolbar__controls">
+            <span id="map-time-value">Рассвет · Весна</span>
+            <button id="map-zoom-out" type="button" aria-label="Уменьшить карту">−</button>
+            <button id="map-zoom-fit" type="button" aria-label="Показать всю карту">100%</button>
+            <span id="settlement-picker"></span>
+            <button id="map-city-focus" type="button">Город</button>
+            <button id="map-resident-focus" type="button" aria-label="Найти выбранную Искру на карте">Искра</button>
+          <button id="map-zoom-in" type="button" aria-label="Увеличить карту">+</button>
+            <button id="text-scale" type="button" aria-label="Увеличить размер текста">Текст 115%</button>
+          </div>
+        </div>
+        <div class="world-map-viewport" id="world-map-viewport">
+          <div class="world-map-stage" id="world-map-stage">
+          <section class="world-map" id="world-map" aria-label="Карта Ainkrad">
+            <div class="map-sky" aria-hidden="true"></div>
+            <div class="map-grid" aria-hidden="true"></div>
+            <div class="terrain terrain--water growth-terrain growth-terrain--3" aria-hidden="true"></div>
+            <div class="terrain terrain--grove-one growth-terrain growth-terrain--2" aria-hidden="true"></div>
+            <div class="terrain terrain--grove-two growth-terrain growth-terrain--1" aria-hidden="true"></div>
+            <div id="biomes-layer" class="biomes-layer" aria-hidden="true"></div>
+
+            <svg
+              class="roads"
+              id="roads-layer"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            ></svg>
+
+            <div id="settlements-layer" class="settlements-layer"></div>
+            <div id="places-layer" class="places-layer"></div>
+            <div id="wildlife-layer" class="wildlife-layer"></div>
+            <div id="agents-layer" class="agents-layer"></div>
+
+            <div class="map-hint" id="map-hint">Проведите по карте</div>
+            <div class="map-distance" id="map-distance" aria-label="Линейка масштаба"><span></span><b></b></div>
+
+            <div
+              class="disturbance-banner"
+              id="disturbance-banner"
+              aria-live="polite"
+            ></div>
+          </section>
+          </div>
+        </div>
+      </section>
+
+      <aside class="world-sidebar">
+        <section class="resident-panel" aria-live="polite">
+          <div class="panel-heading-row">
+            <p class="panel-label" title="Искры — искусственные разумные обитатели мира всех народов">Выбранная Искра</p>
+            <p class="muted">Искры — искусственные разумные обитатели мира.</p>
+            <span class="autonomy-mark">САМ РЕШАЕТ</span>
+          </div>
+
+          <label class="resident-picker-label" for="resident-picker">
+            <span>Найти конкретную Искру</span>
+            <input id="resident-search" type="search" placeholder="Имя Искры" autocomplete="off" />
+            <select id="resident-picker" aria-label="Выбрать Искру"></select>
+          </label>
+
+          <div class="resident-title-row">
+            <div class="resident-portrait" id="resident-portrait" aria-hidden="true">A</div>
+            <div>
+              <h2 id="resident-name">Мир запускается…</h2>
+              <p id="resident-activity" class="resident-activity">Подготавливаем Искр</p>
+            </div>
+          </div>
+
+          <dl class="resident-facts">
+            <div><dt>Место</dt><dd id="resident-place">—</dd></div>
+            <div><dt>Цель</dt><dd id="resident-goal">—</dd></div>
+            <div><dt>Жизнь</dt><dd id="resident-life">—</dd></div>
+            <div><dt>Чувства</dt><dd id="resident-emotion">—</dd></div>
+            <div><dt>Тело</dt><dd id="resident-physiology">—</dd></div>
+            <div><dt>Характер</dt><dd id="resident-traits">—</dd></div>
+            <div><dt>Дело жизни</dt><dd id="resident-profession">—</dd></div>
+            <div><dt>Приключения</dt><dd id="resident-adventure">—</dd></div>
+            <div><dt>Сильный навык</dt><dd id="resident-skill">—</dd></div>
+            <div><dt>Дары / способности / кара</dt><dd id="resident-divine">—</dd></div>
+            <div><dt>Мысль</dt><dd id="resident-choice">—</dd></div>
+            <div><dt>Личный опыт</dt><dd id="resident-learning">—</dd></div>
+          </dl>
+
+          <div class="need-row">
+            <span>Энергия</span><span id="energy-value">—</span>
+            <div class="need-track"><span id="energy-bar"></span></div>
+          </div>
+          <div class="need-row">
+            <span>Стресс</span><span id="stress-value">—</span>
+            <div class="need-track need-track--stress"><span id="stress-bar"></span></div>
+          </div>
+          <div class="need-row">
+            <span>Личные ресурсы</span><span id="personal-resource-value">—</span>
+            <div class="need-track need-track--resources"><span id="personal-resource-bar"></span></div>
+          </div>
+          <div class="need-row need-row--compact">
+            <span>Сытость</span><span id="satiety-value">—</span>
+            <div class="need-track need-track--satiety"><span id="satiety-bar"></span></div>
+          </div>
+          <div class="need-row need-row--compact">
+            <span>Принадлежность</span><span id="belonging-value">—</span>
+            <div class="need-track need-track--belonging"><span id="belonging-bar"></span></div>
+          </div>
+          <div class="need-row need-row--compact">
+            <span>Смысл</span><span id="purpose-value">—</span>
+            <div class="need-track need-track--purpose"><span id="purpose-bar"></span></div>
+          </div>
+
+          <p class="relationship-note" id="relationship-note">Связи ещё формируются.</p>
+          <button class="resident-details-open" id="resident-details-open" type="button">
+            Родословная, навыки и реальная жизнь
+          </button>
+          <button class="private-audience-open" id="private-audience-open" type="button">
+            Закрытая аудиенция божества
+          </button>
+        </section>
+
+        <section class="adventure-panel" aria-live="polite">
+          <div class="panel-heading-row">
+            <p class="panel-label">Подземелья и экономика</p>
+            <span class="adventure-mark">САМИ ИДУТ</span>
+          </div>
+          <div class="adventure-numbers">
+            <span><strong id="dungeon-count">0</strong>подземелий</span>
+            <span><strong id="adventurer-count">0</strong>искателей</span>
+            <span><strong id="artifact-count">0</strong>артефактов</span>
+            <span><strong id="trade-volume">0</strong>оборот</span>
+          </div>
+          <p class="adventure-latest" id="adventure-latest">Искры ещё не нашли входы в подземелья.</p>
+          <p class="adventure-economy-note" id="adventure-economy-note">Монеты и добыча не телепортируются: их переносят сами Искры.</p>
+        </section>
+
+        <section class="event-panel">
+          <div class="panel-heading-row">
+            <p class="panel-label">Жизнь мира</p>
+            <span class="event-live">СЕЙЧАС</span>
+          </div>
+          <ol class="event-feed" id="event-feed">
+            <li>Мир вспоминает свою историю…</li>
+          </ol>
+          <div class="conversation-window" aria-live="polite">
+            <strong>Подслушано в мире</strong>
+            <div id="conversation-feed">Пока рядом не слышно разговора.</div>
+          </div>
+          <button class="prayer-inbox-open" id="prayer-inbox-open" type="button">
+            Молитвы Искр <span id="prayer-unread-count">0</span>
+          </button>
+        </section>
+
+        <section class="cardinal-panel">
+          <div class="panel-heading-row">
+            <p class="panel-label">Cardinal наблюдает</p>
+            <span class="gateway-mark">GATEWAY</span>
+          </div>
+
+          <div class="cardinal-numbers">
+            <button type="button" data-cardinal-tab="evaluations"><strong id="evaluation-value">0</strong>оценок</button>
+            <button type="button" data-cardinal-tab="proposals"><strong id="proposal-value">0</strong>предложений</button>
+            <button type="button" data-cardinal-tab="interventions"><strong id="intervention-value">0</strong>вмешательств</button>
+            <button type="button" data-cardinal-tab="laws"><strong id="world-change-value">0</strong>законов мира</button>
+            <button type="button" data-cardinal-tab="evaluations"><strong id="cardinal-level-value">1</strong>уровень</button>
+            <button type="button" data-cardinal-tab="evaluations"><strong id="cardinal-xp-value">0</strong>опыт</button>
+          </div>
+
+          <p class="cardinal-capabilities" id="cardinal-capabilities">
+            Наблюдение мира · защита автономии
+          </p>
+
+          <p id="cardinal-message">
+            Cardinal не управляет Искрами. Любое изменение мира проходит
+            только через независимый gateway.
+          </p>
+          <p class="cardinal-last-action" id="cardinal-last-action">
+            Последнее действие: пока ни одного вмешательства.
+          </p>
+          <button class="cardinal-open" id="cardinal-open" type="button">Открыть журнал Cardinal</button>
+        </section>
+      </aside>
+    </main>
+    <div class="cardinal-console" id="cardinal-console" hidden>
+      <section class="cardinal-console__sheet" role="dialog" aria-modal="true" aria-labelledby="cardinal-console-title">
+        <header>
+          <div>
+            <p class="panel-label">ПРОВЕРЯЕМЫЙ ЖУРНАЛ</p>
+            <h2 id="cardinal-console-title">Что сделал Cardinal</h2>
+          </div>
+          <button id="cardinal-console-close" type="button" aria-label="Закрыть журнал">×</button>
+        </header>
+        <nav class="cardinal-console__tabs" aria-label="Разделы журнала">
+          <button type="button" data-console-tab="laws">Законы</button>
+          <button type="button" data-console-tab="interventions">Вмешательства</button>
+          <button type="button" data-console-tab="proposals">Предложения</button>
+          <button type="button" data-console-tab="evaluations">Оценки</button>
+          <button type="button" data-console-tab="diagnostics">Диагностика</button>
+        </nav>
+        <p class="cardinal-console__note">Данные загружаются только при открытии: длинная история не копируется в каждый кадр мира.</p>
+        <div class="cardinal-console__content" id="cardinal-console-content">Загрузка журнала…</div>
+      </section>
+    </div>
+    <details class="world-maintenance"><summary>Управление сохранённым миром</summary>
+      <p>Обновления продолжают существующий мир. Создание нового завершит текущую эпоху.</p>
+      <button id="reset-world" type="button" aria-label="Создать новый мир с сохранением опыта Cardinal">Новый мир</button>
+    </details>
+    <div class="world-inspector" id="world-inspector" hidden>
+      <section class="world-inspector__sheet" role="dialog" aria-modal="true" aria-labelledby="world-inspector-title">
+        <header>
+          <div>
+            <p class="world-inspector__badge" id="world-inspector-badge">ОБЪЕКТ МИРА</p>
+            <h2 id="world-inspector-title">Подробности</h2>
+            <p id="world-inspector-subtitle"></p>
+          </div>
+          <button id="world-inspector-close" type="button" aria-label="Закрыть подробности">×</button>
+        </header>
+        <div class="world-inspector__content" id="world-inspector-content"></div>
+        <p class="world-inspector__evidence" id="world-inspector-evidence"></p>
+      </section>
+    </div>
+    <div class="prayer-inbox" id="prayer-inbox" hidden>
+      <section class="prayer-inbox__sheet" role="dialog" aria-modal="true" aria-labelledby="prayer-inbox-title">
+        <header>
+          <div>
+            <p class="prayer-inbox__badge">ЛИЧНЫЕ ОБРАЩЕНИЯ</p>
+            <h2 id="prayer-inbox-title">Молитвы Искр</h2>
+            <p id="prayer-inbox-summary">Здесь появляются реальные обращения из прожитой жизни Искр.</p>
+          </div>
+          <button id="prayer-inbox-close" type="button" aria-label="Закрыть молитвы">×</button>
+        </header>
+        <div class="prayer-inbox__filters">
+          <label>Поселение<select id="prayer-filter-settlement"><option value="">Все поселения</option></select></label>
+          <label>Искра<input id="prayer-filter-npc" type="search" placeholder="Имя Искры" /></label>
+          <label>Тема<select id="prayer-filter-topic"><option value="">Все темы</option></select></label>
+          <label>Вера<select id="prayer-filter-belief"><option value="">Любая</option><option value="high">Высокая</option><option value="low">Низкая или сомнение</option></select></label>
+          <label>Отчаяние<select id="prayer-filter-desperation"><option value="">Любое</option><option value="high">Сильное</option><option value="low">Невысокое</option></select></label>
+          <label>Порядок<select id="prayer-filter-order"><option value="newest">Сначала новые</option><option value="important">Сначала важные</option><option value="frequent">Часто молящиеся</option></select></label>
+        </div>
+        <div class="prayer-inbox__list" id="prayer-inbox-list"></div>
+      </section>
+    </div>
+    <div class="divine-audience" id="divine-audience" hidden>
+      <section class="divine-audience__sheet" role="dialog" aria-modal="true" aria-labelledby="divine-audience-title">
+        <header>
+          <div>
+            <p class="divine-audience__badge">ЛИЧНАЯ АУДИЕНЦИЯ</p>
+            <h2 id="divine-audience-title">Закрытая аудиенция</h2>
+            <p id="divine-audience-subtitle">Мир и возраст выбранной Искры остановлены.</p>
+          </div>
+          <button id="divine-audience-close" type="button" aria-label="Закрыть аудиенцию">×</button>
+        </header>
+        <form id="divine-audience-form">
+          <label>Как вас услышит Искра
+            <input id="divine-deity-name" maxlength="64" required value="Создатель" />
+          </label>
+          <label>Имя религии <small>(необязательно)</small>
+            <input id="divine-religion-name" maxlength="64" placeholder="Например: Путь Создателя" />
+          </label>
+          <label>Способ контакта
+            <select id="divine-contact-kind">
+              <option value="">Без прямого контакта</option>
+              <option value="message">Сообщение</option>
+              <option value="revelation">Откровение</option>
+              <option value="command">Приказ</option>
+              <option value="request">Просьба</option>
+              <option value="warning">Предупреждение</option>
+              <option value="vision">Видение</option>
+              <option value="sign">Неоднозначный знак</option>
+            </select>
+          </label>
+          <label>Ваши слова или смысл знака
+            <textarea id="divine-message" maxlength="480" rows="4" placeholder="Искра услышит это только при выбранном контакте…"></textarea>
+          </label>
+          <label>Дар / способность <small>(необязательно)</small>
+            <select id="divine-gift">
+              <option value="">Без дара или способности</option>
+              <optgroup label="Дары — потенциал развивается практикой">
+                ${Object.entries(GIFT_CATALOG_V20).filter(([id]) => !(EXCEPTIONAL_ABILITIES_V22 as readonly string[]).includes(id)).map(([id, entry]) => `<option value="${id}">${entry[0]}</option>`).join('')}
+              </optgroup>
+              <optgroup label="Исключительные способности — не наследуются">
+                ${Object.entries(GIFT_CATALOG_V20).filter(([id]) => (EXCEPTIONAL_ABILITIES_V22 as readonly string[]).includes(id)).map(([id, entry]) => `<option value="${id}">${entry[0]}</option>`).join('')}
+              </optgroup>
+            </select>
+          </label>
+          <label id="divine-legacy-label" hidden>Дар для наследования
+            <select id="divine-legacy-gift"></select>
+          </label>
+          <label>Кара / проклятие <small>(необязательно)</small>
+            <select id="divine-burden">
+              <option value="">Без кары</option>
+              ${Object.entries(DIVINE_BURDEN_CATALOG_V22).map(([id, entry]) => `<option value="${id}">${entry[0]}</option>`).join('')}
+            </select>
+          </label>
+          <label id="divine-lineage-curse-label" hidden>
+            <input id="divine-lineage-curse" type="checkbox" /> Передать проклятие роду
+          </label>
+          <p class="divine-audience__gift-note" id="divine-gift-note"></p>
+          <p class="divine-audience__choice-note">Дар не меняет профессию, характер или судьбу. Приказ не отнимает свободу воли. Священником или героем Искра может стать только через собственную жизнь и признание окружающих.</p>
+          <p class="divine-audience__status" id="divine-audience-status" aria-live="polite"></p>
+          <button class="divine-audience__grant" id="divine-audience-grant" type="submit">Совершить божественное действие</button>
+        </form>
+      </section>
+    </div>
+  </div>
+`;
+
+const observerChrome = installObserverChrome(app);
+
+const requiredElement = <T extends Element>(id: string): T => {
+  const element = document.getElementById(id);
+  if (!element) throw new Error(`Missing browser element #${id}.`);
+  return element as unknown as T;
+};
+
+const settlementPicker = createSettlementPicker(requiredElement<HTMLElement>('settlement-picker'), id => {
+  if (!lastFrame) return;
+  const focus = settlementMapFocus(lastFrame.world, id, mapCamera.width, mapCamera.height);
+  if (focus) { mapCamera.x = focus.x; mapCamera.y = focus.y; setMapZoom(focus.pixelsPerUnit / 100); }
+});
+const worldMap = requiredElement<HTMLElement>('world-map');
+const worldMapStage = requiredElement<HTMLElement>('world-map-stage');
+const worldMapViewport = requiredElement<HTMLElement>('world-map-viewport');
+const roadsLayer = requiredElement<SVGSVGElement>('roads-layer');
+const settlementsLayer = requiredElement<HTMLDivElement>('settlements-layer');
+const mapZoomOut = requiredElement<HTMLButtonElement>('map-zoom-out');
+const mapZoomFit = requiredElement<HTMLButtonElement>('map-zoom-fit');
+const mapZoomIn = requiredElement<HTMLButtonElement>('map-zoom-in');
+const textScaleButton = requiredElement<HTMLButtonElement>('text-scale');
+const worldTitle = requiredElement<HTMLElement>('world-title');
+const worldLevelValue = requiredElement<HTMLElement>('world-level-value');
+const cardinalStatusLevel = requiredElement<HTMLElement>('cardinal-status-level');
+const mapScaleValue = requiredElement<HTMLElement>('map-scale-value');
+const mapTimeValue = requiredElement<HTMLElement>('map-time-value');
+const mapHint = requiredElement<HTMLElement>('map-hint');
+const placesLayer = requiredElement<HTMLDivElement>('places-layer');
+const biomesLayer = requiredElement<HTMLDivElement>('biomes-layer');
+const wildlifeLayer = requiredElement<HTMLDivElement>('wildlife-layer');
+const agentsLayer = requiredElement<HTMLDivElement>('agents-layer');
+const atlas = new WorldAtlasRenderer(biomesLayer, roadsLayer, settlementsLayer);
+const tickValue = requiredElement<HTMLElement>('tick-value');
+const timeValue = requiredElement<HTMLElement>('time-value');
+const populationValue = requiredElement<HTMLElement>('population-value');
+const growthValue = requiredElement<HTMLElement>('growth-value');
+const wildlifeValue = requiredElement<HTMLElement>('wildlife-value');
+const monsterValue = requiredElement<HTMLElement>('monster-value');
+const resourceValue = requiredElement<HTMLElement>('resource-value');
+const saveValue = requiredElement<HTMLElement>('save-value');
+const worldSpeedSelect = requiredElement<HTMLSelectElement>('world-speed-select');
+const resetWorldButton = requiredElement<HTMLButtonElement>('reset-world');
+const clockRateValue = requiredElement<HTMLElement>('clock-rate-value');
+const offlineClockStatus = requiredElement<HTMLElement>('offline-clock-status');
+const liveClockThroughput = requiredElement<HTMLElement>('live-clock-throughput');
+const catchUpOverlay = requiredElement<HTMLElement>('catch-up-overlay');
+const maximumAccelerationMode = requiredElement<HTMLElement>('maximum-acceleration-mode');
+const resolvedAppShell = app.querySelector<HTMLElement>('.ainkrad-app');
+if (!resolvedAppShell) throw new Error('Ainkrad application shell was not created.');
+const appShell: HTMLElement = resolvedAppShell;
+const catchUpTitle = requiredElement<HTMLElement>('catch-up-title');
+const catchUpPercent = requiredElement<HTMLElement>('catch-up-percent');
+const catchUpBar = requiredElement<HTMLElement>('catch-up-bar');
+const catchUpDetail = requiredElement<HTMLElement>('catch-up-detail');
+const evaluationValue = requiredElement<HTMLElement>('evaluation-value');
+const interventionValue = requiredElement<HTMLElement>('intervention-value');
+const proposalValue = requiredElement<HTMLElement>('proposal-value');
+const worldChangeValue = requiredElement<HTMLElement>('world-change-value');
+const cardinalLevelValue = requiredElement<HTMLElement>('cardinal-level-value');
+const cardinalXpValue = requiredElement<HTMLElement>('cardinal-xp-value');
+const cardinalCapabilities = requiredElement<HTMLElement>('cardinal-capabilities');
+const liveIndicator = requiredElement<HTMLElement>('live-indicator');
+const liveLabel = requiredElement<HTMLElement>('live-label');
+const disturbanceBanner = requiredElement<HTMLElement>('disturbance-banner');
+const residentPortrait = requiredElement<HTMLElement>('resident-portrait');
+const residentPicker = requiredElement<HTMLSelectElement>('resident-picker');
+const residentSearch = requiredElement<HTMLInputElement>('resident-search');
+const residentName = requiredElement<HTMLElement>('resident-name');
+const residentActivity = requiredElement<HTMLElement>('resident-activity');
+const residentPlace = requiredElement<HTMLElement>('resident-place');
+const residentGoal = requiredElement<HTMLElement>('resident-goal');
+const residentLife = requiredElement<HTMLElement>('resident-life');
+const residentEmotion = requiredElement<HTMLElement>('resident-emotion');
+const residentPhysiology = requiredElement<HTMLElement>('resident-physiology');
+const residentTraits = requiredElement<HTMLElement>('resident-traits');
+const residentProfession = requiredElement<HTMLElement>('resident-profession');
+const residentAdventure = requiredElement<HTMLElement>('resident-adventure');
+const residentSkill = requiredElement<HTMLElement>('resident-skill');
+const residentDivine = requiredElement<HTMLElement>('resident-divine');
+const residentChoice = requiredElement<HTMLElement>('resident-choice');
+const residentLearning = requiredElement<HTMLElement>('resident-learning');
+const mapDistance = requiredElement<HTMLElement>('map-distance');
+const relationshipNote = requiredElement<HTMLElement>('relationship-note');
+const residentDetailsOpen = requiredElement<HTMLButtonElement>('resident-details-open');
+const privateAudienceOpen = requiredElement<HTMLButtonElement>('private-audience-open');
+const eventFeed = requiredElement<HTMLOListElement>('event-feed');
+const conversationFeed = requiredElement<HTMLElement>('conversation-feed');
+const dungeonCount = requiredElement<HTMLElement>('dungeon-count');
+const adventurerCount = requiredElement<HTMLElement>('adventurer-count');
+const artifactCount = requiredElement<HTMLElement>('artifact-count');
+const tradeVolume = requiredElement<HTMLElement>('trade-volume');
+const adventureLatest = requiredElement<HTMLElement>('adventure-latest');
+const adventureEconomyNote = requiredElement<HTMLElement>('adventure-economy-note');
+const energyValue = requiredElement<HTMLElement>('energy-value');
+const energyBar = requiredElement<HTMLElement>('energy-bar');
+const stressValue = requiredElement<HTMLElement>('stress-value');
+const stressBar = requiredElement<HTMLElement>('stress-bar');
+const personalResourceValue = requiredElement<HTMLElement>('personal-resource-value');
+const personalResourceBar = requiredElement<HTMLElement>('personal-resource-bar');
+const satietyValue = requiredElement<HTMLElement>('satiety-value');
+const satietyBar = requiredElement<HTMLElement>('satiety-bar');
+const belongingValue = requiredElement<HTMLElement>('belonging-value');
+const belongingBar = requiredElement<HTMLElement>('belonging-bar');
+const purposeValue = requiredElement<HTMLElement>('purpose-value');
+const purposeBar = requiredElement<HTMLElement>('purpose-bar');
+const cardinalMessage = requiredElement<HTMLElement>('cardinal-message');
+const cardinalLastAction = requiredElement<HTMLElement>('cardinal-last-action');
+const cardinalOpen = requiredElement<HTMLButtonElement>('cardinal-open');
+const cardinalConsole = requiredElement<HTMLElement>('cardinal-console');
+const cardinalConsoleClose = requiredElement<HTMLButtonElement>(
+  'cardinal-console-close',
+);
+const cardinalConsoleContent = requiredElement<HTMLElement>(
+  'cardinal-console-content',
+);
+const worldInspector = requiredElement<HTMLElement>('world-inspector');
+const worldInspectorClose = requiredElement<HTMLButtonElement>('world-inspector-close');
+const worldInspectorBadge = requiredElement<HTMLElement>('world-inspector-badge');
+const worldInspectorTitle = requiredElement<HTMLElement>('world-inspector-title');
+const worldInspectorSubtitle = requiredElement<HTMLElement>('world-inspector-subtitle');
+const worldInspectorContent = requiredElement<HTMLElement>('world-inspector-content');
+const worldInspectorEvidence = requiredElement<HTMLElement>('world-inspector-evidence');
+const prayerInboxOpen = requiredElement<HTMLButtonElement>('prayer-inbox-open');
+const prayerUnreadCount = requiredElement<HTMLElement>('prayer-unread-count');
+const prayerInbox = requiredElement<HTMLElement>('prayer-inbox');
+const prayerInboxClose = requiredElement<HTMLButtonElement>('prayer-inbox-close');
+const prayerInboxSummary = requiredElement<HTMLElement>('prayer-inbox-summary');
+const prayerInboxList = requiredElement<HTMLElement>('prayer-inbox-list');
+const prayerFilterSettlement = requiredElement<HTMLSelectElement>('prayer-filter-settlement');
+const prayerFilterNpc = requiredElement<HTMLInputElement>('prayer-filter-npc');
+const prayerFilterTopic = requiredElement<HTMLSelectElement>('prayer-filter-topic');
+const prayerFilterBelief = requiredElement<HTMLSelectElement>('prayer-filter-belief');
+const prayerFilterDesperation = requiredElement<HTMLSelectElement>('prayer-filter-desperation');
+const prayerFilterOrder = requiredElement<HTMLSelectElement>('prayer-filter-order');
+const divineAudience = requiredElement<HTMLElement>('divine-audience');
+const divineAudienceClose = requiredElement<HTMLButtonElement>('divine-audience-close');
+const divineAudienceForm = requiredElement<HTMLFormElement>('divine-audience-form');
+const divineAudienceSubtitle = requiredElement<HTMLElement>('divine-audience-subtitle');
+const divineDeityName = requiredElement<HTMLInputElement>('divine-deity-name');
+const divineReligionName = requiredElement<HTMLInputElement>('divine-religion-name');
+const divineMessage = requiredElement<HTMLTextAreaElement>('divine-message');
+const divineContactKind = requiredElement<HTMLSelectElement>('divine-contact-kind');
+const divineGift = requiredElement<HTMLSelectElement>('divine-gift');
+const divineBurden = requiredElement<HTMLSelectElement>('divine-burden');
+const divineLineageCurse = requiredElement<HTMLInputElement>('divine-lineage-curse');
+const divineGiftNote = requiredElement<HTMLElement>('divine-gift-note');
+const divineAudienceStatus = requiredElement<HTMLElement>('divine-audience-status');
+const divineAudienceGrant = requiredElement<HTMLButtonElement>('divine-audience-grant');
+
+const avatarElements = new Map<string, HTMLButtonElement>();
+const placeElements = new Map<string, HTMLElement>();
+const biomeElements = new Map<string, HTMLElement>();
+const wildlifeElements = new Map<string, HTMLElement>();
+const settlementElements = new Map<string, HTMLElement>();
+
+let selectedAgentId: string | undefined;
+let residentPickerSignature = '';
+let residentSearchQuery = '';
+let lastFrame: LiveWorldFrame | undefined;
+let maximumSpeedPresentation = false;
+let catchUpPresentation = false;
+let headlessAccelerationActive = false;
+let continuityAnnounced = false;
+let renderedGrowthStage = -1;
+const mapCamera = new WorldMapCamera();
+let mapZoom = mapCamera.pixelsPerUnit / 100;
+let activeConsoleTab: CardinalConsoleTab = 'laws';
+let cardinalConsoleSnapshot: CardinalConsoleSnapshot | undefined;
+let highlightedPlaceIds = new Set<string>();
+let divineAudienceRequestId: string | undefined;
+let divineAudienceRequestPending = false;
+let activePrayerId: string | undefined;
+let lastSeenPrayerSequence = 0;
+let inspectedEntity:
+  | { kind: 'resident' | 'wildlife' | 'place'; id: string }
+  | undefined;
+
+type CardinalConsoleTab =
+  | 'laws'
+  | 'interventions'
+  | 'proposals'
+  | 'evaluations'
+  | 'diagnostics';
+
+const CLOCK_PREFERENCE_KEY = 'ainkrad-v0.3.external-clock';
+const OFFLINE_CLOCK_ANCHOR_KEY = 'ainkrad-v0.3.offline-clock-anchor';
+const TEXT_SCALE_KEY = 'ainkrad-v0.3.text-scale';
+const LAST_SEEN_PRAYER_KEY = 'ainkrad-v0.3.last-seen-prayer-sequence';
+const TEXT_SCALE_STEPS = [1, 1.15, 1.3] as const;
+let preferredSpeedId: WorldSpeedId = DEFAULT_WORLD_SPEED_ID;
+let preferredSpeedMultiplier: WorldSpeedMultiplier =
+  DEFAULT_WORLD_SPEED_MULTIPLIER;
+let pendingOfflineClockAnchor: OfflineWorldClockAnchor | undefined;
+let offlineClockStorageAvailable = true;
+let textScale: (typeof TEXT_SCALE_STEPS)[number] = 1.15;
+
+try {
+  const stored = JSON.parse(
+    localStorage.getItem(CLOCK_PREFERENCE_KEY) ?? 'null',
+  ) as { speedId?: unknown; multiplier?: unknown } | null;
+  if (stored && isWorldSpeedId(stored.speedId)) {
+    preferredSpeedId =
+      stored.speedId === 'fifty_years_per_minute' || stored.speedId === 'century_per_minute'
+        ? 'decade_per_minute'
+        : stored.speedId;
+  }
+  if (stored && isWorldSpeedMultiplier(stored.multiplier)) preferredSpeedMultiplier = 1;
+} catch {
+  // A blocked localStorage only means the external speed resets on next visit.
+}
+maximumSpeedPresentation = isMaximumAccelerationSpeed(preferredSpeedId);
+
+try {
+  pendingOfflineClockAnchor = parseOfflineWorldClockAnchor(
+    localStorage.getItem(OFFLINE_CLOCK_ANCHOR_KEY),
+  );
+} catch {
+  offlineClockStorageAvailable = false;
+}
+
+try {
+  const storedTextScale = Number(localStorage.getItem(TEXT_SCALE_KEY));
+  if (
+    TEXT_SCALE_STEPS.includes(
+      storedTextScale as (typeof TEXT_SCALE_STEPS)[number],
+    )
+  ) {
+    textScale = storedTextScale as (typeof TEXT_SCALE_STEPS)[number];
+  }
+} catch {
+  // Readability still has a useful mobile-first default without storage.
+}
+
+try {
+  const storedSequence = Number(localStorage.getItem(LAST_SEEN_PRAYER_KEY));
+  if (Number.isInteger(storedSequence) && storedSequence >= 0) {
+    lastSeenPrayerSequence = storedSequence;
+  }
+} catch {
+  // The prayer feed remains usable even when local preferences are blocked.
+}
+
+function applyTextScale(): void {
+  document.documentElement.style.fontSize = `${16 * textScale}px`;
+  textScaleButton.textContent = `Текст ${Math.round(textScale * 100)}%`;
+}
+
+applyTextScale();
+
+function applyHeadlessAccelerationPresentation(): void {
+  headlessAccelerationActive = maximumSpeedPresentation || catchUpPresentation;
+  appShell.classList.toggle('is-headless-acceleration', headlessAccelerationActive);
+  maximumAccelerationMode.hidden = !maximumSpeedPresentation;
+}
+
+applyHeadlessAccelerationPresentation();
+
+function clockRateLabel(
+  speedId: WorldSpeedId,
+  multiplier: WorldSpeedMultiplier,
+): string {
+  const minutes =
+    worldSpeedPreset(speedId).worldMinutesPerRealMinute * multiplier;
+  if (minutes >= WORLD_MINUTES_PER_YEAR) {
+    const years = minutes / WORLD_MINUTES_PER_YEAR;
+    return `Цель: 1 мин ≈ ${Number.isInteger(years) ? years : years.toFixed(1)} ${years === 1 ? 'год' : 'лет'}`;
+  }
+  if (minutes >= 43_200) return `1 мин = ${Math.round(minutes / 43_200)} мес`;
+  if (minutes >= 1_440) return `1 мин = ${Math.round(minutes / 1_440)} дн`;
+  if (minutes >= 60) return `1 мин = ${Math.round(minutes / 60)} ч`;
+  return `1 мин = ${Math.round(minutes)} мин`;
+}
+
+function showClockControl(
+  speedId: WorldSpeedId,
+  multiplier: WorldSpeedMultiplier,
+): void {
+  worldSpeedSelect.value = speedId;
+  clockRateValue.textContent = clockRateLabel(speedId, multiplier);
+}
+
+showClockControl(preferredSpeedId, preferredSpeedMultiplier);
+
+const regionNameTranslations: Record<string, string> = {
+  Northern: 'Северные',
+  Silver: 'Серебряные',
+  Quiet: 'Тихие',
+  Ancient: 'Древние',
+  Eastern: 'Восточные',
+  Hidden: 'Скрытые',
+  Windward: 'Ветреные',
+  Amber: 'Янтарные',
+  Village: 'Поселения',
+  Crossroads: 'Перекрёстки',
+  Fields: 'Поля',
+  Steppe: 'Степи',
+  Meadow: 'Луга',
+  Forest: 'Леса',
+  Grove: 'Рощи',
+  Woods: 'Чащи',
+  Coast: 'Берега',
+  Bay: 'Бухты',
+  Shore: 'Побережья',
+  Heights: 'Высоты',
+  Ridge: 'Хребты',
+  Pass: 'Перевалы',
+  Lake: 'Озёра',
+  Waters: 'Воды',
+  Riverlands: 'Речные земли',
+  Ford: 'Броды',
+  Marsh: 'Болота',
+  Wetlands: 'Топи',
+  Ruins: 'Руины',
+  Sanctuary: 'Святилища',
+};
+
+function localizedPlaceName(name: string): string {
+  if (name.endsWith("'s Home")) {
+    return `${name.slice(0, -7)} — дом`;
+  }
+  return name
+    .split(' ')
+    .map((part) => regionNameTranslations[part] ?? part)
+    .join(' ');
+}
+
+let mapExtentWorld: Readonly<WorldState> | undefined;
+let mapExtent: ReturnType<typeof createWorldMapProjection> | undefined;
+function extentForWorld(world: Readonly<WorldState>) {
+  if (mapExtentWorld !== world || !mapExtent) {
+    mapExtentWorld = world;
+    mapExtent = createWorldMapProjection(world);
+  }
+  return mapExtent;
+}
+function normalizeWorldCoordinates(_world: Readonly<WorldState>, x: number, y: number): Pick<MapPoint,'x'|'y'> {
+  return mapCamera.point(x,y);
+}
+function applyMapZoom(): void {
+  mapCamera.resize(worldMapViewport.clientWidth || 390, worldMapViewport.clientHeight || 600);
+  worldMap.style.width = `${mapCamera.width}px`;
+  worldMap.style.height = `${mapCamera.height}px`;
+  worldMap.style.minHeight = '0';
+  worldMap.style.transform = 'none';
+  worldMapStage.style.width = '100%';
+  worldMapStage.style.height = '100%';
+  worldMap.style.setProperty('--place-scale', String(Math.max(0.10, mapCamera.pixelsPerUnit * 0.12 / 42)));
+  worldMap.style.setProperty('--resident-scale', String(Math.min(0.8, Math.max(0.18, mapCamera.pixelsPerUnit * 0.025 / 32))));
+  worldMap.style.setProperty('--road-width', String(Math.max(0.5, Math.min(12,mapCamera.pixelsPerUnit * 0.04))));
+  mapZoomFit.textContent = mapCamera.pixelsPerUnit < 0.5 ? 'Мир' : `${Math.round(mapZoom*100)}%`;
+  worldMap.dataset.detail = mapDetail(mapCamera.pixelsPerUnit);
+  worldMap.dataset.atlasLevel = atlasLevel(mapCamera.pixelsPerUnit);
+  const scale = mapScaleBar(mapCamera.pixelsPerUnit);
+  mapDistance.querySelector<HTMLElement>('span')!.style.width = `${scale.pixels}px`;
+  mapDistance.querySelector<HTMLElement>('b')!.textContent = scale.label;
+}
+const mapInteraction = new MapInteraction(worldMap,mapCamera,()=>{
+  applyMapZoom();if(lastFrame)renderMap(lastFrame);
+});
+function scheduleMapPaint(): void { mapInteraction.invalidate(); }
+function setMapZoom(nextZoom: number, focalX=mapCamera.width/2, focalY=mapCamera.height/2): void {
+  mapCamera.zoom(nextZoom*100,focalX,focalY);
+  mapZoom = mapCamera.pixelsPerUnit/100;
+  scheduleMapPaint();
+}
+function focusMapPoint(x: number,y: number): void {
+  mapCamera.x=x;mapCamera.y=y;
+  scheduleMapPaint();
+}
+function focusSelectedResident(): void {
+  if (!lastFrame) return;
+  const focus = residentMapFocus(lastFrame.world, selectedAgentId, mapCamera.pixelsPerUnit);
+  if (!focus) return;
+  mapCamera.x = focus.x; mapCamera.y = focus.y;
+  setMapZoom(focus.pixelsPerUnit / 100);
+  worldMapViewport.scrollIntoView({block: 'center', behavior: 'auto'});
+}
+function fitMapToViewport(): void {
+  if (!lastFrame) return;
+  const {minX,maxX,minY,maxY}=lastFrame.world.terrain?TERRAIN_BOUNDS:extentForWorld(lastFrame.world);
+  mapCamera.x=(minX+maxX)/2;mapCamera.y=(minY+maxY)/2;
+  setMapZoom(Math.min(mapCamera.width/Math.max(1,maxX-minX),mapCamera.height/Math.max(1,maxY-minY))*0.85/100);
+}
+function updateWorldMapScale(world: Readonly<WorldState>): void {
+  const places=Object.values(world.places);
+  const {minX,maxX,minY,maxY}=extentForWorld(world);
+  const worldLevel=world.growth.stage+1;
+  applyMapZoom();
+  worldTitle.textContent=`Мир · уровень ${worldLevel}`;
+  worldLevelValue.textContent=`ур. ${worldLevel}`;
+  const level=atlasLevel(mapCamera.pixelsPerUnit);
+  const nearest=Object.values(world.settlements).sort((a,b)=>Math.hypot(a.centerX-mapCamera.x,a.centerY-mapCamera.y)-Math.hypot(b.centerX-mapCamera.x,b.centerY-mapCamera.y))[0];
+  mapScaleValue.textContent=level==='world'?'Обзор мира':nearest&&Math.hypot(nearest.centerX-mapCamera.x,nearest.centerY-mapCamera.y)<Math.max(2,nearest.radius*2)?localizedPlaceName(nearest.name):'Открытая территория';
+  if (renderedGrowthStage<0) {
+    const center=world.places.commons;
+    if(center){mapCamera.x=center.mapX;mapCamera.y=center.mapY;}
+  }
+  renderedGrowthStage=world.growth.stage;
+  mapHint.textContent='Потяните карту · колёсико или два пальца — масштаб';
+}
+
+function pointForPlace(
+  placeId: string,
+  agentIndex = 0,
+  world?: Readonly<WorldState>,
+): MapPoint {
+  const publicPoint = publicPlacePoints[placeId];
+  const place = world?.places[placeId];
+  if (place && world) {
+    const symbolByKind: Partial<Record<WorldPlaceKind, string>> = {
+      home: '⌂',
+      construction_site: '▨',
+      commons: '◆',
+      library: '📖',
+      resource_field: '✦',
+      workshop: '⚒',
+      quiet_space: '♣',
+      outskirts: '▲',
+      mountains: '△',
+      lake: '◉',
+      river: '≈',
+      swamp: '♨',
+      ruins: '⌘',
+      cemetery: '✝',
+      village: '⌂',
+      city: '▦',
+      meadow: '❀',
+      forest: '♠',
+      shore: '≈',
+      ocean: '≋',
+    };
+    const normalized = normalizeWorldCoordinates(
+      world,
+      place.mapX,
+      place.mapY,
+    );
+    return {
+      ...normalized,
+      label: publicPoint?.label ?? localizedPlaceName(place.name),
+      symbol: publicPoint?.symbol ?? symbolByKind[place.kind] ?? '•',
+    };
+  }
+  if (publicPoint) return publicPoint;
+  if (placeId.startsWith('home_')) {
+    return homePoints[agentIndex % homePoints.length];
+  }
+  return { x: 50, y: 48, label: placeId, symbol: '•' };
+}
+
+function displayPlaceName(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): string {
+  const publicName = publicPlacePoints[agent.locationId]?.label;
+  if (publicName) return publicName;
+  const storedName = world.places[agent.locationId]?.name ?? agent.locationId;
+  return localizedPlaceName(storedName);
+}
+
+function inspectorReportForEntity(
+  world: Readonly<WorldState>,
+  entity: NonNullable<typeof inspectedEntity>,
+): TruthfulInspectorReportV16 | undefined {
+  if (entity.kind === 'resident') return inspectResidentV16(world, entity.id);
+  if (entity.kind === 'wildlife') return inspectWildlifeV16(world, entity.id);
+  return inspectPlaceV16(world, entity.id);
+}
+
+function renderInspectorReport(report: TruthfulInspectorReportV16): void {
+  worldInspectorBadge.textContent = report.badge;
+  worldInspectorTitle.textContent =
+    report.kind === 'place' ? localizedPlaceName(report.title) : report.title;
+  worldInspectorSubtitle.textContent = report.subtitle;
+  worldInspectorEvidence.textContent = report.evidenceNote;
+  worldInspectorContent.replaceChildren();
+
+  for (const section of report.sections) {
+    const sectionElement = document.createElement('section');
+    sectionElement.className = 'world-inspector__section';
+    const heading = document.createElement('h3');
+    heading.textContent = section.title;
+    const rows = document.createElement('dl');
+    for (const row of section.rows) {
+      const item = document.createElement('div');
+      const term = document.createElement('dt');
+      const description = document.createElement('dd');
+      term.textContent = row.label;
+      description.textContent = row.value;
+      item.append(term, description);
+      rows.append(item);
+    }
+    sectionElement.append(heading, rows);
+    worldInspectorContent.append(sectionElement);
+  }
+}
+
+function openWorldInspector(
+  kind: NonNullable<typeof inspectedEntity>['kind'],
+  id: string,
+): void {
+  if (!lastFrame) return;
+  const entity = { kind, id } as const;
+  const report = inspectorReportForEntity(lastFrame.world, entity);
+  if (!report) return;
+  inspectedEntity = entity;
+  renderInspectorReport(report);
+  worldInspector.hidden = false;
+  worldInspectorClose.focus();
+}
+
+function refreshWorldInspector(world: Readonly<WorldState>): void {
+  if (!inspectedEntity || worldInspector.hidden) return;
+  const report = inspectorReportForEntity(world, inspectedEntity);
+  if (!report) {
+    worldInspector.hidden = true;
+    inspectedEntity = undefined;
+    return;
+  }
+  renderInspectorReport(report);
+}
+
+function closeWorldInspector(): void {
+  worldInspector.hidden = true;
+}
+
+const divineGiftDescriptions = Object.fromEntries(Object.entries(GIFT_CATALOG_V20).map(([id, entry]) => [id, entry[1]])) as Readonly<Record<DivineGiftKind, string>>;
+
+function selectedDivineGift(): DivineGiftKind | undefined {
+  return Object.keys(GIFT_CATALOG_V20).includes(
+    divineGift.value,
+  )
+    ? divineGift.value as DivineGiftKind
+    : undefined;
+}
+
+function selectedDivineBurden(): DivineBurdenKind | undefined {
+  return Object.keys(DIVINE_BURDEN_CATALOG_V22).includes(divineBurden.value)
+    ? divineBurden.value as DivineBurdenKind
+    : undefined;
+}
+
+function updateDivineBurdenNote(): void {
+  const burden = selectedDivineBurden();
+  requiredElement<HTMLElement>('divine-lineage-curse-label').hidden = !burden;
+  if (burden) {
+    divineGift.value = '';
+    updateDivineGiftNote();
+    divineGiftNote.textContent = DIVINE_BURDEN_CATALOG_V22[burden][1];
+  } else {
+    divineLineageCurse.checked = false;
+  }
+}
+
+function selectedDivineContactKind(): DivineContactKind | undefined {
+  return ['message', 'revelation', 'command', 'request', 'warning', 'vision', 'sign'].includes(
+    divineContactKind.value,
+  )
+    ? divineContactKind.value as DivineContactKind
+    : undefined;
+}
+
+function updateDivineGiftNote(): void {
+  const gift = selectedDivineGift();
+  if (gift && divineBurden.value) {
+    divineBurden.value = '';
+    divineLineageCurse.checked = false;
+    requiredElement<HTMLElement>('divine-lineage-curse-label').hidden = true;
+  }
+  const legacy = requiredElement<HTMLSelectElement>('divine-legacy-gift');
+  requiredElement<HTMLElement>('divine-legacy-label').hidden = gift !== 'legacy';
+  const gifts = lastFrame?.world.v19?.divineAgency.byAgentId[selectedAgentId ?? '']?.gifts ?? [];
+  legacy.replaceChildren(...gifts.filter(g => giftIsHeritableV20(g.gift)).map(g => new Option(GIFT_CATALOG_V20[g.gift][0], g.gift)));
+  divineGiftNote.textContent = gift
+    ? divineGiftDescriptions[gift]
+    : 'Можно передать только слова, предупреждение, просьбу, видение или знак — без дара.';
+}
+
+function updateDivineContactRequirements(): void {
+  const contact = selectedDivineContactKind();
+  divineMessage.required = contact !== undefined;
+  divineMessage.placeholder = contact
+    ? 'Передайте Искре сообщение или смысл знака…'
+    : 'При даре без контакта Искра не узнает источник автоматически.';
+}
+
+function openPrivateDivineAudience(prayerId?: string): void {
+  if (!lastFrame || !selectedAgentId || clockPanel.continuity.targetWorldMinutes !== undefined) return;
+  const agent = lastFrame.world.agents[selectedAgentId];
+  if (!agent?.life.alive) return;
+  activePrayerId = prayerId;
+  divineAudienceRequestId = undefined;
+  divineAudienceRequestPending = false;
+  divineAudienceGrant.disabled = false;
+  divineAudienceStatus.textContent = '';
+  divineMessage.value = '';
+  divineContactKind.value = prayerId ? 'message' : '';
+  divineAudienceSubtitle.textContent =
+    `${prayerId ? 'Ответ на молитву. ' : ''}Время мира и старение ${agent.name} остановлены до закрытия этой аудиенции.`;
+  updateDivineGiftNote();
+  updateDivineContactRequirements();
+  persistOfflineClockAnchor(lastFrame, Date.now());
+  liveWorldWorker.postMessage({
+    type: 'set_divine_audience_pause',
+    paused: true,
+  });
+  divineAudience.hidden = false;
+  document.body.classList.add('has-modal');
+  divineMessage.focus();
+}
+
+function closePrivateDivineAudience(): void {
+  if (divineAudienceRequestPending) return;
+  divineAudience.hidden = true;
+  activePrayerId = undefined;
+  document.body.classList.remove('has-modal');
+  clockPanel.continuity.targetWorldMinutes = undefined;
+  pendingOfflineClockAnchor = undefined;
+  if (lastFrame) persistOfflineClockAnchor(lastFrame, Date.now());
+  liveWorldWorker.postMessage({
+    type: 'set_divine_audience_pause',
+    paused: false,
+  });
+}
+
+const prayerTopicLabels: Readonly<Record<V19PrayerTopic, string>> = {
+  health: 'здоровье',
+  family: 'семья',
+  grief: 'утрата',
+  hunger: 'голод',
+  harvest: 'урожай',
+  war: 'война',
+  danger: 'опасность',
+  travel: 'путешествие',
+  poverty: 'бедность',
+  gratitude: 'благодарность',
+  purpose: 'смысл жизни',
+};
+
+function prayerStrength(value: number): string {
+  return value >= 0.7 ? 'высокая' : value >= 0.4 ? 'средняя' : 'низкая';
+}
+
+function prayerDesperation(value: number): string {
+  return value >= 0.72 ? 'сильное' : value >= 0.42 ? 'заметное' : 'невысокое';
+}
+
+function populatePrayerFilters(world: Readonly<WorldState>): void {
+  const selectedSettlement = prayerFilterSettlement.value;
+  const settlementIds = new Map<string, string>();
+  for (const prayer of world.v19?.divineAgency.recentPrayers ?? []) {
+    if (prayer.evidence.settlementId && prayer.evidence.settlementName) {
+      settlementIds.set(prayer.evidence.settlementId, prayer.evidence.settlementName);
+    }
+  }
+  const settlementOptions = [new Option('Все поселения', '')];
+  for (const [id, name] of [...settlementIds].sort((left, right) =>
+    left[1].localeCompare(right[1], 'ru'),
+  )) {
+    settlementOptions.push(new Option(name, id));
+  }
+  prayerFilterSettlement.replaceChildren(...settlementOptions);
+  prayerFilterSettlement.value = settlementIds.has(selectedSettlement)
+    ? selectedSettlement
+    : '';
+  if (prayerFilterTopic.options.length === 1) {
+    for (const [topic, label] of Object.entries(prayerTopicLabels)) {
+      prayerFilterTopic.add(new Option(label, topic));
+    }
+  }
+}
+
+function prayerCard(world: Readonly<WorldState>, prayer: Readonly<V19PrayerRecord>): HTMLElement {
+  const card = document.createElement('article');
+  card.className = `prayer-card${prayer.response ? ' is-answered' : ''}`;
+  const heading = document.createElement('header');
+  const identity = document.createElement('strong');
+  identity.textContent = `${prayer.npcName}, ${Math.floor(prayer.npcAgeYears)} лет`;
+  const place = document.createElement('span');
+  place.textContent = prayer.evidence.settlementName ??
+    localizedPlaceName(world.places[prayer.evidence.locationId]?.name ?? prayer.evidence.locationId);
+  heading.append(identity, place);
+
+  const recipient = document.createElement('p');
+  recipient.className = 'prayer-card__recipient';
+  recipient.textContent = `Кому: ${prayer.deityKnown ? prayer.deityName : 'неизвестному возможному божеству'} · ${formatAinkradWorldTime(prayer.worldMinute)}`;
+  const quote = document.createElement('blockquote');
+  quote.textContent = `«${prayer.generatedPrayerText}»`;
+  const context = document.createElement('dl');
+  for (const [label, value] of [
+    ['Причина', prayer.triggerEvent],
+    ['Желание', prayer.desiredOutcome],
+    ['Тема', prayerTopicLabels[prayer.topic]],
+    ['Состояние', prayer.emotionalState],
+    ['Сила веры', prayerStrength(prayer.beliefStrength)],
+    ['Отчаяние', prayerDesperation(prayer.desperation)],
+  ]) {
+    const row = document.createElement('div');
+    const term = document.createElement('dt');
+    const description = document.createElement('dd');
+    term.textContent = label;
+    description.textContent = value;
+    row.append(term, description);
+    context.append(row);
+  }
+  if (prayer.response) {
+    const response = document.createElement('p');
+    response.className = 'prayer-card__response';
+    response.textContent = `После вмешательства: «${prayer.response.residentResponse}»`;
+    card.append(heading, recipient, quote, context, response);
+  } else {
+    card.append(heading, recipient, quote, context);
+  }
+  const actions = document.createElement('div');
+  actions.className = 'prayer-card__actions';
+  const openNpc = document.createElement('button');
+  openNpc.type = 'button';
+  openNpc.textContent = 'Открыть Искру';
+  openNpc.addEventListener('click', () => {
+    selectedAgentId = prayer.npcId;
+    closePrayerInbox();
+    updateSelection();
+    openWorldInspector('resident', prayer.npcId);
+  });
+  const answer = document.createElement('button');
+  answer.type = 'button';
+  answer.textContent = prayer.response ? 'Новое действие' : 'Ответить или дать дар';
+  answer.disabled = !world.agents[prayer.npcId]?.life.alive;
+  answer.addEventListener('click', () => {
+    selectedAgentId = prayer.npcId;
+    closePrayerInbox();
+    updateSelection();
+    openPrivateDivineAudience(prayer.id);
+  });
+  actions.append(openNpc, answer);
+  card.append(actions);
+  return card;
+}
+
+function filteredPrayers(world: Readonly<WorldState>): V19PrayerRecord[] {
+  const agency = world.v19?.divineAgency;
+  if (!agency) return [];
+  const npcQuery = prayerFilterNpc.value.trim().toLocaleLowerCase('ru');
+  const settlementId = prayerFilterSettlement.value;
+  const topic = prayerFilterTopic.value;
+  const prayers = agency.recentPrayers.filter((prayer) =>
+    (!settlementId || prayer.evidence.settlementId === settlementId) &&
+    (!npcQuery || prayer.npcName.toLocaleLowerCase('ru').includes(npcQuery)) &&
+    (!topic || prayer.topic === topic) &&
+    (prayerFilterBelief.value !== 'high' || prayer.beliefStrength >= 0.65) &&
+    (prayerFilterBelief.value !== 'low' || prayer.beliefStrength < 0.4) &&
+    (prayerFilterDesperation.value !== 'high' || prayer.desperation >= 0.7) &&
+    (prayerFilterDesperation.value !== 'low' || prayer.desperation < 0.4)
+  );
+  return prayers.sort((left, right) => {
+    if (prayerFilterOrder.value === 'important') {
+      return right.importance - left.importance || right.sequence - left.sequence;
+    }
+    if (prayerFilterOrder.value === 'frequent') {
+      const leftCount = agency.byAgentId[left.npcId]?.totalPrayerCount ?? 0;
+      const rightCount = agency.byAgentId[right.npcId]?.totalPrayerCount ?? 0;
+      return rightCount - leftCount || right.sequence - left.sequence;
+    }
+    return right.sequence - left.sequence;
+  });
+}
+
+function renderPrayerInbox(world: Readonly<WorldState>): void {
+  const agency = world.v19?.divineAgency;
+  const latestSequence = Math.max(0, (agency?.nextPrayerSequence ?? 1) - 1);
+  const unread = Math.max(0, latestSequence - lastSeenPrayerSequence);
+  prayerUnreadCount.textContent = unread > 99 ? '99+' : String(unread);
+  prayerInboxOpen.classList.toggle('has-unread', unread > 0);
+  if (!agency || prayerInbox.hidden) return;
+  populatePrayerFilters(world);
+  const visible = filteredPrayers(world);
+  prayerInboxSummary.textContent =
+    `Всего молитв в истории: ${agency.totalPrayerCount}. ` +
+    `Подробно сохранены последние ${agency.recentPrayers.length}; более ранние учтены в счётчиках. ` +
+    `По фильтру: ${visible.length}.`;
+  prayerInboxList.replaceChildren();
+  if (visible.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'prayer-inbox__empty';
+    empty.textContent = 'Под эти фильтры молитв пока нет.';
+    prayerInboxList.append(empty);
+    return;
+  }
+  prayerInboxList.append(...visible.map((prayer) => prayerCard(world, prayer)));
+}
+
+function openPrayerInbox(): void {
+  if (!lastFrame) return;
+  prayerInbox.hidden = false;
+  document.body.classList.add('has-modal');
+  const latest = Math.max(
+    0,
+    (lastFrame.world.v19?.divineAgency.nextPrayerSequence ?? 1) - 1,
+  );
+  lastSeenPrayerSequence = latest;
+  try {
+    localStorage.setItem(LAST_SEEN_PRAYER_KEY, String(latest));
+  } catch {
+    // Read status may reset after reload when local preferences are blocked.
+  }
+  renderPrayerInbox(lastFrame.world);
+  prayerInboxClose.focus();
+}
+
+function closePrayerInbox(): void {
+  prayerInbox.hidden = true;
+  document.body.classList.remove('has-modal');
+}
+
+
+function renderPlaces(world: Readonly<WorldState>): void {
+  atlas.index.update(world);
+  const close=atlasLevel(mapCamera.pixelsPerUnit)==='building';
+  const visiblePlaces=atlas.index.visiblePlaces(world,mapCamera,highlightedPlaceIds);
+  const townNames=new Map(Object.values(world.settlements).map(t=>[t.centerPlaceId,localizedPlaceName(t.name)]));
+  const labelIds=visibleMapLabels(visiblePlaces,mapCamera,highlightedPlaceIds,townNames);
+  const liveIds = new Set(visiblePlaces.map(p=>p.id));
+  for (const [placeId, element] of placeElements) {
+    if (liveIds.has(placeId)) continue;
+    element.remove();
+    placeElements.delete(placeId);
+  }
+  const dungeonByEntrance = new Map(
+    Object.values(world.v19?.adventureEconomy.dungeonsById ?? {}).map(
+      (dungeon) => [dungeon.entrancePlaceId, dungeon] as const,
+    ),
+  );
+  for (const place of visiblePlaces) {
+    const placeId=place.id;
+    const point = pointForPlace(placeId, 0, world);
+    let placeElement = placeElements.get(placeId);
+    if (!placeElement) {
+      placeElement = document.createElement('button');
+      placeElement.setAttribute('type', 'button');
+      placeElement.className = `map-place map-place--${place.kind}`;
+      placeElement.innerHTML = `
+        <span class="place-building" aria-hidden="true">
+          ${physicalPlaceDrawing(place,close)}
+        </span>
+        <span class="place-label"></span>
+        <span class="place-count">0</span>
+      `;
+      placeElement.addEventListener('click', () => {
+        openWorldInspector('place', placeId);
+      });
+      placesLayer.append(placeElement);
+      placeElements.set(placeId, placeElement);
+      placeElement.dataset.artKind = place.kind+':'+close;
+    }
+    if (placeElement.dataset.artKind !== place.kind+':'+close) {
+      placeElement.querySelector('.place-building')!.innerHTML = physicalPlaceDrawing(place,close);
+      placeElement.dataset.artKind = place.kind+':'+close;
+    }
+    placeElement.className = `map-place map-place--${place.kind} map-place--surface-${place.surface}`;
+    applyPhysicalPlaceStyle(placeElement,place,mapCamera);
+    const mapLabel=labelIds.get(placeId);
+    placeElement.classList.toggle('has-map-label',Boolean(mapLabel));
+    if(mapLabel) {
+      placeElement.style.setProperty('--label-offset-x',mapLabel.offsetX+'px');
+      placeElement.style.setProperty('--label-offset-y',mapLabel.offsetY+'px');
+      placeElement.style.setProperty('--map-label-width',mapLabel.width+'px');
+    }
+    placeElement.classList.toggle(
+      'is-territory-claimed',
+      place.claimedBySettlementId !== undefined,
+    );
+    placeElement.dataset.claimedBy = place.claimedBySettlementId ?? '';
+    placeElement.classList.toggle('is-highlighted', highlightedPlaceIds.has(placeId));
+    const dungeon = dungeonByEntrance.get(placeId);
+    placeElement.classList.toggle('has-dungeon', dungeon !== undefined);
+    placeElement.dataset.dungeonRank = dungeon?.rank ?? '';
+    placeElement.style.left = `${point.x}%`;
+    placeElement.style.top = `${point.y}%`;
+    placeElement.style.zIndex = String(mapEntityDepth(point.y, mapCamera.pixelsPerUnit*0.10, mapCamera.height));
+    placeElement.setAttribute(
+      'aria-label',
+      dungeon ? `${point.label}; вход в подземелье ранга ${dungeon.rank}` : point.label,
+    );
+    const label = placeElement.querySelector<HTMLElement>('.place-label');
+    if (label) label.textContent = townNames.get(placeId)??point.label;
+  }
+}
+
+function renderAdventurePanel(world: Readonly<WorldState>): void {
+  const adventure = world.v19?.adventureEconomy;
+  if (!adventure) {
+    dungeonCount.textContent = '0';
+    adventurerCount.textContent = '0';
+    artifactCount.textContent = '0';
+    tradeVolume.textContent = '0';
+    adventureLatest.textContent = 'Система продолжает старое сохранение.';
+    return;
+  }
+  const dungeons = Object.values(adventure.dungeonsById);
+  const profiles = Object.values(adventure.adventurersByAgentId);
+  const artifacts = Object.values(adventure.artifactsById);
+  const treasury = Object.values(adventure.settlementMarketsById).reduce(
+    (sum, market) => sum + market.treasuryCoin,
+    0,
+  );
+  dungeonCount.textContent = String(dungeons.length);
+  adventurerCount.textContent = String(
+    profiles.filter((profile) => profile.dungeonRuns > 0).length,
+  );
+  artifactCount.textContent = String(artifacts.length);
+  tradeVolume.textContent = adventure.totalTradeVolume.toFixed(1);
+  const latest = adventure.recentRuns.at(-1);
+  if (latest) {
+    const agent = world.agents[latest.agentId];
+    const dungeon = adventure.dungeonsById[latest.dungeonId];
+    const outcome =
+      latest.outcome === 'success'
+        ? `прошёл глубину ${latest.clearedDepth}`
+        : latest.outcome === 'retreat'
+          ? 'решил отступить'
+          : 'потерпел поражение и выбрался';
+    adventureLatest.textContent = `${agent?.name ?? latest.agentId} ${outcome} · ${dungeon?.name ?? latest.dungeonId} · ранг ${latest.rankAfter}`;
+  } else {
+    adventureLatest.textContent = dungeons.length > 0
+      ? `Открыто входов: ${dungeons.length}. Решение войти примут сами Искры.`
+      : 'Искры ещё не нашли входы в подземелья.';
+  }
+  adventureEconomyNote.textContent =
+    `Из подземелий вынесено ${adventure.totalCoinRecovered.toFixed(1)} монет · ` +
+    `в казнах поселений ${treasury.toFixed(1)} · физических межпоселенческих связей ${Object.keys(adventure.tradeRelationsById).length}.`;
+}
+
+function renderWildlife(world: Readonly<WorldState>): void {
+  const visibleWildlife=Object.values(world.wildlife).filter(p=>{
+    if(mapCamera.pixelsPerUnit<90)return false;
+    const habitat=world.places[p.habitatId];return habitat&&mapCamera.visible(habitat.mapX,habitat.mapY,70);
+  }).slice(0,50);
+  const liveIds = new Set(visibleWildlife.map(p=>p.id));
+  for (const [populationId, element] of wildlifeElements) {
+    if (liveIds.has(populationId)) continue;
+    element.remove();
+    wildlifeElements.delete(populationId);
+  }
+  for (const population of visibleWildlife) {
+    const populationId=population.id;
+    const habitat = world.places[population.habitatId];
+    if (!habitat) continue;
+    const offsets: Record<WildlifeSpecies, { x: number; y: number }> = {
+      rabbit: { x: 6, y: 4 },
+      deer: { x: 7, y: 5 },
+      fish: { x: 4, y: 5 },
+      boar: { x: 5, y: 5 },
+      wolf: { x: -5, y: 4 },
+      bird: { x: 3, y: -5 },
+      dire_wolf: { x: -7, y: 6 },
+      ogre: { x: 7, y: -6 },
+      wraith: { x: -6, y: -6 },
+      century_humpback: { x: 0, y: -9 },
+    };
+    const offset = offsets[population.species];
+    let element = wildlifeElements.get(populationId);
+    if (!element) {
+      element = document.createElement('button');
+      element.setAttribute('type', 'button');
+      element.className = `wildlife-population wildlife-population--${population.species}`;
+      element.innerHTML = `
+        <span class="wildlife-icon" aria-hidden="true">${wildlifeIcons[population.species]}</span>
+        <span class="wildlife-count"></span>
+      `;
+      element.addEventListener('click', () => {
+        openWorldInspector('wildlife', populationId);
+      });
+      wildlifeLayer.append(element);
+      wildlifeElements.set(populationId, element);
+    }
+
+    const point = normalizeWorldCoordinates(world, habitat.mapX + offset.x * 0.005, habitat.mapY + offset.y * 0.005);
+    element.style.left = `${point.x}%`;
+    element.style.top = `${point.y}%`;
+
+    const label = wildlifeLabels[population.species];
+    const count = element.querySelector<HTMLElement>('.wildlife-count');
+    if (count) count.textContent = String(population.count);
+    element.setAttribute(
+      'aria-label',
+      `${label}: ${population.count} из ${population.carryingCapacity}`,
+    );
+    element.classList.toggle('is-depleted', population.count === 0);
+    element.classList.toggle('is-monster', population.isMonster === true);
+  }
+}
+
+function ensureAvatar(
+  agent: Readonly<AgentState>,
+  index: number,
+): HTMLButtonElement {
+  const existing = avatarElements.get(agent.id);
+  if (existing) return existing;
+
+  const avatar = document.createElement('button');
+  avatar.type = 'button';
+  avatar.className = 'resident-avatar';
+  avatar.style.setProperty('--resident-index', String(index));
+  avatar.innerHTML = `
+    <span class="action-bubble" aria-hidden="true">•</span>
+    <span class="resident-figure" aria-hidden="true">
+      <span class="resident-shadow"></span>
+      <span class="resident-head"><span class="resident-hair"></span></span>
+      <span class="resident-arm resident-arm--left"></span>
+      <span class="resident-arm resident-arm--right"></span>
+      <span class="resident-body"></span>
+      <span class="resident-leg resident-leg--left"></span>
+      <span class="resident-leg resident-leg--right"></span>
+    </span>
+    <span class="resident-nameplate"></span>
+  `;
+
+  const nameplate = avatar.querySelector<HTMLElement>('.resident-nameplate');
+  if (!nameplate) throw new Error('Resident nameplate was not created.');
+  nameplate.textContent = agent.name;
+
+  avatar.addEventListener('click', () => {
+    selectedAgentId = agent.id;
+    updateSelection();
+    openWorldInspector('resident', agent.id);
+  });
+
+  agentsLayer.append(avatar);
+  avatarElements.set(agent.id, avatar);
+  return avatar;
+}
+
+function strongestTraits(agent: Readonly<AgentState>): string {
+  return (Object.entries(agent.personality) as Array<
+    [keyof AgentState['personality'], number]
+  >)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([trait]) => traitLabels[trait])
+    .join(' · ');
+}
+
+function strongestSkill(agent: Readonly<AgentState>): string {
+  const strongest = (Object.entries(agent.skills) as Array<
+    [keyof AgentState['skills'], number]
+  >).sort((a, b) => b[1] - a[1])[0];
+  const progression = agent.progression;
+  const level = progression?.level ?? 1;
+  const control = Math.round((progression?.objectControlAuthority ?? 0) * 100);
+  const system = Math.round((progression?.systemControlAuthority ?? 0) * 100);
+  return `ур. ${level} · ${skillLabels[strongest[0]]} ${Math.round(strongest[1] * 100)}% · OC ${control}% · SC ${system}%`;
+}
+
+function emotionalSummary(agent: Readonly<AgentState>): string {
+  return (Object.entries(agent.mind.emotions) as Array<
+    [keyof AgentState['mind']['emotions'], number]
+  >)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([emotion, value]) => `${emotionLabels[emotion]} ${Math.round(value * 100)}%`)
+    .join(' · ');
+}
+
+function physiologySummary(
+  agent: Readonly<AgentState>,
+  world?: Readonly<WorldState>,
+): string {
+  const physiology = (
+    agent.life as AgentState['life'] & {
+      physiology?: AgentState['life']['physiology'];
+    }
+  ).physiology ?? {
+    strength: agent.life.stage === 'elder' ? 0.45 : 0.75,
+    endurance: agent.life.stage === 'elder' ? 0.42 : 0.72,
+    mobility: agent.life.stage === 'elder' ? 0.4 : 0.76,
+    recovery: agent.life.stage === 'elder' ? 0.35 : 0.74,
+  };
+  const bodyState =
+    physiology.strength >= 0.82
+      ? 'сильный'
+      : physiology.mobility < 0.36
+        ? 'немощный'
+        : physiology.endurance < 0.52
+          ? 'быстро устаёт'
+          : 'в норме';
+  const physical = world?.v21?.bodiesByAgentId[agent.id];
+  const clinical = physical
+    ? ` · ран ${physical.wounds.length} · болезней ${physical.diseases.length} · боль ${Math.round(physical.pain * 100)}%`
+    : '';
+  return `${bodyState} · сила ${Math.round(physiology.strength * 100)}% · выносливость ${Math.round(physiology.endurance * 100)}%${clinical}`;
+}
+
+function closestRelationship(
+  world: Readonly<WorldState>,
+  agentId: string,
+): RelationshipState | undefined {
+  return Object.values(world.relationships)
+    .filter(
+      (relationship) =>
+        relationship.agentA === agentId || relationship.agentB === agentId,
+    )
+    .sort(
+      (a, b) =>
+        b.trust + b.affinity + b.respect - b.conflict -
+        (a.trust + a.affinity + a.respect - a.conflict),
+    )[0];
+}
+
+function syncResidentPicker(
+  world: Readonly<WorldState>,
+  agents: readonly AgentState[],
+): void {
+  const query = residentSearchQuery.trim().toLocaleLowerCase('ru-RU');
+  const sorted = [...agents].filter((agent) =>
+    !query || agent.name.toLocaleLowerCase('ru-RU').includes(query),
+  ).sort(
+    (left, right) => left.name.localeCompare(right.name, 'ru') || left.id.localeCompare(right.id),
+  );
+  const signature = sorted
+    .map((agent) => {
+      const livelihood = world.v18?.livelihoodByAgentId[agent.id];
+      return `${agent.id}:${agent.name}:${agent.race ?? 'human'}:${livelihood?.primary ?? 'undecided'}`;
+    })
+    .join('|') + `|query:${query}`;
+  if (signature !== residentPickerSignature) {
+    residentPickerSignature = signature;
+    const groups: HTMLOptGroupElement[] = [];
+    for (const race of ['human', 'elf', 'dwarf', 'goblin', 'orc', 'ogre'] as const) {
+      const members = sorted.filter((agent) => (agent.race ?? 'human') === race);
+      if (members.length === 0) continue;
+      const group = document.createElement('optgroup');
+      group.dataset.race = race;
+      group.label = `${raceGroupMarkers[race]} ${raceGroupLabels[race].toLocaleUpperCase('ru-RU')} · ${members.length}`;
+      for (const agent of members) {
+        const option = document.createElement('option');
+        option.value = agent.id;
+        const livelihood = world.v18?.livelihoodByAgentId[agent.id];
+        option.textContent = `${agent.name} · ${livelihoodLabels[livelihood?.primary ?? 'undecided']}`;
+        group.append(option);
+      }
+      groups.push(group);
+    }
+    if (groups.length === 0) {
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'Никого не найдено';
+      residentPicker.replaceChildren(empty);
+    } else {
+      residentPicker.replaceChildren(...groups);
+    }
+  }
+  if (selectedAgentId) residentPicker.value = selectedAgentId;
+}
+
+function updateSelection(): void {
+  if (!lastFrame) return;
+
+  const agents = Object.values(lastFrame.world.agents).filter(
+    (agent) => agent.life.alive,
+  );
+  const selected =
+    agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
+  if (!selected) return;
+  selectedAgentId = selected.id;
+  residentPicker.value = selected.id;
+
+  for (const [agentId, avatar] of avatarElements) {
+    const isSelected = agentId === selected.id;
+    avatar.classList.toggle('is-selected', isSelected);
+    avatar.setAttribute('aria-pressed', String(isSelected));
+  }
+
+  residentPortrait.textContent = selected.name.slice(0, 1).toUpperCase();
+  residentPortrait.style.setProperty(
+    '--portrait-index',
+    String(agents.findIndex((agent) => agent.id === selected.id)),
+  );
+  residentName.textContent = selected.name;
+  residentActivity.textContent = selected.movement
+    ? `в пути · ${actionLabels[selected.movement.purpose]}`
+    : selected.lastAction
+      ? actionLabels[selected.lastAction]
+      : 'осматривается';
+  residentPlace.textContent = displayPlaceName(lastFrame.world, selected);
+  residentGoal.textContent = goalLabels[selected.goal.kind];
+  const age = ageParts(selected.life.ageYears);
+  residentLife.textContent = `${age.years} лет ${age.months} мес · ${raceLabels[selected.race ?? 'human']} · поколение ${selected.life.generation} · ${
+    selected.origin === 'native' ? 'рождён здесь' : 'вошёл извне'
+  }`;
+  residentEmotion.textContent = emotionalSummary(selected);
+  residentPhysiology.textContent = physiologySummary(selected, lastFrame.world);
+  residentTraits.textContent = strongestTraits(selected);
+  const livelihood = lastFrame.world.v18?.livelihoodByAgentId[selected.id];
+  const socialProfile = lastFrame.world.v19?.adventureEconomy.emergentSociety
+    ?.residentsByAgentId[selected.id];
+  const recognizedProfession = socialProfile?.recognizedProfessionId
+    ? lastFrame.world.v19?.adventureEconomy.emergentSociety
+        ?.professionsById[socialProfile.recognizedProfessionId]
+    : undefined;
+  residentProfession.textContent = recognizedProfession
+    ? `${recognizedProfession.title} · признано по ${recognizedProfession.evidenceCount} случаям практики`
+    : livelihood
+    ? `${livelihoodLabels[livelihood.primary]} · ${livelihoodStageLabels[livelihood.stage]}`
+    : 'запись создаётся';
+  const adventureProfile =
+    lastFrame.world.v19?.adventureEconomy.adventurersByAgentId[selected.id];
+  if (adventureProfile) {
+    const ability = adventureProfile.abilities.at(-1);
+    residentAdventure.textContent =
+      `ранг ${adventureRankLabels[adventureProfile.rank]} · походов ${adventureProfile.dungeonRuns} · ` +
+      `монет ${adventureProfile.coinBalance.toFixed(1)} · трофеев ${adventureProfile.artifactIds.length}` +
+      (ability ? ` · ${adventureAbilityLabels[ability]}` : '');
+  } else {
+    residentAdventure.textContent = 'в подземелья не ходил';
+  }
+  residentSkill.textContent = strongestSkill(selected);
+  const divineProfile = lastFrame.world.v19?.divineAgency.byAgentId[selected.id];
+  const gifts = divineProfile?.gifts ?? [];
+  const burdens = divineProfile?.burdens ?? [];
+  const divineParts = [
+    ...gifts.map((grant) => {
+      const label = GIFT_CATALOG_V20[grant.gift][0];
+      if ((EXCEPTIONAL_ABILITIES_V22 as readonly string[]).includes(grant.gift)) {
+        return grant.gift === 'phoenix' && (grant.triggerCount ?? 0) > 0
+          ? `${label} · исчерпана`
+          : label;
+      }
+      return `${label} · ${Math.round(giftMasteryV20(lastFrame!.world, selected.id, grant.gift) * 100)}%`;
+    }),
+    ...burdens.map((burden) =>
+      `${DIVINE_BURDEN_CATALOG_V22[burden.burden][0]} · ${Math.round(burden.intensity * 100)}%${burden.lineage ? ' · родовое' : ''}`,
+    ),
+  ];
+  residentDivine.textContent = divineParts.length ? divineParts.join(' · ') : 'нет';
+  const giftCount = gifts.length;
+  const contactCount = divineProfile?.contacts.length ?? 0;
+  privateAudienceOpen.disabled =
+    clockPanel.continuity.targetWorldMinutes !== undefined;
+  privateAudienceOpen.textContent = clockPanel.continuity.targetWorldMinutes !== undefined
+      ? 'Аудиенция доступна после догона мира'
+      : giftCount + contactCount > 0
+        ? `Божественные действия · даров ${giftCount}, контактов ${contactCount}`
+        : 'Закрытая аудиенция божества';
+
+  if (selected.lastDecision) {
+    const reflection = selected.lastDecision.innerThought &&
+      selected.lastDecision.deliberationWorldMinutes !== undefined
+      ? {
+          innerThought: selected.lastDecision.innerThought,
+          deliberationWorldMinutes: selected.lastDecision.deliberationWorldMinutes,
+        }
+      : residentDecisionReflection(selected, selected.lastDecision);
+    residentChoice.textContent = reflection.innerThought;
+    const decisionSeconds = Math.max(
+      10,
+      Math.round((reflection.deliberationWorldMinutes * 60) / 5) * 5,
+    );
+    residentChoice.title = decisionSeconds < 60
+      ? `Решение заняло около ${decisionSeconds} секунд времени мира. Само действие продолжается отдельно.`
+      : `Решение заняло около ${Math.round(decisionSeconds / 60)} минут времени мира. Само действие продолжается отдельно.`;
+  } else {
+    residentChoice.textContent = 'первое решение впереди';
+    residentChoice.removeAttribute('title');
+  }
+
+  residentLearning.textContent = residentLearningSummary(selected);
+  const relationship = closestRelationship(lastFrame.world, selected.id);
+  if (relationship) {
+    const otherId =
+      relationship.agentA === selected.id
+        ? relationship.agentB
+        : relationship.agentA;
+    const other = lastFrame.world.agents[otherId];
+    relationshipNote.textContent = other
+      ? other.life.alive
+        ? `Ближе всего: ${other.name} · доверие ${Math.round(relationship.trust * 100)}%`
+        : `Помнит ${other.name} · связь не исчезла после смерти`
+      : 'Связи продолжают меняться.';
+  } else {
+    relationshipNote.textContent = 'Связи ещё формируются.';
+  }
+
+  const setNeed = (
+    value: number,
+    valueElement: HTMLElement,
+    barElement: HTMLElement,
+  ) => {
+    const percent = Math.round(value * 100);
+    valueElement.textContent = `${percent}%`;
+    barElement.style.width = `${percent}%`;
+  };
+
+  setNeed(selected.energy, energyValue, energyBar);
+  setNeed(selected.stress, stressValue, stressBar);
+  setNeed(selected.resources, personalResourceValue, personalResourceBar);
+  setNeed(
+    lastFrame.world.v18?.lifeRhythmByAgentId[selected.id]?.satiety ??
+      selected.resources,
+    satietyValue,
+    satietyBar,
+  );
+  setNeed(selected.needs.belonging, belongingValue, belongingBar);
+  setNeed(selected.needs.purpose, purposeValue, purposeBar);
+}
+
+function eventAgentName(
+  event: Readonly<WorldEvent>,
+  world: Readonly<WorldState>,
+): string {
+  const agentId = event.payload.agentId;
+  return typeof agentId === 'string'
+    ? world.agents[agentId]?.name ?? 'Искра'
+    : 'Искра';
+}
+
+function eventText(
+  event: Readonly<WorldEvent>,
+  world: Readonly<WorldState>,
+): string | undefined {
+  const name = eventAgentName(event, world);
+  switch (event.kind) {
+    case 'agent.rested':
+      return `${name} решил отдохнуть`;
+    case 'agent.relaxed':
+      return `${name} отдыхает на природе`;
+    case 'agent.walked':
+      return `${name} отправился гулять`;
+    case 'agent.gathered':
+      return `${name} добыл ${
+        event.payload.material === 'food'
+          ? 'пищу'
+          : event.payload.material === 'wood'
+            ? 'дерево'
+            : event.payload.material === 'stone'
+              ? 'камень'
+              : event.payload.material === 'metal'
+                ? 'металл'
+                : event.payload.material === 'fuel'
+                  ? 'топливо'
+                  : 'ресурсы'
+      }`;
+    case 'agent.hunted': {
+      const species = event.payload.species;
+      const label =
+        typeof species === 'string' && species in wildlifeLabels
+          ? wildlifeLabels[species as WildlifeSpecies].toLowerCase()
+          : 'дичь';
+      return event.payload.succeeded
+        ? `${name} добыл: ${label}`
+        : `${name} вернулся с охоты без добычи`;
+    }
+    case 'agent.worked':
+      return `${name} работает в мастерской`;
+    case 'agent.explored':
+      if (typeof event.payload.discoveredRegionId === 'string') {
+        return `${name} открыл: ${
+          publicPlacePoints[event.payload.discoveredRegionId]?.label ??
+          world.places[event.payload.discoveredRegionId]?.name ??
+          event.payload.discoveredRegionId
+        }`;
+      }
+      return event.payload.discovered
+        ? `${name} нашёл новые ресурсы`
+        : `${name} исследует окраину`;
+    case 'agent.dungeon.travel_started':
+      return `${name} сам отправился ко входу в подземелье ранга ${String(event.payload.rank ?? '?')}`;
+    case 'agent.dungeon.expedition':
+      return event.payload.outcome === 'success'
+        ? `${name} вернулся из подземелья с опытом и добычей`
+        : event.payload.outcome === 'retreat'
+          ? `${name} решил вовремя отступить из подземелья`
+          : `${name} выбрался из подземелья после поражения`;
+    case 'agent.market.food_purchase':
+      return `${name} купил настоящие припасы поселения`;
+    case 'agent.market.artifact_sale':
+      return `${name} продал найденный артефакт на местном рынке`;
+    case 'agent.market.artifact_purchase':
+      return `${name} купил артефакт у поселения`;
+    case 'agent.reflected':
+      return `${name} ушёл поразмышлять`;
+    case 'agent.prayed':
+      return `${name} пытается понять тайны мира`;
+    case 'agent.education.founding_primer_studied':
+      return `${name} изучает основы дома, семьи и безопасной жизни в мире`;
+    case 'agent.bond.accepted':
+      return `${name} стал кому-то ближе`;
+    case 'agent.bond.declined':
+      return `${name} получил время всё обдумать`;
+    case 'agent.born':
+      return `${name} родился — началась новая жизнь`;
+    case 'agent.died':
+      return event.payload.cause === 'monster'
+        ? `${name} погиб при встрече с чудовищем`
+        : event.payload.cause === 'war'
+          ? `${name} погиб в столкновении поселений`
+          : event.payload.cause === 'contamination'
+            ? `${name} умер из-за заражения местности`
+        : `${name} умер, но его история осталась в мире`;
+    case 'agent.life.stage_changed':
+      return `${name} перешёл в новый период жизни`;
+    case 'agent.socialize.blocked':
+      return `${name} не смог найти компанию`;
+    case 'agent.help.accepted': {
+      const targetId = event.payload.targetId;
+      const target =
+        typeof targetId === 'string' ? world.agents[targetId]?.name : undefined;
+      return `${name} помог${target ? ` ${target}` : ' другой Искре'}`;
+    }
+    case 'agent.help.rejected':
+      return `Помощь ${name} не приняли`;
+    case 'agent.goal.changed': {
+      const next = event.payload.next;
+      return typeof next === 'string' && next in goalLabels
+        ? `${name}: новая цель — ${goalLabels[next as AgentState['goal']['kind']]}`
+        : `${name} сменил цель`;
+    }
+    case 'relationship.changed': {
+      const a = event.payload.agentA;
+      const b = event.payload.agentB;
+      const sentiment = event.payload.sentiment;
+      const aName = typeof a === 'string' ? world.agents[a]?.name : undefined;
+      const bName = typeof b === 'string' ? world.agents[b]?.name : undefined;
+      if (!aName || !bName) return 'Между Искрами изменилась связь';
+      return typeof sentiment === 'number' && sentiment < -0.18
+        ? `${aName} и ${bName} поспорили`
+        : `${aName} и ${bName} пообщались`;
+    }
+    case 'world.disturbance.resource_shock':
+      return 'Мир пережил ресурсный удар';
+    case 'world.effect.social_barrier':
+      return 'Общаться стало труднее';
+    case 'world.effect.safety_shock':
+      return 'В мире выросла опасность';
+    case 'world.region.discovered': {
+      const regionId = event.payload.regionId;
+      return typeof regionId === 'string'
+        ? `Карта выросла: ${
+            publicPlacePoints[regionId]?.label ??
+            world.places[regionId]?.name ??
+            regionId
+          }`
+        : 'Искры открыли новую территорию';
+    }
+    case 'world.wildlife.recovered': {
+      const species = event.payload.species;
+      return typeof species === 'string' && species in wildlifeLabels
+        ? `${wildlifeLabels[species as WildlifeSpecies]} размножаются`
+        : 'Популяция животных восстанавливается';
+    }
+    case 'world.wildlife.depleted':
+      return 'Одна из популяций животных исчезла из поля зрения';
+    case 'world.monster.encountered': {
+      const species = event.payload.species;
+      const monster =
+        typeof species === 'string' && species in wildlifeLabels
+          ? wildlifeLabels[species as WildlifeSpecies].toLowerCase()
+          : 'чудовище';
+      return `${name} встретил в глуши: ${monster}`;
+    }
+    case 'world.monster.hunted_prey': {
+      const monsterSpecies = event.payload.monsterSpecies;
+      const preySpecies = event.payload.preySpecies;
+      const monster =
+        typeof monsterSpecies === 'string' && monsterSpecies in wildlifeLabels
+          ? wildlifeLabels[monsterSpecies as WildlifeSpecies]
+          : 'Чудовище';
+      const prey =
+        typeof preySpecies === 'string' && preySpecies in wildlifeLabels
+          ? wildlifeLabels[preySpecies as WildlifeSpecies].toLowerCase()
+          : 'добычу';
+      return `${monster} добыл пищу: ${prey}`;
+    }
+    case 'world.monster.fed': {
+      const monsterSpecies = event.payload.monsterSpecies;
+      const monster =
+        typeof monsterSpecies === 'string' && monsterSpecies in wildlifeLabels
+          ? wildlifeLabels[monsterSpecies as WildlifeSpecies]
+          : 'Чудовище';
+      return `${monster} убил путника и питался его телом`;
+    }
+    case 'world.monster.hunger': {
+      const monsterSpecies = event.payload.monsterSpecies;
+      const monster =
+        typeof monsterSpecies === 'string' && monsterSpecies in wildlifeLabels
+          ? wildlifeLabels[monsterSpecies as WildlifeSpecies]
+          : 'Чудовища';
+      return `${monster}: популяция сократилась без доступной добычи`;
+    }
+    case 'world.sapient_race.emerged':
+    case 'world.sapient_people.discovered': {
+      const race = String(event.payload.race ?? 'unknown');
+      const label =
+        race === 'elf'
+          ? 'эльфов'
+          : race === 'dwarf'
+            ? 'гномов'
+            : race === 'goblin'
+          ? 'гоблинов'
+          : race === 'orc'
+            ? 'орков'
+            : race === 'ogre'
+              ? 'огров'
+              : race;
+      return event.kind === 'world.sapient_people.discovered'
+        ? `Искры открыли самостоятельный разумный народ: ${label}`
+        : `В мире возник самостоятельный разумный народ: ${label}`;
+    }
+    case 'agent.level.changed':
+      return `${name} достиг уровня ${String(event.payload.level ?? '?')}`;
+    case 'world.settlement.founded':
+      return `Искры основали ${String(event.payload.name ?? 'новое поселение')}`;
+    case 'agent.resettled':
+      return `${name} добровольно переселился в другое поселение`;
+    case 'world.building.home_started':
+      return 'Искры добровольно начали строить новый дом';
+    case 'world.building.home_built':
+      return 'Искры построили новый дом из местных материалов';
+    case 'world.building.home_repaired':
+      return 'Искры отремонтировали и вернули бесхозный дом в жизнь';
+    case 'agent.household.moved_home':
+      return event.payload.reason === 'voluntary_reoccupation_after_repair'
+        ? `${name} добровольно поселился в восстановленном доме`
+        : `${name} переселился в построенный дом`;
+    case 'world.item.tool_crafted':
+      return event.payload.toolKind === 'farming'
+        ? 'Мастер изготовил земледельческий инструмент'
+        : 'Мастер изготовил строительный инструмент';
+    case 'world.settlement.contact':
+      return 'Представители двух поселений встретились на дороге';
+    case 'world.territory.claimed': {
+      const placeId = event.payload.placeId;
+      return typeof placeId === 'string'
+        ? `Поселение заявило землю: ${world.places[placeId]?.name ?? placeId}`
+        : 'Поселение заявило право на землю';
+    }
+    case 'world.settlement.war_started':
+      return 'Между поселениями началась война по решению её участников';
+    case 'world.settlement.conflict':
+      return event.payload.conflictKind === 'land'
+        ? 'Поселения столкнулись за спорную землю'
+        : 'Поселения совершили вооружённый набег за ресурсами';
+    case 'world.settlement.peace':
+      return 'Участники прекратили войну';
+    case 'world.cemetery.established':
+      return 'Искры отвели место под кладбище';
+    case 'world.resident.buried': {
+      return name === 'Искра'
+        ? 'Искры похоронили умершего'
+        : `Искры похоронили ${name}`;
+    }
+    case 'world.city.emerged':
+      return `${String(event.payload.name ?? 'Поселение')} выросло в город`;
+    case 'world.migrated':
+      return 'Старый мир продолжен по новым правилам';
+    case 'world.tradition.emerged':
+      return 'В мире родилась новая традиция';
+    case 'world.entry.resident_manifested':
+      return 'В мир вошёл новый внешний обитатель';
+    case 'world.entry.deity_manifested':
+      return 'Мир почувствовал присутствие неизвестной силы';
+    case 'world.omen.aurora':
+    case 'world.omen.voice':
+    case 'world.omen.eclipse':
+    case 'world.omen.miracle':
+    case 'world.omen.storm_sign':
+      return 'Искры стали свидетелями необъяснимого знамения';
+    case 'world.omen.natural.sky_lights':
+    case 'world.omen.natural.distant_voice':
+    case 'world.omen.natural.silent_storm':
+    case 'world.omen.natural.ruin_echo':
+      return 'В мире произошло необъяснимое явление';
+    case 'cardinal.world_law.changed':
+      return 'Cardinal предложил новый закон, gateway его разрешил';
+    case 'cardinal.catastrophe.wildfire':
+    case 'cardinal.catastrophe.flood':
+    case 'cardinal.catastrophe.epidemic':
+    case 'cardinal.catastrophe.earthquake':
+    case 'cardinal.catastrophe.drought':
+      return 'Мир переживает разрешённую системную катастрофу';
+    case 'cardinal.intervention.resource_relief':
+      return 'Gateway подтвердил ресурсную помощь';
+    case 'cardinal.effect.open_shared_space':
+      return 'Gateway временно открыл общее пространство';
+    case 'cardinal.effect.safety_support':
+      return 'Gateway подтвердил поддержку безопасности';
+    case 'cardinal.effect.habitat_support':
+      return 'Gateway временно поддержал восстановление среды';
+    default:
+      return undefined;
+  }
+}
+
+function compactAinkradWorldTime(worldMinutes: number): string {
+  const calendar = worldCalendarAtMinutes(worldMinutes);
+  return `Г${calendar.year} · Д${calendar.dayOfYear}`;
+}
+
+function renderEventFeed(frame: Readonly<LiveWorldFrame>): void {
+  const items = [...frame.recentEvents]
+    .reverse()
+    .map((event) => ({ event, text: eventText(event, frame.world) }))
+    .filter((item): item is { event: WorldEvent; text: string } =>
+      Boolean(item.text),
+    )
+    .slice(0, 6);
+
+  eventFeed.replaceChildren();
+  if (items.length === 0) {
+    const empty = document.createElement('li');
+    empty.textContent = 'Мир спокойно проживает этот момент.';
+    eventFeed.append(empty);
+    return;
+  }
+
+  for (const item of items) {
+    const element = document.createElement('li');
+    element.innerHTML = '<span></span><p></p>';
+    const time = element.querySelector('span');
+    if (time) {
+      time.textContent = item.event.occurredWorldMinutes === undefined
+        ? 'старое время'
+        : compactAinkradWorldTime(item.event.occurredWorldMinutes);
+      time.title = item.event.occurredWorldMinutes === undefined
+        ? 'Время старой записи не указано в canonical world minutes.'
+        : formatAinkradWorldTime(item.event.occurredWorldMinutes);
+    }
+    const text = element.querySelector('p');
+    if (text) text.textContent = item.text;
+    eventFeed.append(element);
+  }
+}
+
+function renderAudibleConversations(frame: Readonly<LiveWorldFrame>): void {
+  const conversations = [...(frame.world.v18?.recentConversations ?? [])]
+    .filter((conversation) => conversation.observerAudible)
+    .sort((left, right) => right.worldMinute - left.worldMinute)
+    .slice(0, 3);
+  conversationFeed.replaceChildren();
+  if (conversations.length === 0) {
+    conversationFeed.textContent = 'Пока рядом не слышно разговора.';
+    return;
+  }
+  for (const conversation of conversations) {
+    const item = document.createElement('article');
+    const speaker = frame.world.agents[conversation.speakerId]?.name ?? 'Искра';
+    const listener = frame.world.agents[conversation.listenerId]?.name ?? 'собеседник';
+    const place = frame.world.places[conversation.placeId]?.name ?? conversation.placeId;
+    const heading = document.createElement('span');
+    heading.textContent = `${speaker} → ${listener} · ${localizedPlaceName(place)}`;
+    const quote = document.createElement('p');
+    quote.textContent = `«${conversation.utterance}»`;
+    const reply = document.createElement('p');
+    reply.textContent = `${listener}: «${conversation.reply}»`;
+    item.append(heading, quote, reply);
+    conversationFeed.append(item);
+  }
+}
+
+function announceDisturbance(frame: Readonly<LiveWorldFrame>): void {
+  const disturbance = frame.disturbances[0];
+  if (!disturbance) {
+    disturbanceBanner.classList.remove('is-visible');
+    return;
+  }
+
+  disturbanceBanner.textContent =
+    disturbance.kind === 'resource_shock'
+      ? '⚠ Ресурсный удар — Искры решают сами'
+      : disturbance.kind === 'social_barrier'
+        ? '⚠ Социальный барьер'
+        : '⚠ Угроза безопасности';
+  disturbanceBanner.classList.add('is-visible');
+}
+
+function updateWorldTime(frame: Readonly<LiveWorldFrame>): void {
+  const elapsedWorldMinutes = frame.world.calendar.elapsedWorldMinutes;
+  const calendar = worldCalendarAtMinutes(elapsedWorldMinutes);
+  const weather = worldWeatherV21(frame.world, elapsedWorldMinutes);
+  worldMap.dataset.phase = calendar.phase;
+  worldMap.dataset.weather = weather.kind;
+  const clock = `${String(calendar.hour).padStart(2, '0')}:${String(calendar.minute).padStart(2, '0')}`;
+  timeValue.textContent = `год ${calendar.year} · день ${calendar.dayOfYear} · ${clock}`;
+  timeValue.title = `Прошло ${calendar.totalDays} дней мира`;
+  const elapsedYears = elapsedWorldMinutes / WORLD_MINUTES_PER_YEAR;
+  tickValue.textContent = elapsedYears >= 1
+    ? `${elapsedYears.toFixed(1)} г.`
+    : `${Math.floor(elapsedWorldMinutes / 1_440)} дн.`;
+  mapTimeValue.textContent =
+    `${phaseLabels[calendar.phase]} · ${seasonLabels[calendar.season]} · ` +
+    `${weather.label} ${weather.temperatureC > 0 ? '+' : ''}${weather.temperatureC}°C · ` +
+    weather.comfortLabel;
+}
+
+function persistOfflineClockAnchor(
+  frame: Readonly<LiveWorldFrame>, wallClockMs = Date.now(),
+  speedId = preferredSpeedId, multiplier = preferredSpeedMultiplier,
+): void { clockPanel.persist(frame, wallClockMs, speedId, multiplier); }
+
+function resumeOfflineClockFromStoredAnchor(frame: Readonly<LiveWorldFrame>): void {
+  clockPanel.restore(frame);
+}
+
+function updateOfflineClockContinuity(frame: Readonly<LiveWorldFrame>): void {
+  clockPanel.update(frame);
+}
+
+function renderMap(frame: Readonly<LiveWorldFrame>): void {
+  updateWorldMapScale(frame.world);
+  worldMap.dataset.growth = String(Math.min(3, frame.world.growth.stage));
+  atlas.render(frame.world,mapCamera);
+  renderPlaces(frame.world);
+  renderWildlife(frame.world);
+
+  const agents = Object.values(frame.world.agents).filter(
+    (agent) => agent.life.alive,
+  );
+  const showResidents=mapCamera.pixelsPerUnit>=90;
+  const visibleAgents = agents.filter(agent => (showResidents||agent.id===selectedAgentId)&&mapCamera.visible(agent.position.x,agent.position.y));
+  const renderedAgents = visibleAgents.slice(0, MAX_VISIBLE_RESIDENTS);
+  const selected = visibleAgents.find(agent => agent.id === selectedAgentId);
+  if (selected && !renderedAgents.includes(selected)) {
+    renderedAgents.pop();renderedAgents.push(selected);
+  }
+  const renderedAgentIds = new Set(renderedAgents.map((agent) => agent.id));
+  for (const [agentId, avatar] of avatarElements) {
+    if (renderedAgentIds.has(agentId)) continue;
+    avatar.remove();
+    avatarElements.delete(agentId);
+  }
+  if (!selectedAgentId) selectedAgentId = agents[0]?.id;
+
+  const occupancy = new Map<string, AgentState[]>();
+  for (const agent of agents) {
+    const residents = occupancy.get(agent.locationId) ?? [];
+    if (!agent.movement?.boatId) residents.push(agent);
+    occupancy.set(agent.locationId, residents);
+  }
+
+  for (const [placeId, element] of placeElements) {
+    const count = occupancy.get(placeId)?.length ?? 0;
+    const badge = element.querySelector<HTMLElement>('.place-count');
+    if (badge) badge.textContent = String(count);
+    element.classList.toggle('is-active', count > 0);
+  }
+
+  worldMap.dataset.visibleResidents = String(renderedAgents.length);
+  worldMap.dataset.visiblePlaces = String(placeElements.size);
+  renderedAgents.forEach((agent, index) => {
+    const avatar = ensureAvatar(agent, index);
+    const persistedPosition = projectedResidentPosition(
+      agent,
+      frame.world,
+      frame.tick,
+    );
+    const base = persistedPosition
+      ? normalizeWorldCoordinates(
+          frame.world,
+          persistedPosition.x,
+          persistedPosition.y,
+        )
+      : pointForPlace(agent.locationId, index, frame.world);
+    const { x, y } = base;
+    const isMoving = Boolean(agent.movement);
+
+    avatar.style.left = `${x}%`;
+    avatar.style.top = `${y}%`;
+    avatar.style.zIndex = String(mapEntityDepth(y, 0, mapCamera.height));
+    avatar.classList.toggle('is-selected', agent.id === selectedAgentId);
+    avatar.setAttribute('aria-pressed', String(agent.id === selectedAgentId));
+    avatar.classList.toggle('is-moving', isMoving);
+    avatar.classList.toggle('is-sailing', Boolean(agent.movement?.boatId));
+    avatar.classList.toggle(
+      'is-ambient',
+      !isMoving && agent.lastAction !== 'rest',
+    );
+    avatar.classList.toggle('is-resting', agent.lastAction === 'rest');
+    avatar.classList.toggle('is-relaxing', agent.lastAction === 'relax');
+    avatar.classList.toggle('is-walking', agent.lastAction === 'walk');
+    avatar.classList.toggle('is-hunting', agent.lastAction === 'hunt');
+    avatar.classList.toggle('is-reflecting', agent.lastAction === 'reflect');
+    avatar.classList.toggle('is-socializing', agent.lastAction === 'socialize');
+    avatar.classList.toggle('is-helping', agent.lastAction === 'help');
+    avatar.classList.toggle('is-child', agent.life.stage === 'child');
+    avatar.classList.toggle(
+      'is-adolescent',
+      agent.life.stage === 'adolescent',
+    );
+    avatar.classList.toggle('is-elder', agent.life.stage === 'elder');
+    for (const race of ['human', 'elf', 'dwarf', 'goblin', 'orc', 'ogre'] as const) {
+      avatar.classList.toggle(`is-race-${race}`, (agent.race ?? 'human') === race);
+    }
+    const physiology = (
+      agent.life as Partial<AgentState['life']>
+    ).physiology;
+    const mobility = physiology?.mobility ?? 0.72;
+    avatar.style.setProperty(
+      '--walk-duration',
+      `${Math.round(280 + (1 - mobility) * 520)}ms`,
+    );
+    avatar.dataset.lifeStage = agent.life.stage;
+    avatar.dataset.action = agent.lastAction ?? 'idle';
+
+    const actionBubble = avatar.querySelector<HTMLElement>('.action-bubble');
+    if (actionBubble) {
+      const visibleAction = agent.movement?.purpose ?? agent.lastAction;
+      actionBubble.textContent = agent.movement?.boatId ? '🛶' : visibleAction
+        ? actionIcons[visibleAction]
+        : '•';
+    }
+
+    avatar.setAttribute(
+      'aria-label',
+      `${agent.name}: ${
+        agent.movement
+          ? `идёт: ${actionLabels[agent.movement.purpose]}`
+          : agent.lastAction
+            ? actionLabels[agent.lastAction]
+            : 'осматривается'
+      }, ${displayPlaceName(frame.world, agent)}`,
+    );
+  });
+
+  mapInteraction.paintedFrame();
+}
+
+function updateWorld(frame: Readonly<LiveWorldFrame>): void {
+  if(mapInteraction.defer(()=>updateWorld(frame)))return;
+  observerChrome.clear();
+  lastFrame = frame;
+  if (headlessAccelerationActive) {
+    const worldLevel = frame.world.growth.stage + 1;
+    worldTitle.textContent = `Мир · уровень ${worldLevel}`;
+    updateWorldTime(frame);
+    preferredSpeedId = frame.clock.speedId;
+    preferredSpeedMultiplier = frame.clock.multiplier;
+    showClockControl(frame.clock.speedId, frame.clock.multiplier);
+    const timing = frame.liveTiming;
+    if (timing?.actualWorldMinutesPerRealMinute !== undefined) {
+      const rate = timing.actualWorldMinutesPerRealMinute;
+      const tempo = rate >= WORLD_MINUTES_PER_YEAR
+        ? `${(rate / WORLD_MINUTES_PER_YEAR).toFixed(1)} г.`
+        : rate >= 1_440
+          ? `${(rate / 1_440).toFixed(1)} дн.`
+          : `${rate.toFixed(1)} мин.`;
+      liveClockThroughput.textContent = `Фактически за минуту: ${tempo}` +
+        (timing.capacityLimited ? ' · предел расчёта устройства' : '');
+    }
+    updateOfflineClockContinuity(frame);
+    liveLabel.textContent = 'МИР УСКОРЕН';
+    liveIndicator.classList.add('is-live');
+    return;
+  }
+  const agents=Object.values(frame.world.agents).filter(agent=>agent.life.alive);
+  syncResidentPicker(frame.world,agents);
+  applyMapZoom();
+  renderMap(frame);
+  const humanPopulation = agents.filter(
+    (agent) => (agent.race ?? 'human') === 'human',
+  ).length;
+  populationValue.textContent = `${humanPopulation} людей · ${agents.length} разумных`;
+  growthValue.textContent = `${Object.keys(frame.world.places).length} мест · +${Math.round(
+    frame.world.growth.explorationProgress * 100,
+  )}%`;
+  wildlifeValue.textContent = String(
+    Object.values(frame.world.wildlife).reduce(
+      (sum, population) =>
+        sum + (population.isMonster === true ? 0 : population.count),
+      0,
+    ),
+  );
+  monsterValue.textContent = String(
+    Object.values(frame.world.wildlife).reduce(
+      (sum, population) =>
+        sum + (population.isMonster === true ? population.count : 0),
+      0,
+    ),
+  );
+  resourceValue.textContent = `${Math.round(frame.world.environment.resourcePool * 100)}%`;
+  evaluationValue.textContent = String(frame.evaluationCount);
+  interventionValue.textContent = String(frame.executedInterventionCount);
+  const cardinalActivity = frame.cardinalActivity ?? {
+    proposalCount: 0,
+    authorizationDecisionCount: frame.executedInterventionCount,
+    deniedInterventionCount: 0,
+    authorizedWorldChangeCount: 0,
+  };
+  proposalValue.textContent = String(cardinalActivity.proposalCount);
+  worldChangeValue.textContent = String(
+    cardinalActivity.authorizedWorldChangeCount,
+  );
+  proposalValue.title =
+    `Решений gateway: ${cardinalActivity.authorizationDecisionCount}; отклонено: ${cardinalActivity.deniedInterventionCount}`;
+  if (frame.evaluation?.experience) {
+    cardinalLevelValue.textContent = String(frame.evaluation.experience.level);
+    cardinalStatusLevel.textContent = `ур. ${frame.evaluation.experience.level}`;
+    cardinalXpValue.textContent = String(
+      frame.evaluation.experience.totalExperience,
+    );
+    cardinalCapabilities.textContent = frame.evaluation.experience.capabilities
+      .map((capability) => cardinalCapabilityLabels[capability])
+      .join(' · ');
+  }
+  updateWorldTime(frame);
+  settlementPicker.update(frame.world);
+  if (frame.clock) {
+    preferredSpeedId = frame.clock.speedId;
+    preferredSpeedMultiplier = frame.clock.multiplier;
+    showClockControl(frame.clock.speedId, frame.clock.multiplier);
+  }
+  const timing = frame.liveTiming;
+  if (timing?.actualWorldMinutesPerRealMinute !== undefined) {
+    const rate = timing.actualWorldMinutesPerRealMinute;
+    const tempo = rate >= WORLD_MINUTES_PER_YEAR ? `${(rate / WORLD_MINUTES_PER_YEAR).toFixed(1)} г.` :
+      rate >= 1440 ? `${(rate / 1440).toFixed(1)} дн.` : `${rate.toFixed(1)} мин.`;
+    liveClockThroughput.textContent = `Фактически за минуту: ${tempo}` +
+      (timing.capacityLimited ? ' · предел расчёта устройства, очередь ограничена' : '') +
+      (timing.pendingWorldMinutes > frame.clock.worldMinutesPerTick * 2
+        ? ` · осталось рассчитать ${worldDurationDescription(timing.pendingWorldMinutes)}` : '');
+  }
+  updateOfflineClockContinuity(frame);
+
+  requiredElement<HTMLElement>('world-storage-details').textContent = worldStorageDiagnostics(frame.world, location.origin);
+  if (frame.continuity.durable) {
+    saveValue.textContent = `Сохранён: ${formatAinkradWorldTime(frame.world.calendar.elapsedWorldMinutes)}`;
+    saveValue.title = frame.continuity.resumed ? `Загружен с ${formatAinkradWorldTime(frame.continuity.resumedFromWorldMinutes)}` : 'Новый мир';
+    saveValue.classList.add('is-saved');
+  } else {
+    saveValue.textContent = 'Только сеанс';
+    saveValue.classList.remove('is-saved');
+  }
+
+  if (frame.continuity.resumed && !continuityAnnounced) {
+    liveLabel.textContent = 'МИР ПРОДОЛЖЕН';
+    continuityAnnounced = true;
+  } else {
+    liveLabel.textContent = 'МИР ЖИВЁТ';
+  }
+  liveIndicator.classList.add('is-live');
+
+  const unlocked = frame.evaluation?.experience.newlyUnlockedCapabilities ?? [];
+  if (frame.worldAuthority?.authorized) {
+    cardinalMessage.textContent =
+      'Cardinal доказал необходимость изменения правила. Независимый gateway разрешил ограниченную поправку.';
+  } else if (unlocked.length > 0) {
+    cardinalMessage.textContent = `Cardinal освоил: ${unlocked
+      .map((capability) => cardinalCapabilityLabels[capability])
+      .join(', ')}. Воля Искр не изменилась.`;
+  } else if (frame.intervention?.executed) {
+    cardinalMessage.textContent =
+      'Cardinal предложил меру. Независимый gateway проверил и выполнил её.';
+  } else if (frame.intervention && !frame.intervention.executed) {
+    cardinalMessage.textContent =
+      'Gateway отклонил предложение Cardinal: условия безопасности не выполнены.';
+  } else if (frame.evaluation?.proposal) {
+    cardinalMessage.textContent =
+      'Cardinal обнаружил риск и передал предложение независимому gateway.';
+  } else if (frame.evaluation?.deferReason) {
+    cardinalMessage.textContent =
+      cardinalDeferLabels[frame.evaluation.deferReason];
+  } else {
+    cardinalMessage.textContent =
+      'Сейчас порог системного риска не достигнут. Cardinal наблюдает, а не изображает бурную деятельность.';
+  }
+
+  const lastCardinalEvent = cardinalActivity.lastCardinalEvent;
+  if (lastCardinalEvent) {
+    cardinalLastAction.textContent =
+      `Последнее действие · ${
+        lastCardinalEvent.occurredWorldMinutes === undefined
+          ? 'время старой записи не указано'
+          : formatAinkradWorldTime(lastCardinalEvent.occurredWorldMinutes)
+      }: ${eventText(
+        lastCardinalEvent,
+        frame.world,
+      ) ?? lastCardinalEvent.kind}`;
+    cardinalLastAction.classList.add('has-action');
+  } else if (
+    cardinalActivity.authorizationDecisionCount > 0 ||
+    cardinalActivity.authorizedWorldChangeCount > 0
+  ) {
+    cardinalLastAction.textContent =
+      `Последнее действие: подробная запись уже вне короткой ленты. ` +
+      `В этой эпохе gateway принял решений: ${cardinalActivity.authorizationDecisionCount}; ` +
+      `выполнено вмешательств: ${frame.executedInterventionCount}; ` +
+      `отклонено: ${cardinalActivity.deniedInterventionCount}; ` +
+      `изменено правил мира: ${cardinalActivity.authorizedWorldChangeCount}.`;
+    cardinalLastAction.classList.add('has-action');
+  } else {
+    cardinalLastAction.textContent =
+      'Последнее действие: вмешательств ещё не было — ни одно условие не прошло проверку.';
+    cardinalLastAction.classList.remove('has-action');
+  }
+
+  renderEventFeed(frame);
+  renderAudibleConversations(frame);
+  renderAdventurePanel(frame.world);
+  renderPrayerInbox(frame.world);
+  announceDisturbance(frame);
+  updateSelection();
+  refreshWorldInspector(frame.world);
+}
+
+function metricPercent(value: number | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${Math.round(value * 100)}%`
+    : 'не записано прежней версией';
+}
+
+function populationPressureSummary(
+  metrics: Readonly<CardinalEvaluation['metrics']>,
+): string {
+  if (metrics.housingPressure === undefined) {
+    return 'детализация населения отсутствует в старой записи';
+  }
+  return [
+    `жильё ${metrics.sapientPopulation ?? metrics.livingPopulation ?? 0}/${metrics.sapientHousingCapacity ?? 0}`,
+    `без мест ${metrics.unhousedResidentCount ?? 0}`,
+    `давление жилья ${metricPercent(metrics.housingPressure)}`,
+    `голод/запасы ${metricPercent(metrics.foodPressure)}`,
+    `истощение земли ${metricPercent(metrics.landDepletionPressure)}`,
+    `нехватка известной территории ${metricPercent(metrics.territoryPressure)}`,
+    `смерти от истощения ${metricPercent(metrics.deprivationDeathShare)}`,
+  ].join(', ');
+}
+
+function canonicalDurationLabel(worldMinutes: number | undefined): string {
+  return typeof worldMinutes === 'number' && Number.isFinite(worldMinutes)
+    ? worldDurationDescription(worldMinutes)
+    : 'Длительность старой записи в canonical world minutes не указана';
+}
+
+function russianGatewayReason(reason: string | undefined): string {
+  if (!reason) return 'Причина не записана прежней версией.';
+  if (reason.includes('inside the runtime allowlist')) {
+    return 'Разрешено: мера входит в белый список, не превышает лимит и соблюдает период покоя gateway.';
+  }
+  if (reason.includes('cooldown')) {
+    return 'Отклонено: независимый gateway не разрешил слишком частое повторное вмешательство.';
+  }
+  if (reason.includes('stale') || reason.includes('changed after observation')) {
+    return 'Отклонено: мир изменился после наблюдения, поэтому Cardinal обязан провести новую оценку.';
+  }
+  if (reason.includes('exceeds gateway limit')) {
+    return 'Отклонено: сила воздействия превысила независимый предел gateway.';
+  }
+  if (reason.includes('allowlist')) {
+    return 'Отклонено: такой вид воздействия не разрешён независимым gateway.';
+  }
+  if (reason.includes('prediction')) {
+    return 'Отклонено: предложение не содержит проверяемого ограниченного прогноза.';
+  }
+  return `Техническая запись gateway: ${reason}`;
+}
+
+function lawExplanation(mechanism: WorldState['governance']['laws'][string]['mechanism']): string {
+  const explanations: Record<typeof mechanism, string> = {
+    frontier_expansion:
+      'Искры могут постепенно открывать новые участки карты; Cardinal меняет только темп, а не решения исследователей.',
+    wildlife_recovery:
+      'Популяции восстанавливаются по состоянию среды, без мгновенного появления животных по команде.',
+    fertility_support:
+      'Мир поддерживает условия для семей, но решение о близости и детях остаётся за Искрами.',
+    resource_regeneration:
+      'Общие природные ресурсы постепенно восстанавливаются сами.',
+    mystic_resonance:
+      'Определяет вероятность знамений и развитие верований, не переписывая убеждения Искр.',
+    weather_volatility:
+      'Ограничивает изменчивость внешних условий и будущих погодных событий.',
+    catastrophe_recovery:
+      'Определяет способность среды восстановиться после разрешённой катастрофы.',
+    settlement_cohesion:
+      'Дома, рынок и мастерские образуют компактное поселение, а поля и фермы располагаются у его края.',
+    habitat_integrity:
+      'Виды возникают и восстанавливаются только в физически подходящей среде обитания.',
+    civilization_continuity:
+      'При демографическом кризисе условия продолжения цивилизации важнее ускорения освоения новых территорий.',
+  };
+  return explanations[mechanism];
+}
+
+function targetPlacesForProblem(
+  kind: CardinalProblemKind | undefined,
+  world: Readonly<WorldState>,
+): string[] {
+  if (!kind) return [];
+  if (kind === 'resource_fragility') return world.places.resource_field ? ['resource_field'] : [];
+  if (kind === 'social_fragmentation' || kind === 'conflict_overload') {
+    return world.places.commons ? ['commons'] : [];
+  }
+  if (kind === 'ecosystem_fragility') {
+    return [...new Set(Object.values(world.wildlife).map((value) => value.habitatId))];
+  }
+  return Object.values(world.places)
+    .filter((place) => place.danger >= 0.45)
+    .map((place) => place.id)
+    .slice(0, 12);
+}
+
+function targetPlacesForIntervention(
+  kind: InterventionKind,
+  world: Readonly<WorldState>,
+): string[] {
+  return kind === 'resource_relief'
+    ? targetPlacesForProblem('resource_fragility', world)
+    : kind === 'open_shared_space'
+      ? targetPlacesForProblem('social_fragmentation', world)
+      : kind === 'habitat_support'
+        ? targetPlacesForProblem('ecosystem_fragility', world)
+        : targetPlacesForProblem('safety_instability', world);
+}
+
+function targetPlacesForLaw(
+  domain: WorldState['governance']['laws'][string]['domain'],
+  world: Readonly<WorldState>,
+): string[] {
+  if (domain === 'geography') return [...world.growth.discoveredRegionIds].slice(-12);
+  if (domain === 'resources') return world.places.resource_field ? ['resource_field'] : [];
+  if (domain === 'demography') {
+    return Object.values(world.places)
+      .filter((place) => place.settlementId)
+      .map((place) => place.id)
+      .slice(0, 20);
+  }
+  if (domain === 'ecology') {
+    return [...new Set(Object.values(world.wildlife).map((value) => value.habitatId))];
+  }
+  if (domain === 'cosmology') {
+    return Object.values(world.places)
+      .filter((place) => place.kind === 'ruins' || place.kind === 'quiet_space')
+      .map((place) => place.id);
+  }
+  return [];
+}
+
+function locationSummary(placeIds: readonly string[]): string {
+  if (!lastFrame) return 'данные карты ещё не получены';
+  if (placeIds.length === 0) return 'весь мир; точечная область не записана';
+  return placeIds
+    .map((id) => localizedPlaceName(lastFrame!.world.places[id]?.name ?? id))
+    .join(', ');
+}
+
+function showPlacesOnMap(placeIds: readonly string[]): void {
+  highlightedPlaceIds = new Set(placeIds);
+  if (!lastFrame) return;
+  renderPlaces(lastFrame.world);
+  atlas.render(lastFrame.world,mapCamera);
+  const first = placeIds.find((id) => lastFrame?.world.places[id]);
+  if (!first) return;
+  const place=lastFrame.world.places[first];
+  focusMapPoint(place.mapX,place.mapY);
+}
+
+function consoleRecord(
+  title: string,
+  badge: string,
+  facts: Array<[string, string]>,
+  placeIds: readonly string[],
+): HTMLDetailsElement {
+  const details = document.createElement('details');
+  details.className = 'cardinal-record';
+  const summary = document.createElement('summary');
+  const titleElement = document.createElement('strong');
+  titleElement.textContent = title;
+  const badgeElement = document.createElement('span');
+  badgeElement.textContent = badge;
+  summary.append(titleElement, badgeElement);
+  const list = document.createElement('dl');
+  for (const [label, value] of facts) {
+    const row = document.createElement('div');
+    const term = document.createElement('dt');
+    const description = document.createElement('dd');
+    term.textContent = label;
+    description.textContent = value;
+    row.append(term, description);
+    list.append(row);
+  }
+  const locate = document.createElement('button');
+  locate.type = 'button';
+  locate.textContent = placeIds.length > 0 ? 'Показать область на карте' : 'Область: весь мир';
+  locate.disabled = placeIds.length === 0;
+  locate.addEventListener('click', () => showPlacesOnMap(placeIds));
+  details.addEventListener('toggle', () => {
+    if (details.open && placeIds.length > 0) showPlacesOnMap(placeIds);
+  });
+  details.append(summary, list, locate);
+  return details;
+}
+
+function auditSummary(audits: readonly AuditRecord[]): string {
+  if (audits.length === 0) return 'Аудиторская запись ещё не создана или отсутствует в старых данных.';
+  const rejected = audits.find((audit) => !audit.accepted);
+  if (rejected) {
+    return `Не принято Auditor: ${rejected.concerns.length > 0 ? rejected.concerns.join('; ') : 'причина не записана'}`;
+  }
+  return `Auditor принял ${audits.length} ${audits.length === 1 ? 'проверку' : 'проверки'}; несоответствий не обнаружено.`;
+}
+
+function outcomeSummary(
+  outcome: Readonly<InterventionOutcomeRecord> | undefined,
+): string {
+  if (!outcome) return 'Результат ещё не наступил либо не был записан прежней версией.';
+  const label = predictionMetricLabels[outcome.predictionMetric];
+  const before = outcome.beforeMetrics[outcome.predictionMetric];
+  const after = outcome.afterMetrics[outcome.predictionMetric];
+  return `${label}: было ${metricPercent(before)}, стало ${metricPercent(after)}. Прогноз ${outcome.expectedDirectionObserved ? 'подтвердился' : 'не подтвердился'}; причинность помечена только как наблюдение.`;
+}
+
+function renderCardinalConsole(): void {
+  const snapshot = cardinalConsoleSnapshot;
+  const world = lastFrame?.world;
+  cardinalConsoleContent.replaceChildren();
+  document.querySelectorAll<HTMLButtonElement>('[data-console-tab]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.consoleTab === activeConsoleTab);
+  });
+  if (!snapshot || !world) {
+    cardinalConsoleContent.textContent = 'Журнал загружается…';
+    return;
+  }
+
+  if (activeConsoleTab === 'laws') {
+    for (const law of snapshot.laws) {
+      const places = targetPlacesForLaw(law.domain, world);
+      const report = snapshot.readableLawReports?.find(
+        (item) => item.rawTechnical.id === law.id,
+      );
+      cardinalConsoleContent.append(
+        consoleRecord(
+          report?.title ?? worldLawMechanismLabels[law.mechanism],
+          report?.status ??
+            (law.createdBy === 'cardinal' ? 'ПОПРАВКА CARDINAL' : 'БАЗОВЫЙ ЗАКОН'),
+          [
+            ...(report?.rows.map(
+              (row): [string, string] => [row.label, row.value],
+            ) ?? []),
+            ['Зачем существует', lawExplanation(law.mechanism)],
+            ['Где действует', locationSummary(places)],
+            ['Срок', 'Постоянно, пока независимый gateway не разрешит новую ограниченную поправку.'],
+            ['История', law.revision > 0 ? `Редакция ${law.revision}. Предыдущее числовое значение не хранится в текущем срезе; оно остаётся в append-only событии.` : 'Исходная редакция мира.'],
+            ['Граница полномочий', 'Закон не даёт Cardinal доступа к личности, памяти, ценностям, отношениям или выбору Искр.'],
+          ],
+          places,
+        ),
+      );
+    }
+  } else if (activeConsoleTab === 'interventions') {
+    const outcomesByIntervention = new Map(
+      snapshot.outcomes.map((outcome) => [outcome.interventionId, outcome]),
+    );
+    for (const intervention of [...snapshot.interventions].reverse()) {
+      const evaluation = snapshot.evaluations.find(
+        (value) => value.evaluationId === intervention.evaluationId,
+      );
+      const audits = snapshot.audits.filter(
+        (audit) => audit.interventionId === intervention.interventionId || audit.evaluationId === intervention.evaluationId,
+      );
+      const places = targetPlacesForIntervention(intervention.proposal.kind, world);
+      const report = snapshot.readableInterventionReports?.find(
+        (item) =>
+          item.rawTechnical.interventionId === intervention.interventionId,
+      );
+      cardinalConsoleContent.append(
+        consoleRecord(
+          `${report?.title ?? interventionLabels[intervention.proposal.kind]} · ${formatAinkradWorldTime(intervention.requestedWorldMinutes)}`,
+          report?.status ??
+            (intervention.executed ? 'ВЫПОЛНЕНО GATEWAY' : 'ОТКЛОНЕНО GATEWAY'),
+          [
+            ...(report?.rows.map(
+              (row): [string, string] => [row.label, row.value],
+            ) ?? []),
+            ['Проблема', evaluation?.detectedProblem ? cardinalProblemLabels[evaluation.detectedProblem.kind] : 'связанный диагноз не записан или не попал в ограниченный срез'],
+            ['Почему Cardinal предложил', evaluation?.detectedProblem ? `${cardinalProblemLabels[evaluation.detectedProblem.kind]}; серьёзность ${metricPercent(evaluation.detectedProblem.severity)}, уверенность ${metricPercent(evaluation.detectedProblem.confidence)}` : interventionLabels[intervention.proposal.kind]],
+            ['Что именно разрешалось', `${interventionLabels[intervention.proposal.kind]}, сила ${metricPercent(intervention.proposal.magnitude)}`],
+            ['Куда', locationSummary(places)],
+            ['Длительность эффекта', `${canonicalDurationLabel(intervention.authorizedEffectDurationWorldMinutes)}; после срока эффект прекращается автоматически, запись остаётся навсегда.`],
+            ['Решение gateway', russianGatewayReason(intervention.authorizationReason)],
+            ['Ожидание', `Должно снизиться: ${predictionMetricLabels[intervention.proposal.prediction.metric]}; минимум на ${metricPercent(intervention.proposal.prediction.minimumImprovement)} за ${canonicalDurationLabel(intervention.proposal.prediction.horizonWorldMinutes)}.`],
+            ['Фактический результат', outcomeSummary(outcomesByIntervention.get(intervention.interventionId))],
+            ['Auditor', auditSummary(audits)],
+          ],
+          places,
+        ),
+      );
+    }
+  } else if (activeConsoleTab === 'proposals') {
+    const proposed = snapshot.evaluations.filter((evaluation) => evaluation.proposal);
+    for (const evaluation of [...proposed].reverse()) {
+      const proposal = evaluation.proposal!;
+      const intervention = snapshot.interventions.find(
+        (value) => value.evaluationId === evaluation.evaluationId,
+      );
+      const places = targetPlacesForIntervention(proposal.kind, world);
+      cardinalConsoleContent.append(
+        consoleRecord(
+          `${interventionLabels[proposal.kind]} · ${formatAinkradWorldTime(evaluation.evaluatedWorldMinutes)}`,
+          intervention ? (intervention.executed ? 'РАЗРЕШЕНО' : 'ОТКЛОНЕНО') : 'ОЖИДАЕТ GATEWAY',
+          [
+            ['Диагноз', evaluation.detectedProblem ? cardinalProblemLabels[evaluation.detectedProblem.kind] : 'нет сохранённого диагноза'],
+            ['Доказательства', `${evaluation.evidenceEventIds.length} событий; ресурсное давление ${metricPercent(evaluation.metrics.resourcePressure)}, ${populationPressureSummary(evaluation.metrics)}, изоляция ${metricPercent(evaluation.metrics.socialIsolation)}, опасность ${metricPercent(evaluation.metrics.safetyPressure)}, экосистема ${metricPercent(evaluation.metrics.wildlifePressure)}.`],
+            ['Предложение', `${interventionLabels[proposal.kind]}, сила ${metricPercent(proposal.magnitude)}.`],
+            ['Куда', locationSummary(places)],
+            ['Проверяемый прогноз', `${predictionMetricLabels[proposal.prediction.metric]} должно снизиться минимум на ${metricPercent(proposal.prediction.minimumImprovement)} за ${canonicalDurationLabel(proposal.prediction.horizonWorldMinutes)}.`],
+            ['Ограничение', 'Это только предложение. Cardinal не может выполнить его без независимого gateway.'],
+            ['Итог gateway', intervention ? russianGatewayReason(intervention.authorizationReason) : 'Решение gateway не записано в доступном срезе.'],
+          ],
+          places,
+        ),
+      );
+    }
+  } else if (activeConsoleTab === 'evaluations') {
+    const evaluations = [...snapshot.evaluations]
+      .filter((evaluation, index, all) => evaluation.decision !== 'no_action' || index >= all.length - 24)
+      .reverse();
+    for (const evaluation of evaluations) {
+      const places = targetPlacesForProblem(evaluation.detectedProblem?.kind, world);
+      const decision =
+        evaluation.decision === 'propose'
+          ? 'передал предложение gateway'
+          : evaluation.decision === 'defer'
+            ? `отложил действие: ${evaluation.deferReason ? cardinalDeferLabels[evaluation.deferReason] : 'причина не записана'}`
+            : 'наблюдал; системный порог не достигнут';
+      cardinalConsoleContent.append(
+        consoleRecord(
+          `Оценка мира · ${formatAinkradWorldTime(evaluation.evaluatedWorldMinutes)}`,
+          evaluation.decision === 'propose' ? 'ПРЕДЛОЖЕНИЕ' : evaluation.decision === 'defer' ? 'ОТЛОЖЕНО' : 'БЕЗ ДЕЙСТВИЯ',
+          [
+            ['Что увидел', evaluation.detectedProblem ? cardinalProblemLabels[evaluation.detectedProblem.kind] : 'ни одна системная проблема не прошла порог'],
+            ['Показатели', `ресурсы ${metricPercent(evaluation.metrics.resourcePressure)}, ${populationPressureSummary(evaluation.metrics)}, изоляция ${metricPercent(evaluation.metrics.socialIsolation)}, стресс ${metricPercent(evaluation.metrics.averageStress)}, опасность ${metricPercent(evaluation.metrics.safetyPressure)}, экосистема ${metricPercent(evaluation.metrics.wildlifePressure)}`],
+            ['Доказательства', `${evaluation.evidenceEventIds.length} событий мира; неопределённостей: ${evaluation.uncertaintyNotes.length}.`],
+            ['Решение', decision],
+            ['Почему не заменяет людей', 'Оценка касается только среды и агрегированных последствий. Личные действия, цели, чувства и отношения не являются целью записи.'],
+            ['Где замечено', locationSummary(places)],
+            ['Auditor', auditSummary(snapshot.audits.filter((audit) => audit.evaluationId === evaluation.evaluationId))],
+          ],
+          places,
+        ),
+      );
+    }
+  } else {
+    const healthStatusLabels: Record<string, string> = {
+      healthy: 'СТАБИЛЬНО',
+      watch: 'НАБЛЮДЕНИЕ',
+      danger: 'ОПАСНОСТЬ',
+      critical: 'КРИТИЧНО',
+    };
+    const health = snapshot.worldHealth;
+    if (!health) {
+      cardinalConsoleContent.textContent =
+        'Старая вкладка мира не передала world health report. Закройте её и откройте Ainkrad заново.';
+      return;
+    }
+    cardinalConsoleContent.append(
+      consoleRecord(
+        health.title,
+        `${health.score}/100 · ${healthStatusLabels[health.status] ?? health.status}`,
+        [
+          ['Сводка', health.summary],
+          ['Возраст мира', `${health.worldAgeYears.toFixed(2)} года Ainkrad`],
+          ['Критические коды', health.criticalCodes.join(', ') || 'нет'],
+          ['Предупреждения', health.warningCodes.join(', ') || 'нет'],
+          ['Сформировано', formatAinkradWorldTime(snapshot.generatedWorldMinutes)],
+        ],
+        [],
+      ),
+    );
+    for (const section of health.sections) {
+      cardinalConsoleContent.append(
+        consoleRecord(
+          section.title,
+          healthStatusLabels[section.status] ?? section.status,
+          [
+            ['Состояние', section.summary],
+            ['Проверяемые данные', section.evidence.join('; ') || 'нет дополнительных записей'],
+          ],
+          [],
+        ),
+      );
+    }
+
+    const deathCauseLabels: Record<string, string> = {
+      old_age: 'СТАРОСТЬ',
+      illness: 'ЗДОРОВЬЕ',
+      childbirth: 'РОДЫ',
+      deprivation: 'ИСТОЩЕНИЕ',
+      catastrophe: 'КАТАСТРОФА',
+      wildlife: 'ДИКАЯ ФАУНА',
+      monster: 'МОНСТР',
+      war: 'ВОЙНА',
+    };
+    const deathDiagnostics = snapshot.deathDiagnostics ?? [];
+    if (deathDiagnostics.length === 0) {
+      cardinalConsoleContent.append(
+        consoleRecord(
+          'Диагностика смертей',
+          '0 ЗАПИСЕЙ',
+          [
+            ['Состояние', 'В текущей эпохе ещё нет зафиксированных смертей.'],
+            ['Контракт', 'При каждой смерти сохраняются причина, физическое состояние, ресурсы, стресс, место и механизм гибели.'],
+          ],
+          [],
+        ),
+      );
+    } else {
+      for (const death of [...deathDiagnostics].reverse()) {
+        const resident = world.agents[death.agentId];
+        const place = world.places[death.locationId];
+        cardinalConsoleContent.append(
+          consoleRecord(
+            `${resident?.name ?? death.agentId} · ${formatAinkradWorldTime(death.worldMinutes)}`,
+            deathCauseLabels[death.cause] ?? death.cause,
+            [
+              ['Причина', death.summary],
+              ['Основной механизм', death.primaryMechanism ?? 'не записан'],
+              ['Возраст и поколение', `${death.ageYears.toFixed(1)} лет · поколение ${death.generation}`],
+              ['Уровень', String(death.level)],
+              ['Место', localizedPlaceName(place?.name ?? death.locationId)],
+              ['Перед смертью', `здоровье ${metricPercent(death.healthBeforeDeath)}, энергия ${metricPercent(death.energyBeforeDeath)}, личные ресурсы ${metricPercent(death.resourcesBeforeDeath)}, стресс ${metricPercent(death.stressBeforeDeath)}`],
+              ['Угроза', death.species ? `${death.species}; урон ${metricPercent(death.damage)}, вероятность летального исхода ${metricPercent(death.lethalChance)}` : 'прямая внешняя угроза не записана'],
+              ['Диагностические факторы', death.diagnosticFactors?.join('; ') ?? 'нет дополнительных факторов'],
+            ],
+            place ? [place.id] : [],
+          ),
+        );
+      }
+    }
+  }
+
+  if (!cardinalConsoleContent.childElementCount) {
+    cardinalConsoleContent.textContent = 'В этом разделе записей пока нет.';
+  }
+}
+
+function requestCardinalConsole(tab: CardinalConsoleTab): void {
+  activeConsoleTab = tab;
+  cardinalConsole.hidden = false;
+  document.body.classList.add('has-modal');
+  cardinalConsoleContent.textContent = 'Загрузка проверяемого журнала…';
+  liveWorldWorker.postMessage({
+    type: 'request_cardinal_console',
+    requestId: `console:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+  });
+}
+
+function closeCardinalConsole(): void {
+  cardinalConsole.hidden = true;
+  document.body.classList.remove('has-modal');
+  highlightedPlaceIds.clear();
+  if (lastFrame) {
+    renderPlaces(lastFrame.world);
+    atlas.render(lastFrame.world,mapCamera);
+  }
+}
+
+type LiveWorldWorkerPayload =
+  | {
+      type: 'frame';
+      protocolVersion: string;
+      frame: LiveWorldFrame;
+    }
+  | {
+      type: 'cardinal_console';
+      protocolVersion: string;
+      requestId: string;
+      snapshot: CardinalConsoleSnapshot;
+    }
+  | {
+      type: 'catch_up_progress';
+      protocolVersion: string;
+      worldEpoch: number;
+      fromWorldMinutes: number;
+      currentWorldMinutes: number;
+      targetWorldMinutes: number;
+      percent: number;
+      elapsedRealMs: number;
+      estimatedRemainingMs: number | null;
+      semanticQuantaProcessed: number;
+      completed: boolean;
+    }
+  | {
+      type: 'catch_up_recovery';
+      protocolVersion: string;
+      message: string;
+      batchQuanta: number;
+      abandoned: boolean;
+    }
+  | {
+      type: 'clock_applied'; protocolVersion: string; worldEpoch: number; currentWorldMinutes: number;
+      speedId: WorldSpeedId; multiplier: WorldSpeedMultiplier; discarded: boolean;
+    }
+  | {
+      type: 'fatal';
+      protocolVersion: string;
+      message: string;
+    }
+  | {
+      type: 'divine_audience_result';
+      protocolVersion: string;
+      requestId: string;
+      agentId: string;
+      authorized: boolean;
+      giftGranted?: boolean;
+      burdenApplied?: boolean;
+      contactRecorded?: boolean;
+      interpretation?: V19DivineInterpretation;
+      residentResponse?: string;
+      reason: string;
+    };
+
+type LiveWorldWorkerMessage = LiveWorldWorkerPayload & { clockRevision?: number };
+
+async function requestPersistentAinkradStorage(): Promise<void> {
+  if (!navigator.storage?.persist) return;
+  try {
+    const alreadyPersistent =
+      typeof navigator.storage.persisted === 'function'
+        ? await navigator.storage.persisted()
+        : false;
+    if (alreadyPersistent) return;
+    const granted = await navigator.storage.persist();
+    if (!granted) {
+      console.warn('[Ainkrad storage] Persistent local storage was not granted.');
+    }
+  } catch {
+    console.warn('[Ainkrad storage] Persistent-storage request failed.');
+  }
+}
+void requestPersistentAinkradStorage();
+
+const liveWorldWorker = new Worker(
+  new URL('./runtime/liveWorld.worker.ts', import.meta.url),
+  { type: 'module' },
+);
+const clockPanel = new WorldClockPanel({
+  root: requiredElement<HTMLElement>('world-speed-select').closest<HTMLElement>('.external-clock')!,
+  overlay: catchUpOverlay, status: offlineClockStatus, title: catchUpTitle, percent: catchUpPercent,
+  bar: catchUpBar, detail: catchUpDetail, initialAnchor: pendingOfflineClockAnchor,
+  storageAvailable: offlineClockStorageAvailable, anchorKey: OFFLINE_CLOCK_ANCHOR_KEY,
+  preferenceKey: CLOCK_PREFERENCE_KEY, speedId: preferredSpeedId, multiplier: preferredSpeedMultiplier,
+  post: message => liveWorldWorker.postMessage(message),
+  onPreference: (speedId, multiplier) => {
+    preferredSpeedId = speedId; preferredSpeedMultiplier = multiplier;
+    maximumSpeedPresentation = isMaximumAccelerationSpeed(speedId);
+    applyHeadlessAccelerationPresentation();
+    showClockControl(speedId, multiplier);
+  },
+});
+
+
+mapZoomOut.addEventListener('click', () => setMapZoom(mapZoom / 1.22));
+mapZoomIn.addEventListener('click', () => setMapZoom(mapZoom * 1.22));
+mapZoomFit.addEventListener('click', fitMapToViewport);
+requiredElement<HTMLButtonElement>('map-city-focus').addEventListener('click', () => {
+  if(!lastFrame)return;
+  const focus = townMapFocus(lastFrame.world, selectedAgentId, mapCamera.width, mapCamera.height);
+  if (focus) { mapCamera.x=focus.x;mapCamera.y=focus.y;setMapZoom(focus.pixelsPerUnit/100); }
+});
+requiredElement<HTMLButtonElement>('map-resident-focus').addEventListener('click', focusSelectedResident);
+installWorldMapGestures(worldMapViewport,mapCamera,phase=>{
+  mapZoom=mapCamera.pixelsPerUnit/100;mapInteraction.gesture(phase);
+});
+new ResizeObserver(scheduleMapPaint).observe(worldMapViewport);
+
+cardinalOpen.addEventListener('click', () => requestCardinalConsole('laws'));
+document.querySelectorAll<HTMLButtonElement>('[data-cardinal-tab]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const tab = button.dataset.cardinalTab as CardinalConsoleTab | undefined;
+    if (tab) requestCardinalConsole(tab);
+  });
+});
+document.querySelectorAll<HTMLButtonElement>('[data-console-tab]').forEach((button) => {
+  button.addEventListener('click', () => {
+    activeConsoleTab = button.dataset.consoleTab as CardinalConsoleTab;
+    renderCardinalConsole();
+  });
+});
+cardinalConsoleClose.addEventListener('click', closeCardinalConsole);
+cardinalConsole.addEventListener('click', (event) => {
+  if (event.target === cardinalConsole) closeCardinalConsole();
+});
+residentDetailsOpen.addEventListener('click', () => {
+  if (selectedAgentId) openWorldInspector('resident', selectedAgentId);
+});
+privateAudienceOpen.addEventListener('click', () => openPrivateDivineAudience());
+divineGift.addEventListener('change', updateDivineGiftNote);
+divineBurden.addEventListener('change', updateDivineBurdenNote);
+divineContactKind.addEventListener('change', updateDivineContactRequirements);
+prayerInboxOpen.addEventListener('click', openPrayerInbox);
+prayerInboxClose.addEventListener('click', closePrayerInbox);
+prayerInbox.addEventListener('click', (event) => {
+  if (event.target === prayerInbox) closePrayerInbox();
+});
+for (const control of [
+  prayerFilterSettlement,
+  prayerFilterNpc,
+  prayerFilterTopic,
+  prayerFilterBelief,
+  prayerFilterDesperation,
+  prayerFilterOrder,
+]) {
+  control.addEventListener(control === prayerFilterNpc ? 'input' : 'change', () => {
+    if (lastFrame) renderPrayerInbox(lastFrame.world);
+  });
+}
+divineAudienceClose.addEventListener('click', closePrivateDivineAudience);
+divineAudience.addEventListener('click', (event) => {
+  if (event.target === divineAudience) closePrivateDivineAudience();
+});
+divineAudienceForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const gift = selectedDivineGift();
+  const burden = selectedDivineBurden();
+  const contactKind = selectedDivineContactKind();
+  const message = divineMessage.value.trim();
+  if (
+    divineAudienceRequestPending ||
+    !lastFrame ||
+    !selectedAgentId ||
+    !divineDeityName.value.trim() ||
+    (!gift && !burden && !contactKind) ||
+    (contactKind && !message)
+  ) return;
+  divineAudienceRequestPending = true;
+  divineAudienceGrant.disabled = true;
+  divineAudienceStatus.textContent = 'Передаём обращение…';
+  divineAudienceRequestId =
+    `audience:${lastFrame.world.epoch ?? 1}:${selectedAgentId}:${Date.now()}`;
+  liveWorldWorker.postMessage({
+    type: 'grant_private_divine_audience',
+    requestId: divineAudienceRequestId,
+    agentId: selectedAgentId,
+    deityId: 'player_deity',
+    deityName: divineDeityName.value.trim(),
+    religionName: divineReligionName.value.trim() || undefined,
+    message: message || undefined,
+    gift,
+    burden,
+    lineageCurse: Boolean(burden && divineLineageCurse.checked),
+    contactKind,
+    relatedPrayerId: activePrayerId,
+    inheritanceGift: gift === 'legacy' ? requiredElement<HTMLSelectElement>('divine-legacy-gift').value : undefined,
+  });
+});
+residentPicker.addEventListener('change', () => {
+  selectedAgentId = residentPicker.value || undefined;
+  updateSelection();
+  focusSelectedResident();
+});
+residentSearch.addEventListener('input', () => {
+  residentSearchQuery = residentSearch.value;
+  residentPickerSignature = '';
+  if (lastFrame) {
+    const living = Object.values(lastFrame.world.agents).filter((agent) => agent.life.alive);
+    syncResidentPicker(lastFrame.world, living);
+  }
+});
+textScaleButton.addEventListener('click', () => {
+  const currentIndex = TEXT_SCALE_STEPS.indexOf(textScale);
+  textScale = TEXT_SCALE_STEPS[(currentIndex + 1) % TEXT_SCALE_STEPS.length];
+  applyTextScale();
+  try {
+    localStorage.setItem(TEXT_SCALE_KEY, String(textScale));
+  } catch {
+    // Scaling remains active for this session when storage is blocked.
+  }
+});
+worldInspectorClose.addEventListener('click', closeWorldInspector);
+worldInspector.addEventListener('click', (event) => {
+  if (event.target === worldInspector) closeWorldInspector();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !cardinalConsole.hidden) closeCardinalConsole();
+  if (event.key === 'Escape' && !worldInspector.hidden) closeWorldInspector();
+  if (event.key === 'Escape' && !divineAudience.hidden) closePrivateDivineAudience();
+  if (event.key === 'Escape' && !prayerInbox.hidden) closePrayerInbox();
+});
+
+function publishClockControl(initial = false): void {
+  clockPanel.publish(preferredSpeedId, preferredSpeedMultiplier, initial);
+}
+
+worldSpeedSelect.addEventListener('change', () => {
+  if (!isWorldSpeedId(worldSpeedSelect.value)) return;
+  preferredSpeedId = worldSpeedSelect.value;
+  preferredSpeedMultiplier = 1;
+  publishClockControl();
+});
+
+
+resetWorldButton.addEventListener('click', () => {
+  const accepted = window.confirm(
+    'Создать новый мир? Текущая эпоха завершится, но накопленный опыт Cardinal сохранится.',
+  );
+  if (!accepted || window.prompt('Чтобы завершить текущую эпоху, введите НОВЫЙ МИР') !== 'НОВЫЙ МИР') return;
+  pendingOfflineClockAnchor = undefined;
+  clockPanel.reset();
+  liveWorldWorker.postMessage({ type: 'reset_world' });
+});
+
+window.addEventListener('pagehide', () => {
+  if (lastFrame) persistOfflineClockAnchor(lastFrame);
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!lastFrame) return;
+  if (document.visibilityState === 'hidden') {
+    persistOfflineClockAnchor(lastFrame);
+    return;
+  }
+  resumeOfflineClockFromStoredAnchor(lastFrame);
+  updateOfflineClockContinuity(lastFrame);
+});
+
+window.addEventListener('pageshow', () => {
+  if (!lastFrame) return;
+  resumeOfflineClockFromStoredAnchor(lastFrame);
+  updateOfflineClockContinuity(lastFrame);
+});
+
+publishClockControl(true);
+
+liveWorldWorker.addEventListener(
+  'message',
+  (event: MessageEvent<LiveWorldWorkerMessage>) => {
+    if (event.data.type === 'frame') {
+      if (clockPanel.accepts(event.data.clockRevision ?? 0)) updateWorld(event.data.frame);
+      return;
+    }
+    if (event.data.type === 'cardinal_console') {
+      cardinalConsoleSnapshot = event.data.snapshot;
+      renderCardinalConsole();
+      return;
+    }
+    if (event.data.type === 'catch_up_progress') {
+      if (clockPanel.accepts(event.data.clockRevision ?? 0)) {
+        catchUpPresentation = !event.data.completed;
+        applyHeadlessAccelerationPresentation();
+        clockPanel.progress(event.data);
+      }
+      return;
+    }
+    if (event.data.type === 'clock_applied') {
+      if (event.data.discarded) {
+        catchUpPresentation = false;
+        applyHeadlessAccelerationPresentation();
+      }
+      clockPanel.acknowledge(event.data);
+      return;
+    }
+    if (event.data.type === 'catch_up_recovery') {
+      if (!clockPanel.accepts(event.data.clockRevision ?? 0)) return;
+      if (event.data.abandoned) {
+        catchUpPresentation = false;
+        applyHeadlessAccelerationPresentation();
+        clockPanel.continuity.targetWorldMinutes = undefined;
+        catchUpOverlay.hidden = true;
+        offlineClockStatus.textContent =
+          'Догон остановлен, мир продолжает жить с последнего сохранённого момента';
+        offlineClockStatus.classList.remove('is-catching-up');
+        cardinalMessage.textContent =
+          `Браузер не смог записать даже минимальный пакет догона: ${event.data.message}. ` +
+          'Сохранённый мир не удалён и продолжает жить с последней подтверждённой точки.';
+      } else {
+        catchUpOverlay.hidden = false;
+        catchUpTitle.textContent = 'Продолжаем расчёт';
+        catchUpDetail.textContent =
+          `Браузеру требуется больше времени. ` +
+          'Сохраняем уже прожитую историю.';
+        offlineClockStatus.textContent =
+          `Продолжаем с сохранённого момента`;
+        offlineClockStatus.classList.add('is-catching-up');
+      }
+      return;
+    }
+    if (event.data.type === 'divine_audience_result') {
+      if (event.data.requestId !== divineAudienceRequestId) return;
+      divineAudienceRequestPending = false;
+      divineAudienceGrant.disabled = false;
+      divineAudienceStatus.textContent = event.data.authorized
+        ? `${event.data.giftGranted ? 'Дар получен. ' : ''}${event.data.burdenApplied ? 'Кара наложена. ' : ''}${event.data.contactRecorded ? 'Контакт состоялся. ' : ''}${event.data.residentResponse ? `Искра отвечает: «${event.data.residentResponse}»` : 'Действие завершено.'}`
+        : `Аудиенция не завершена: ${event.data.reason}`;
+      return;
+    }
+
+    observerChrome.error(event.data.message);
+    liveLabel.textContent = 'ОШИБКА МИРА';
+    liveLabel.title = event.data.message;
+    saveValue.textContent = event.data.message;
+    liveIndicator.classList.remove('is-live');
+    cardinalMessage.textContent = event.data.message;
+    if (clockPanel.continuity.targetWorldMinutes !== undefined) {
+      catchUpTitle.textContent = 'Догон остановлен';
+      catchUpDetail.textContent = 'Подробности доступны в диагностике.';
+    }
+  },
+);
+
+liveWorldWorker.addEventListener('error', () => {
+  observerChrome.error('Фоновый цикл мира остановился.');
+  liveLabel.textContent = 'ОШИБКА МИРА';
+  liveLabel.title = 'Фоновый цикл мира остановился.';
+  liveIndicator.classList.remove('is-live');
+  cardinalMessage.textContent = 'Фоновый цикл мира остановился.';
+  if (clockPanel.continuity.targetWorldMinutes !== undefined) {
+    catchUpTitle.textContent = 'Догон остановлен';
+    catchUpDetail.textContent =
+      'Фоновый цикл мира остановился. Перезагрузка продолжит с последней сохранённой точки.';
+  }
+});
