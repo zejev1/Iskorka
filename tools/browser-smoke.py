@@ -51,6 +51,7 @@ with sync_playwright() as p:
     page.locator('#map-city-focus').click()
     # Browser reload must resume the durable world, not silently make an epoch.
     before_reload = summary(page)
+    (OUT/'first.json').write_text(json.dumps(first,ensure_ascii=False,indent=2))
     page.reload(wait_until='networkidle'); ready(page)
     after_reload = summary(page)
     assert after_reload['worldId'] == before_reload['worldId']
@@ -69,6 +70,7 @@ with sync_playwright() as p:
     second.close()
     page.on('dialog', lambda d: d.accept())
     old_epoch = after_reload['epoch']
+    page.locator('details.world-maintenance > summary').click()
     page.locator('#reset-world').click()
     page.wait_for_function('(old) => window.__iskorkaLatestFrame?.world?.epoch > old',arg=old_epoch,timeout=60000)
     reset = summary(page)
