@@ -58,7 +58,7 @@ with sync_playwright() as p:
     assert after_reload['epoch'] == before_reload['epoch']
     assert after_reload['names'] == before_reload['names']
     assert after_reload['elapsed'] >= before_reload['elapsed']
-    # Another tab follows the same single writer, including reset notifications.
+    # Another tab follows the same single writer without creating a second world.
     second = context.new_page(); second.on('pageerror', lambda e: errors.append(str(e)))
     second.goto(URL, wait_until='networkidle'); ready(second)
     follower = summary(second)
@@ -68,7 +68,8 @@ with sync_playwright() as p:
     page.set_viewport_size({'width':1440,'height':1000})
     page.screenshot(path=str(OUT/'desktop.png'), full_page=True)
     second.close()
-    page.on('dialog', lambda d: d.accept())
+    # The real two-step reset requires both confirmation and the exact phrase.
+    page.on('dialog', lambda d: d.accept('НОВЫЙ МИР') if d.type == 'prompt' else d.accept())
     old_epoch = after_reload['epoch']
     page.locator('details.world-maintenance > summary').click()
     page.locator('#reset-world').click()
