@@ -1,0 +1,122 @@
+{
+  "donor": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+  "retired": [
+    {
+      "file": "tests/auditor.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/cardinalCore.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/cardinalExperience.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/cardinalJournal.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/cardinalJournalScaling.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/cardinalResearch.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/experimentIntegrity.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/gatewayRecovery.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/interventionGateway.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/logBackedJournal.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/modes.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/observer.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/portableCardinal.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/worldAuthority.test.ts",
+      "reason": "Only the removed Cardinal controller, journal, authority gateway or experiment modes."
+    },
+    {
+      "file": "tests/v0_3_13_releaseAudit.test.ts",
+      "test": "keeps Cardinal accumulated experience across policy/sensor advancement",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_13_releaseAudit.test.ts",
+      "test": "lets Cardinal safety proposal pass the Gateway and measurably reduce danger without mind writes",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_14_worldLogic.test.ts",
+      "test": "treats two humans as a critical civilization even without monster pressure",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_14_worldLogic.test.ts",
+      "test": "prioritizes emergency fertility and does not make critical survival wait for Cardinal level/cooldown",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/liveWorldRuntime.test.ts",
+      "test": "lets a fresh Cardinal study pressure without intervening during the first 200 years",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/liveWorldRuntime.test.ts",
+      "test": "keeps historic Cardinal learning but resets visible intervention counters per world epoch",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_22_oceanFrontier.test.ts",
+      "test": "supports empty ocean, half-kilometre islets, larger islands and rare continents without guaranteed land",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_22_oceanFrontier.test.ts",
+      "test": "requires an active expedition and refuses forged, oversized, charted and repeated land",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_22_oceanFrontier.test.ts",
+      "test": "commits through the boundary, survives real store reload, shares physical dry land and leaves minds/mainland intact",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_22_oceanFrontier.test.ts",
+      "test": "starts a requested new epoch without prior islands, surveys or pending requests",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_22_systemAgentsAndAtlas.test.ts",
+      "test": "allows only declared writes in the agent own domain",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    },
+    {
+      "file": "tests/v0_3_22_systemAgentsAndAtlas.test.ts",
+      "test": "fails closed on cross-domain or undeclared writes",
+      "reason": "Requires the controller or controller-generated offshore geography, absent from Iskorka."
+    }
+  ],
+  "policy": "Removed tests are not counted as passed. Mixed files retain physical checks; legacy unprofiled WorldEngine fixtures test shared physics, not the Iskorka app. Iskorka app invariants are tested separately."
+}

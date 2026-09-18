@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "project": "Iskorka",
+  "phase": "physical-world-bootstrap",
+  "runtimeImplemented": true,
+  "constitutionSourceSha256": "bbe8f366079f05da899431c37554ee4f8b12f9b88f4102bde1c39b988346870c",
+  "donor": {
+    "repository": "zejev1/ainkrad-v0.3",
+    "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+    "ownerApproval": {
+      "status": "owner-confirmed-final",
+      "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+      "reference": "18.09.2026: «Уже готова и работает. Поэтому давай делай искорку а не ткст мне плоди»; merged donor PR #8."
+    }
+  },
+  "initialWorld": {
+    "continents": 1,
+    "settlements": 1,
+    "settlementName": "Основание",
+    "placement": "keep-donor-coordinates",
+    "adults": 10,
+    "men": 5,
+    "women": 5,
+    "predefinedCouples": 0,
+    "humanLibraries": 1,
+    "distinctBodiesAndTemperaments": true
+  },
+  "disabled": [
+    "nonHumanRaces",
+    "nonHumanSettlements",
+    "monsters",
+    "centuryHumpback",
+    "monsterDependentRpgEconomy",
+    "interracialDiplomacy",
+    "racialLibraries",
+    "racialRules"
+  ],
+  "cardinal": "absent-from-runtime-dependency-graph",
+  "preserve": [
+    "continent",
+    "geography",
+    "terrain",
+    "weather",
+    "seasons",
+    "dayNight",
+    "calendar",
+    "physicalMovement",
+    "roads",
+    "houses",
+    "fields",
+    "resources",
+    "forest",
+    "rivers",
+    "lakes",
+    "sea",
+    "animals",
+    "fishing",
+    "hunting",
+    "farming",
+    "mining",
+    "construction",
+    "crafting",
+    "storage",
+    "humanLibrary",
+    "reading",
+    "saveLoad",
+    "indexedDB",
+    "deterministicRng",
+    "timeAccelerationSemantics"
+  ],
+  "conditionalPreserve": {
+    "shipsAndNavigation": "when-stable-in-approved-donor",
+    "physicalWoundsAndDiseases": "when-independent-of-cardinal"
+  }
+}
