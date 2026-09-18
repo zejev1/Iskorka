@@ -1,0 +1,66 @@
+name: Iskorka physical world
+on:
+  push:
+    branches: [bootstrap/iskorka-human-lab, main]
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: iskorka-verify-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+jobs:
+  physics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tools/bootstrap-profile.test.mjs
+      - run: node tools/check-bootstrap-profile.mjs --require-donor
+      - run: npm run typecheck
+      - run: npm test -- --reporter=json --outputFile=test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iskorka-physics-verification
+          path: test-results.json
+          retention-days: 14
+  production-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci && npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.57.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Desktop and mobile browser, IndexedDB reload, observer tab and reset
+        shell: bash
+        run: |
+          git rev-parse HEAD > verified-commit.txt
+          node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 > preview.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" || true' EXIT
+          for n in $(seq 1 50); do curl -fsS http://127.0.0.1:4173/ > /dev/null && break; sleep 1; done
+          python tools/browser-smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iskorka-browser-verification
+          path: |
+            verified-commit.txt
+            smoke-results/
+            preview.log
+            dist/
+          retention-days: 14
