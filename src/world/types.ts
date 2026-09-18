@@ -1126,6 +1126,9 @@ export interface WorldV21State {
 }
 
 export interface WorldState {
+  /** Independent human laboratory; never inferred from an old Ainkrad save. */
+  simulationProfile?: 'iskorka-human-lab-v1';
+  bootstrapSeed?: string;
   cartography?: import('./ResidentCartography').WorldCartography;
   terrain?: TerrainFoundation;
   oceanExploration?: import('./geography/OceanExploration').OceanExplorationState;

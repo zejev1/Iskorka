@@ -1,1 +1,6 @@
-{"repository":"zejev1/ainkrad-v0.3","commit":"0563af1dc1fea7d2abe76eb17501ef574078b4d2","confirmedByOwner":true,"stage":"donor-import-not-yet-adapted"}
+{
+  "repository": "zejev1/ainkrad-v0.3",
+  "commit": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+  "confirmedByOwner": true,
+  "stage": "stage1-physical-world-adapted"
+}

@@ -1,0 +1,412 @@
+{
+  "donor": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+  "worldId": "iskorka-world",
+  "seed": "iskorka-baseline-20260918",
+  "places": {
+    "commons": {
+      "id": "commons",
+      "kind": "commons",
+      "mapX": -641.4439645409584,
+      "mapY": 988.6719471309334,
+      "surface": "land",
+      "connectedPlaceIds": [
+        "resource_field",
+        "workshop",
+        "quiet_space",
+        "outskirts",
+        "home_agent_1",
+        "home_agent_2",
+        "home_agent_3",
+        "home_agent_4",
+        "home_agent_5",
+        "home_agent_6",
+        "home_agent_7",
+        "home_agent_8",
+        "home_agent_9",
+        "home_agent_10",
+        "secret_library_v18"
+      ]
+    },
+    "resource_field": {
+      "id": "resource_field",
+      "kind": "resource_field",
+      "mapX": -641.9593149831327,
+      "mapY": 987.4914573304249,
+      "surface": "land",
+      "boundaryPolygon": [
+        {
+          "x": -642.0190933679113,
+          "y": 987.7794270245131
+        },
+        {
+          "x": -642.2214655926282,
+          "y": 987.3658505712868
+        },
+        {
+          "x": -641.9298688770745,
+          "y": 987.1839952566042
+        },
+        {
+          "x": -641.6920005567187,
+          "y": 987.603898414691
+        }
+      ],
+      "rotation": 4.300770772411302,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "workshop": {
+      "id": "workshop",
+      "kind": "workshop",
+      "mapX": -641.2439645409584,
+      "mapY": 988.8619471309335,
+      "surface": "land",
+      "rotation": 0.9227710566603687,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "quiet_space": {
+      "id": "quiet_space",
+      "kind": "quiet_space",
+      "mapX": -641.6439645409585,
+      "mapY": 988.4819471309333,
+      "surface": "land",
+      "rotation": 0.9227710566603687,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "outskirts": {
+      "id": "outskirts",
+      "kind": "outskirts",
+      "mapX": -641.0811492065644,
+      "mapY": 987.7852248018971,
+      "surface": "land",
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "ocean_ainkrad": {
+      "id": "ocean_ainkrad",
+      "kind": "ocean",
+      "mapX": 98,
+      "mapY": 88,
+      "surface": "water",
+      "boundaryPolygon": [
+        {
+          "x": 96,
+          "y": -100075
+        },
+        {
+          "x": 200375,
+          "y": -100075
+        },
+        {
+          "x": 200375,
+          "y": 100075
+        },
+        {
+          "x": 96,
+          "y": 100075
+        }
+      ],
+      "connectedPlaceIds": []
+    },
+    "home_agent_1": {
+      "id": "home_agent_1",
+      "kind": "home",
+      "mapX": -641.0411178440336,
+      "mapY": 988.8846562894632,
+      "surface": "land",
+      "rotation": 2.1822205603830134,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_2": {
+      "id": "home_agent_2",
+      "kind": "home",
+      "mapX": -641.8302920821168,
+      "mapY": 988.9354360685566,
+      "surface": "land",
+      "rotation": -2.2396069284366735,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_3": {
+      "id": "home_agent_3",
+      "kind": "home",
+      "mapX": -641.715962167817,
+      "mapY": 988.8450788447103,
+      "surface": "land",
+      "rotation": -2.2396069284366735,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_4": {
+      "id": "home_agent_4",
+      "kind": "home",
+      "mapX": -641.7474311856081,
+      "mapY": 988.3652774150644,
+      "surface": "land",
+      "rotation": -0.8793041540691683,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_5": {
+      "id": "home_agent_5",
+      "kind": "home",
+      "mapX": -641.6345405054572,
+      "mapY": 988.4587337174968,
+      "surface": "land",
+      "rotation": -0.8793041540691683,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_6": {
+      "id": "home_agent_6",
+      "kind": "home",
+      "mapX": -641.0476195620535,
+      "mapY": 988.5514954428057,
+      "surface": "land",
+      "rotation": 1.0017999534807518,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_7": {
+      "id": "home_agent_7",
+      "kind": "home",
+      "mapX": -640.8015249850209,
+      "mapY": 989.1122042527455,
+      "surface": "land",
+      "rotation": 2.337794033712045,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_8": {
+      "id": "home_agent_8",
+      "kind": "home",
+      "mapX": -640.9061559841407,
+      "mapY": 989.0113546178596,
+      "surface": "land",
+      "rotation": 2.337794033712045,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_9": {
+      "id": "home_agent_9",
+      "kind": "home",
+      "mapX": -640.9811457950603,
+      "mapY": 989.2616036441915,
+      "surface": "land",
+      "rotation": 2.543534764173688,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "home_agent_10": {
+      "id": "home_agent_10",
+      "kind": "home",
+      "mapX": -641.2732952997135,
+      "mapY": 989.0664774684964,
+      "surface": "land",
+      "rotation": 2.746262277471932,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    },
+    "secret_library_v18": {
+      "id": "secret_library_v18",
+      "kind": "library",
+      "mapX": -641.2439645409584,
+      "mapY": 988.4819471309333,
+      "surface": "land",
+      "rotation": 0.9227710566603687,
+      "connectedPlaceIds": [
+        "commons"
+      ]
+    }
+  },
+  "terrain": {
+    "version": 1,
+    "epoch": 1,
+    "seed": 166623296,
+    "key": "terrain-v1:1481363412",
+    "anchors": [
+      {
+        "id": "commons",
+        "x": -641.4439645409584,
+        "y": 988.6719471309334,
+        "kind": "commons",
+        "radius": 3
+      },
+      {
+        "id": "foundation_dwarf",
+        "x": -11327.910603122835,
+        "y": -5597.9643245062125,
+        "kind": "mountains",
+        "radius": 12
+      },
+      {
+        "id": "foundation_elf",
+        "x": -8940.045036959975,
+        "y": 10119.150884634242,
+        "kind": "forest",
+        "radius": 12
+      },
+      {
+        "id": "foundation_goblin",
+        "x": -22245.820693956677,
+        "y": 5841.13053065681,
+        "kind": "meadow",
+        "radius": 12
+      },
+      {
+        "id": "foundation_human",
+        "x": -641.4439645409584,
+        "y": 988.6719471309334,
+        "kind": "meadow",
+        "radius": 12
+      },
+      {
+        "id": "foundation_ogre",
+        "x": -37999.33055969457,
+        "y": 7466.473846385568,
+        "kind": "swamp",
+        "radius": 12
+      },
+      {
+        "id": "foundation_orc",
+        "x": -27201.002911966592,
+        "y": -6478.051260203788,
+        "kind": "mountains",
+        "radius": 12
+      },
+      {
+        "id": "home_agent_1",
+        "x": -641.0411178440336,
+        "y": 988.8846562894632,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_10",
+        "x": -641.2732952997135,
+        "y": 989.0664774684964,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_2",
+        "x": -641.8302920821168,
+        "y": 988.9354360685566,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_3",
+        "x": -641.715962167817,
+        "y": 988.8450788447103,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_4",
+        "x": -641.7474311856081,
+        "y": 988.3652774150644,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_5",
+        "x": -641.6345405054572,
+        "y": 988.4587337174968,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_6",
+        "x": -641.0476195620535,
+        "y": 988.5514954428057,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_7",
+        "x": -640.8015249850209,
+        "y": 989.1122042527455,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_8",
+        "x": -640.9061559841407,
+        "y": 989.0113546178596,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "home_agent_9",
+        "x": -640.9811457950603,
+        "y": 989.2616036441915,
+        "kind": "home",
+        "radius": 1
+      },
+      {
+        "id": "outskirts",
+        "x": -641.0811492065644,
+        "y": 987.7852248018971,
+        "kind": "outskirts",
+        "radius": 1
+      },
+      {
+        "id": "quiet_space",
+        "x": -641.6439645409585,
+        "y": 988.4819471309333,
+        "kind": "quiet_space",
+        "radius": 1
+      },
+      {
+        "id": "resource_field",
+        "x": -641.9593149831327,
+        "y": 987.4914573304249,
+        "kind": "resource_field",
+        "radius": 1
+      },
+      {
+        "id": "secret_library_v18",
+        "x": -641.2439645409584,
+        "y": 988.4819471309333,
+        "kind": "library",
+        "radius": 1
+      },
+      {
+        "id": "workshop",
+        "x": -641.2439645409584,
+        "y": 988.8619471309335,
+        "kind": "workshop",
+        "radius": 1
+      }
+    ]
+  },
+  "planetaryGeography": {
+    "shape": "sphere",
+    "radiusKm": 6371,
+    "circumferenceKm": 40075,
+    "coordinateUnitMetres": 100,
+    "minMapX": -200375,
+    "maxMapX": 200375,
+    "minMapY": -100075,
+    "maxMapY": 100075,
+    "surfaceOnlyUntilTechnology": true
+  }
+}

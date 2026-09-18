@@ -1,13 +1,24 @@
 {
   "schemaVersion": 1,
   "project": "Iskorka",
-  "phase": "bootstrap-preparation",
-  "runtimeImplemented": false,
+  "phase": "stage1-physical-world",
+  "runtimeImplemented": true,
   "constitutionSourceSha256": "bbe8f366079f05da899431c37554ee4f8b12f9b88f4102bde1c39b988346870c",
   "donor": {
     "repository": "zejev1/ainkrad-v0.3",
-    "sha": null,
-    "ownerApproval": null
+    "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+    "ownerApproval": {
+      "status": "owner-confirmed-final",
+      "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+      "reference": "Current conversation: owner confirmed F2 is ready and working, then authorized obtaining missing/corrected files from the working version. Pinned GitHub main was verified as this SHA."
+    },
+    "verification": {
+      "ciRun": 35277550369,
+      "verifiedSourceSha": "f69d87b0ba4c3978c44faf8bc84acc555b588b85",
+      "verifiedTree": "e3dcd421d6c0204fc61f92f970b00e07c6cf533b",
+      "upstreamReportedTests": 426,
+      "upstreamSuiteRerunHere": false
+    }
   },
   "initialWorld": {
     "continents": 1,

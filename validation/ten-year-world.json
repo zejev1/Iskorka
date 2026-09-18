@@ -1,0 +1,77 @@
+{
+  "seed": "iskorka-baseline-20260918",
+  "elapsedMs": 1584.0108059999998,
+  "yearly": [
+    {
+      "year": 1,
+      "alive": 10,
+      "births": 0,
+      "deaths": 0,
+      "places": 19
+    },
+    {
+      "year": 2,
+      "alive": 10,
+      "births": 0,
+      "deaths": 0,
+      "places": 20
+    },
+    {
+      "year": 3,
+      "alive": 11,
+      "births": 1,
+      "deaths": 0,
+      "places": 20
+    },
+    {
+      "year": 4,
+      "alive": 11,
+      "births": 1,
+      "deaths": 0,
+      "places": 20
+    },
+    {
+      "year": 5,
+      "alive": 12,
+      "births": 2,
+      "deaths": 0,
+      "places": 20
+    },
+    {
+      "year": 6,
+      "alive": 13,
+      "births": 3,
+      "deaths": 0,
+      "places": 20
+    },
+    {
+      "year": 7,
+      "alive": 13,
+      "births": 3,
+      "deaths": 0,
+      "places": 20
+    },
+    {
+      "year": 8,
+      "alive": 13,
+      "births": 3,
+      "deaths": 0,
+      "places": 21
+    },
+    {
+      "year": 9,
+      "alive": 15,
+      "births": 5,
+      "deaths": 0,
+      "places": 21
+    },
+    {
+      "year": 10,
+      "alive": 15,
+      "births": 5,
+      "deaths": 0,
+      "places": 21
+    }
+  ],
+  "eventCount": 3068
+}

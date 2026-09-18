@@ -1,3 +1,4 @@
+import { isIskorkaWorld } from '../iskorka/Profile';
 import { rebuildWorldRoutes } from '../world/WorldNavigation';
 import type { WorldState, AgentState } from '../world/types';
 import type { SecretLibraryStudyMaterialV18 } from '../v18/SecretLibraryV18';
@@ -5,6 +6,7 @@ import { ELF_LIBRARY_ID_V20 } from './KnowledgeBoundariesV20';
 import { compactLibraryPlot } from '../world/SettlementLibraryLayout';
 
 export function ensureElfLibraryV20(world: WorldState): boolean {
+  if (isIskorkaWorld(world)) return false;
   const center = world.places.settlement_elf_homeland;
   const model = world.places.secret_library_v18;
   if (!center || !model || world.places[ELF_LIBRARY_ID_V20]) return false;

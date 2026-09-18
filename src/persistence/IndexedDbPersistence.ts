@@ -850,3 +850,9 @@ export function createIndexedDbPersistence(
     controlLog: new IndexedDbAppendOnlyLog(database),
   };
 }
+
+/** Independent world persistence: no control log or observer is instantiated. */
+export function createStandaloneWorldStore(databaseName: string): IndexedDbWorldStore {
+  if (!databaseName.startsWith('iskorka-')) throw new Error('Iskorka requires its own database namespace.');
+  return new IndexedDbWorldStore(openDatabase(databaseName));
+}

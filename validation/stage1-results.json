@@ -1,0 +1,37 @@
+{
+  "version": "0.1.0-stage1",
+  "date": "2026-09-18",
+  "donor": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
+  "typecheck": "pass",
+  "nativeTests": {
+    "passed": 51,
+    "failed": 0,
+    "worldPersistenceWorkerPhysical": 32,
+    "rules": 19
+  },
+  "build": {
+    "passed": true,
+    "sourceInputs": 117,
+    "forbiddenSupervisorDependencies": 0
+  },
+  "longRun": {
+    "years": 110,
+    "seed": "iskorka-baseline-20260918",
+    "alive": 24,
+    "births": 42,
+    "deaths": 28,
+    "places": 38,
+    "platform": "Node/InMemoryWorldStore",
+    "oneSeedOnly": true
+  },
+  "browser": "render-only; real snapshot replay; no HTTP+browser IndexedDB end-to-end",
+  "phoneVerified": false,
+  "githubPushExecuted": false,
+  "deploymentExecuted": false,
+  "upstream426Rerun": false,
+  "deliveryBranch": "bootstrap/iskorka-stage1-spck-20260918",
+  "concurrentWorkPreserved": {
+    "branch": "bootstrap/iskorka-human-lab",
+    "observedHead": "73755431ad3422dda56a77bdc4dc95f231ae1b0c"
+  }
+}

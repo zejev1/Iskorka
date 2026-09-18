@@ -1,0 +1,16 @@
+[
+  {
+    "view": "desktop",
+    "cards": 10,
+    "canvas": 2,
+    "errors": [],
+    "status": "render-only PASS; worker replaced by real engine snapshot replay; HTTP and browser IndexedDB not verified"
+  },
+  {
+    "view": "mobile",
+    "cards": 10,
+    "canvas": 2,
+    "errors": [],
+    "status": "render-only PASS; worker replaced by real engine snapshot replay; HTTP and browser IndexedDB not verified"
+  }
+]

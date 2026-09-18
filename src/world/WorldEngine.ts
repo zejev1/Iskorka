@@ -1,3 +1,4 @@
+import { ISKORKA_FOUNDER_NAMES, ISKORKA_PROFILE, initializeIskorkaWorld, isIskorkaWorld, assertIskorkaProfile } from '../iskorka/Profile';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -1906,7 +1907,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
       throw new Error('World v15.version must be v15.');
     }
 
-    if (!Array.isArray(v15.genesisTeachers) || v15.genesisTeachers.length !== 4) {
+    if (!Array.isArray(v15.genesisTeachers) || v15.genesisTeachers.length !== 0) {
       throw new Error('World v15 must contain exactly four Genesis teachers.');
     }
     const genesisDomains = new Set<string>();
@@ -1949,7 +1950,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
         throw new Error('Genesis teachingHistoryIds must contain strings.');
       }
     }
-    if (genesisDomains.size !== 4) {
+    if (genesisDomains.size !== 0) {
       throw new Error('Genesis teachers must cover four distinct domains.');
     }
 
@@ -2999,6 +3000,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
   if (!id.trim()) {
     throw new Error('World state id must not be empty.');
   }
+  assertIskorkaProfile(value as WorldState);
 }
 
 function createPlace(
@@ -3269,7 +3271,7 @@ function drawThreeHumanFoundingSettlements(rng: SeededRng): FoundingHumanSettlem
     stretchY: rng.between(0.82, 1.18),
   });
   return [
-    { id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: layout(point(heading)) },
+    { id: 'settlement_ainkrad', name: 'Основание', prefix: '', coastal: false, layout: layout(point(heading)) },
     { id: 'settlement_rulid', name: 'Рулид', prefix: 'rulid_', coastal: true, layout: { center: coast, rotation: rng.between(-0.08, 0.08), stretchX: rng.between(0.9, 1.08), stretchY: rng.between(0.9, 1.08) } },
     { id: 'settlement_zakkaria', name: 'Заккария', prefix: 'zakkaria_', coastal: false, layout: layout(point(heading + orientation * Math.PI / 3)) },
   ];
@@ -3368,7 +3370,7 @@ function mainSettlement(
     .sort();
   return {
     id: 'settlement_ainkrad',
-    name: 'Айнкрад',
+    name: 'Основание',
     kind: 'village',
     centerPlaceId: 'commons',
     centerX: places.commons?.mapX ?? 50,
@@ -3524,33 +3526,11 @@ function createWorldV15State(
   const smithingByAgentId: WorldV15State['smithingByAgentId'] = {};
   const equipmentByAgentId: WorldV15State['equipmentByAgentId'] = {};
 
-  const livingFounders = Object.values(agents)
-    .filter((agent) => agent.life.alive && agent.life.generation === 0)
-    .sort((a, b) => a.id.localeCompare(b.id));
-
   for (const agent of Object.values(agents)) {
     knowledgeByAgentId[agent.id] = v15KnowledgeForAgent(agent);
     familyAgencyByAgentId[agent.id] = v15FamilyAgencyForAgent(agent);
     smithingByAgentId[agent.id] = emptySmithingProfile();
     equipmentByAgentId[agent.id] = {};
-  }
-
-  let founderSmithAgentId: string | undefined;
-  if (livingFounders.length > 0) {
-    const smith = [...livingFounders].sort((a, b) => {
-      const scoreA = a.skills.craft * 0.5 + a.personality.diligence * 0.28 + a.personality.curiosity * 0.22;
-      const scoreB = b.skills.craft * 0.5 + b.personality.diligence * 0.28 + b.personality.curiosity * 0.22;
-      return scoreB - scoreA || a.id.localeCompare(b.id);
-    })[0];
-    founderSmithAgentId = smith.id;
-    const seeded = assignOrdinaryFounderSmithV15(
-      Array.from({ length: 10 }, (_, index) => livingFounders[index]?.id ?? `reserved-founder-${index + 1}`),
-      Math.max(0, Math.min(9, livingFounders.findIndex((agent) => agent.id === smith.id))),
-    );
-    smithingByAgentId[smith.id] = {
-      ...emptySmithingProfile(),
-      knowledge: { ...seeded.knowledge },
-    };
   }
 
   const simulatedWorldMinutes = Math.max(0, elapsedWorldMinutes);
@@ -3559,14 +3539,13 @@ function createWorldV15State(
 
   return {
     version: 'v15',
-    genesisTeachers: createGenesisTeachers(`${worldId}:epoch:${epoch}`, 0),
+    genesisTeachers: [],
     knowledgeByAgentId,
     familyAgencyByAgentId,
     smithingByAgentId,
     smithingInnovations: {},
     equipmentByAgentId,
     items: {},
-    ...(founderSmithAgentId ? { founderSmithAgentId } : {}),
     renewableResources: {
       storedResources: clamp01(resourcePool),
       renewableBase: 0.92,
@@ -3719,11 +3698,11 @@ async function migrateLegacyWorld(
     });
   }
   const coreNames: Record<string, string> = {
-    commons: 'Площадь и рынок Айнкрада',
-    resource_field: 'Поля и фермы Айнкрада',
-    workshop: 'Мастерская Айнкрада',
-    quiet_space: 'Тихий сад Айнкрада',
-    outskirts: 'Окраина Айнкрада',
+    commons: 'Площадь и рынок Основания',
+    resource_field: 'Поля и фермы Основания',
+    workshop: 'Мастерская Основания',
+    quiet_space: 'Тихий сад Основания',
+    outskirts: 'Окраина Основания',
   };
   for (const [placeId, placeName] of Object.entries(coreNames)) {
     if (next.places[placeId]) next.places[placeId].name = placeName;
@@ -4515,7 +4494,7 @@ async function repairCompatibleV19World(
     repairCompactSettlementLayout(next);
     reconcileLibraryAdmissions(next, next.calendar.elapsedWorldMinutes);
     repairDeceasedActions(next);
-    ensureCenturyHumpbackState(next);
+    if (!isIskorkaWorld(next)) ensureCenturyHumpbackState(next);
     // Saved worlds may contain a one-sided physical link from an older repair.
     // Reciprocity is a world invariant; restore only the missing reverse edge.
     makeConnectionsReciprocal(next.places);
@@ -4691,12 +4670,12 @@ export class WorldEngine {
     }
 
     const rng = new SeededRng(options.seed);
-    const useThreeHumanSeeds = options.agentNames === undefined || (options.agentNames?.length ?? 0) >= 30;
+    const useThreeHumanSeeds = false;
     const names = options.agentNames?.map(toRussianWorldNameV18) ??
-      [...DEFAULT_HUMAN_FOUNDER_NAMES];
+      [...ISKORKA_FOUNDER_NAMES];
     const humanSeedSettlements = useThreeHumanSeeds
       ? drawThreeHumanFoundingSettlements(rng)
-      : [{ id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
+      : [{ id: 'settlement_ainkrad', name: 'Основание', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
     const foundingLayout = humanSeedSettlements[0].layout;
     const initialPlace = (id: string, kind: WorldPlaceKind, homeIndex = 0) =>
       foundingPlaceDefaults(placeMigrationDefaults({ id, kind }, homeIndex), foundingLayout);
@@ -4704,35 +4683,35 @@ export class WorldEngine {
     const places: Record<string, WorldPlace> = {
       commons: createPlace(
         'commons',
-        'Площадь и рынок Айнкрада',
+        'Площадь и рынок Основания',
         'commons',
         Math.max(8, foundingHumanCount * 2),
         initialPlace('commons', 'commons'),
       ),
       resource_field: createPlace(
         'resource_field',
-        'Поля и фермы Айнкрада',
+        'Поля и фермы Основания',
         'resource_field',
         Math.max(6, foundingHumanCount),
         initialPlace('resource_field', 'resource_field'),
       ),
       workshop: createPlace(
         'workshop',
-        'Мастерская Айнкрада',
+        'Мастерская Основания',
         'workshop',
         Math.max(6, foundingHumanCount),
         initialPlace('workshop', 'workshop'),
       ),
       quiet_space: createPlace(
         'quiet_space',
-        'Тихий сад Айнкрада',
+        'Тихий сад Основания',
         'quiet_space',
         Math.max(4, foundingHumanCount),
         initialPlace('quiet_space', 'quiet_space'),
       ),
       outskirts: createPlace(
         'outskirts',
-        'Окраина Айнкрада',
+        'Окраина Основания',
         'outskirts',
         Math.max(8, foundingHumanCount * 2),
         initialPlace('outskirts', 'outskirts'),
@@ -4841,6 +4820,7 @@ export class WorldEngine {
 
     const state: WorldState = {
       id: options.worldId,
+      simulationProfile: ISKORKA_PROFILE,
       epoch: 1,
       epochStartedAt: now,
       now,
@@ -4897,7 +4877,6 @@ export class WorldEngine {
       wildlife: {},
       agents,
       relationships: {},
-      centuryHumpback: createCenturyHumpbackState(),
       v15: createWorldV15State(
         options.worldId,
         1,
@@ -4906,7 +4885,7 @@ export class WorldEngine {
         0,
       ),
     };
-    applyFounderSmithAgentSeed(state.agents, state.v15!);
+    // No pre-assigned founder profession in the human laboratory.
     state.v16 = createWorldV16State(state, WORLD_RULES_VERSION);
     state.v18 = createWorldV18State(state, WORLD_RULES_VERSION);
     state.v19 = createWorldV19State(state, WORLD_RULES_VERSION);
@@ -4928,6 +4907,7 @@ export class WorldEngine {
     }
     reconcileLibraryAdmissions(state, state.calendar.elapsedWorldMinutes, true);
 
+    initializeIskorkaWorld(state, options.seed);
     for (const resident of Object.values(state.agents)) observeLocalPlacesV20(state, resident);
     assertWorldState(state);
     await options.store.initializeWorld(state);
@@ -4939,29 +4919,10 @@ export class WorldEngine {
     if (!state) {
       throw new Error(`World ${options.worldId} does not exist in the store.`);
     }
+    assertIskorkaProfile(state);
     if (state.rulesVersion !== WORLD_RULES_VERSION) {
-      await options.store.checkpointWorld?.(state.id, state.revision, 'before-rules-migration');
+      throw new Error('Версия сохранения не поддерживается. Автоматическое преобразование запрещено.');
     }
-    if (LEGACY_WORLD_RULES_VERSIONS.has(state.rulesVersion)) {
-      state = await migrateLegacyWorld(options.store, state);
-    }
-    if (state.rulesVersion === V15_WORLD_RULES_VERSION) {
-      state = await migrateV15WorldToV16(options.store, state);
-    }
-    if (state.rulesVersion === WORLD_RULES_VERSION_V16) {
-      state = await repairCompatibleV16World(options.store, state);
-      state = await migrateV16WorldToV18(options.store, state);
-    }
-    if (state.rulesVersion === WORLD_RULES_VERSION_V18) {
-      state = await repairCompatibleV18World(options.store, state);
-      state = await migrateV18WorldToV19(options.store, state);
-    }
-    if (state.rulesVersion !== WORLD_RULES_VERSION) {
-      throw new Error(
-        `World ${options.worldId} uses rules ${state.rulesVersion}; runtime expects ${WORLD_RULES_VERSION}. Explicit migration is required.`,
-      );
-    }
-    state = await repairCompatibleV19World(options.store, state);
     assertWorldState(state);
     return new WorldEngine(options.store, state);
   }
@@ -5009,19 +4970,19 @@ export class WorldEngine {
         const priorSequence = this.state.determinism.eventSequence;
         const rng = new SeededRng(`${seed}:epoch:${nextEpoch}`);
         const names = founderNames.map(toRussianWorldNameV18);
-        const useThreeHumanSeeds = names.length >= 30;
+        const useThreeHumanSeeds = false;
         const humanSeedSettlements = useThreeHumanSeeds
           ? drawThreeHumanFoundingSettlements(rng)
-          : [{ id: 'settlement_ainkrad', name: 'Айнкрад', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
+          : [{ id: 'settlement_ainkrad', name: 'Основание', prefix: '', coastal: false, layout: drawFoundingSettlementLayout(rng) } satisfies FoundingHumanSettlementSpec];
         const foundingLayout = humanSeedSettlements[0].layout;
         const initialPlace = (id: string, kind: WorldPlaceKind, homeIndex = 0) =>
           foundingPlaceDefaults(placeMigrationDefaults({ id, kind }, homeIndex), foundingLayout);
         const places: Record<string, WorldPlace> = {
-          commons: createPlace('commons', 'Площадь и рынок Айнкрада', 'commons', Math.max(20, names.length * 2), initialPlace('commons', 'commons')),
-          resource_field: createPlace('resource_field', 'Поля и фермы Айнкрада', 'resource_field', Math.max(12, names.length), initialPlace('resource_field', 'resource_field')),
-          workshop: createPlace('workshop', 'Мастерская Айнкрада', 'workshop', Math.max(10, names.length), initialPlace('workshop', 'workshop')),
-          quiet_space: createPlace('quiet_space', 'Тихий сад Айнкрада', 'quiet_space', Math.max(8, names.length), initialPlace('quiet_space', 'quiet_space')),
-          outskirts: createPlace('outskirts', 'Окраина Айнкрада', 'outskirts', Math.max(16, names.length * 2), initialPlace('outskirts', 'outskirts')),
+          commons: createPlace('commons', 'Площадь и рынок Основания', 'commons', Math.max(20, names.length * 2), initialPlace('commons', 'commons')),
+          resource_field: createPlace('resource_field', 'Поля и фермы Основания', 'resource_field', Math.max(12, names.length), initialPlace('resource_field', 'resource_field')),
+          workshop: createPlace('workshop', 'Мастерская Основания', 'workshop', Math.max(10, names.length), initialPlace('workshop', 'workshop')),
+          quiet_space: createPlace('quiet_space', 'Тихий сад Основания', 'quiet_space', Math.max(8, names.length), initialPlace('quiet_space', 'quiet_space')),
+          outskirts: createPlace('outskirts', 'Окраина Основания', 'outskirts', Math.max(16, names.length * 2), initialPlace('outskirts', 'outskirts')),
           ocean_ainkrad: createFoundingOcean(resetAt),
         };
         for (const spec of humanSeedSettlements.slice(1)) addSecondaryHumanSettlementPlaces(places, spec, resetAt, 10);
@@ -5094,7 +5055,7 @@ export class WorldEngine {
         this.state.wildlife = {};
         this.state.agents = agents;
         this.state.relationships = {};
-        this.state.centuryHumpback = createCenturyHumpbackState();
+        this.state.centuryHumpback = undefined;
         this.state.v15 = createWorldV15State(
           this.state.id,
           nextEpoch,
@@ -5102,7 +5063,7 @@ export class WorldEngine {
           1,
           0,
         );
-        applyFounderSmithAgentSeed(this.state.agents, this.state.v15);
+        // Skills and professions must develop through lived practice.
         this.state.v16 = createWorldV16State(
           this.state,
           WORLD_RULES_VERSION,
@@ -5130,47 +5091,16 @@ export class WorldEngine {
           this.state.settlements = rebuildSettlementProjection(this.state.places, this.state.settlements, resetAt);
           repairCompactSettlementLayout(this.state);
         }
+        initializeIskorkaWorld(this.state, seed);
         this.state.determinism.eventSequence = priorSequence;
         this.rng.restore(rng.snapshot());
 
         this.stageEvent({
           eventId: this.nextId('world-reset'), worldId: this.state.id, kind: 'world.epoch.started', source: 'player', occurredAt: resetAt,
-          payload: { epoch: nextEpoch, founderCount: names.length, cardinalExperiencePreserved: true },
+          payload: { epoch: nextEpoch, founderCount: names.length, simulationProfile: ISKORKA_PROFILE },
         });
       },
     );
-  }
-
-  async handleInput(input: InputEnvelope, appliedAt: number): Promise<boolean> {
-    if (input.worldId !== this.committedState.id) {
-      throw new Error(
-        `Input belongs to world ${input.worldId}, expected ${this.committedState.id}.`,
-      );
-    }
-
-    if (!Number.isFinite(appliedAt)) {
-      throw new Error('Input appliedAt must be finite.');
-    }
-
-    const operationId = `input:${input.eventId}`;
-    const fingerprint = stableJsonStringify({ kind: 'input', input, appliedAt });
-
-    return await this.mutate(operationId, fingerprint, async () => {
-      if (appliedAt < this.state.now) {
-        throw new Error('Input appliedAt cannot precede world time.');
-      }
-      this.state.now = appliedAt;
-
-      this.stageEvent({
-        eventId: `input:${this.state.id}:${input.eventId}`,
-        worldId: this.state.id,
-        kind: `input.${input.type}`,
-        source: input.source,
-        occurredAt: appliedAt,
-        payload: structuredClone(input.payload),
-        correlationId: input.correlationId ?? input.eventId,
-      });
-    });
   }
 
   async step(
@@ -5317,9 +5247,9 @@ export class WorldEngine {
       clock.simulatedWorldMinutes += quantum;
       clock.quantumIndex += 1;
 
-      // Social, biological and Cardinal-facing world mechanics still see the
+      // Social and biological world mechanics still see the
       // exact fixed semantic boundary. Continuous physics cannot add a choice
-      // or a Cardinal opportunity.
+      // or an extra decision opportunity.
       this.state.calendar.elapsedWorldMinutes = clock.simulatedWorldMinutes;
       const semanticTick = this.state.now + 1;
       this.state.now = semanticTick;
@@ -5349,7 +5279,7 @@ export class WorldEngine {
     try {
       const effectiveEnvironment = await this.effectiveEnvironment(now);
       this.advanceWildlife(effectiveEnvironment, now);
-      this.advanceMonsterFeeding(now);
+      // Monster ecology is absent; ordinary wildlife advances above.
       this.advanceAgingAndMortality(now, elapsedWorldMinutes);
       advanceEmbodiedWorldV21(this.state);
       // Dungeon ecology/discovery is a world service, not a side effect of
@@ -5387,8 +5317,8 @@ export class WorldEngine {
       this.advanceBirths(now, elapsedWorldMinutes);
       this.advanceSettlementsV18(now);
       this.advanceVoluntaryResettlement(now);
-      this.advanceSapientRaces(now);
-      this.advanceCenturyHumpback(now);
+      // No other sapient populations are generated.
+      // No century monster events in Iskorka.
       this.advanceSettlementMaterialProjects(now);
       this.advanceSettlementRelationsAndConflict(now);
       advanceEmergentSocietyV21(this.state);
@@ -5434,7 +5364,7 @@ export class WorldEngine {
   private beginSecretLibraryYearV18(livingAgents: readonly AgentState[], now: number): void {
     const minute = this.state.calendar.elapsedWorldMinutes;
     const year = Math.floor(minute / WORLD_MINUTES_PER_YEAR) + 1;
-    if (ensureElfLibraryV20(this.state)) {
+    if (!isIskorkaWorld(this.state) && ensureElfLibraryV20(this.state)) {
       repairCompactSettlementLayout(this.state);
       this.routePathCache?.clear();
       invalidateResidentNavigation(this.state);
@@ -5634,918 +5564,6 @@ export class WorldEngine {
       amount: 0.55,
     });
     this.advanceMind(agent);
-  }
-
-  async applyDisturbance(
-    kind: WorldDisturbanceKind,
-    magnitude: number,
-    now: number,
-    duration: number,
-    operationId: string,
-  ): Promise<boolean> {
-    if (!['resource_shock', 'social_barrier', 'safety_shock'].includes(kind as string)) {
-      throw new Error('Unknown disturbance kind.');
-    }
-    if (!Number.isFinite(now)) {
-      throw new Error('Disturbance time must be finite.');
-    }
-    if (!Number.isFinite(magnitude) || magnitude < 0) {
-      throw new Error('Disturbance magnitude must be finite and non-negative.');
-    }
-    if (!Number.isFinite(duration) || duration < 1) {
-      throw new Error('Disturbance duration must be finite and at least 1.');
-    }
-    if (!operationId.trim()) {
-      throw new Error('Disturbance operationId is required for retry safety.');
-    }
-
-    const amount = Math.max(0, Math.min(0.8, magnitude));
-    const fingerprint = stableJsonStringify({
-      kind: 'disturbance',
-      disturbanceKind: kind,
-      magnitude: amount,
-      now,
-      duration,
-    });
-
-    return await this.mutate(`disturbance:${operationId}`, fingerprint, async () => {
-      if (now < this.state.now) {
-        throw new Error('Disturbance cannot be applied retroactively to a progressed world.');
-      }
-      this.state.now = now;
-
-      const eventKind =
-        kind === 'resource_shock'
-          ? 'world.disturbance.resource_shock'
-          : kind === 'social_barrier'
-            ? 'world.effect.social_barrier'
-            : 'world.effect.safety_shock';
-
-      if (kind === 'resource_shock') {
-        this.addV15StoredResources(-amount);
-
-        // A systemic resource shock affects both shared stored availability and
-        // household reserves. The control world still retains work, gathering,
-        // exploration and cooperation as endogenous recovery paths.
-        for (const agent of Object.values(this.state.agents)) {
-          const householdLoss = amount * 0.6;
-          agent.resources = clamp01(agent.resources - householdLoss);
-          agent.stress = clamp01(
-            agent.stress + amount * 0.08 * (1.15 - agent.personality.resilience * 0.3),
-          );
-        }
-
-        this.stageEvent({
-          eventId: this.stableOperationEventId('disturbance', operationId),
-          worldId: this.state.id,
-          kind: eventKind,
-          source: 'system',
-          occurredAt: now,
-          payload: { magnitude: amount, householdLoss: amount * 0.6 },
-        });
-        return;
-      }
-
-      this.stageEvent({
-        eventId: this.stableOperationEventId('disturbance', operationId),
-        worldId: this.state.id,
-        kind: eventKind,
-        source: 'system',
-        occurredAt: now,
-        payload: { magnitude: amount },
-        activeUntil: now + Math.max(1, duration),
-      });
-    });
-  }
-
-  // CardinalCore never receives this capability. Only the independent
-  // simulation gateway owns it.
-  async applyAuthorizedIntervention(
-    worldId: string,
-    kind: InterventionKind,
-    magnitude: number,
-    now: number,
-    durationWorldMinutes: number,
-    operationId: string,
-    expectedWorldRevision: number,
-  ): Promise<WorldMutationResult> {
-    if (worldId !== this.committedState.id) {
-      throw new Error(
-        `Intervention belongs to world ${worldId}, expected ${this.committedState.id}.`,
-      );
-    }
-    if (
-      ![
-        'resource_relief',
-        'open_shared_space',
-        'safety_support',
-        'habitat_support',
-      ].includes(kind as string)
-    ) {
-      throw new Error('Unknown intervention kind.');
-    }
-    if (!Number.isFinite(now)) {
-      throw new Error('Intervention time must be finite.');
-    }
-    if (!Number.isFinite(magnitude) || magnitude <= 0) {
-      throw new Error('Intervention magnitude must be positive and finite.');
-    }
-    if (!Number.isFinite(durationWorldMinutes) || durationWorldMinutes < 1) {
-      throw new Error(
-        'Intervention durationWorldMinutes must be finite and at least 1.',
-      );
-    }
-    if (!operationId.trim()) {
-      throw new Error('Intervention operationId is required for retry safety.');
-    }
-    if (!Number.isInteger(expectedWorldRevision) || expectedWorldRevision < 0) {
-      throw new Error('Intervention expectedWorldRevision must be a non-negative integer.');
-    }
-
-    const amount = Math.max(0, Math.min(0.25, magnitude));
-    const fingerprint = stableJsonStringify({
-      kind: 'intervention',
-      worldId,
-      interventionKind: kind,
-      magnitude: amount,
-      now,
-      durationWorldMinutes,
-      expectedWorldRevision,
-    });
-
-    return await this.mutateDetailed(
-      `intervention:${operationId}`,
-      fingerprint,
-      async () => {
-        if (now < this.state.now) {
-          throw new Error('Intervention cannot be applied retroactively to a progressed world.');
-        }
-        this.state.now = now;
-        const requestedWorldMinutes =
-          this.state.calendar.elapsedWorldMinutes;
-
-        const eventKind =
-          kind === 'resource_relief'
-            ? 'cardinal.intervention.resource_relief'
-            : kind === 'open_shared_space'
-              ? 'cardinal.effect.open_shared_space'
-              : kind === 'safety_support'
-                ? 'cardinal.effect.safety_support'
-                : 'cardinal.effect.habitat_support';
-
-        if (kind === 'resource_relief') {
-          // Cardinal may support damaged soil/ecology, but it cannot conjure a
-          // filled granary. Residents still have to farm, forage, hunt and
-          // carry every usable unit into their own settlement.
-          this.supportV15RenewableBase(amount);
-
-          this.stageEvent({
-            eventId: this.stableOperationEventId('intervention', operationId),
-            worldId: this.state.id,
-            kind: eventKind,
-            source: 'cardinal',
-            occurredAt: now,
-            occurredWorldMinutes: requestedWorldMinutes,
-            payload: {
-              magnitude: amount,
-              durationWorldMinutes,
-              mechanism: 'renewable_base_support_only',
-              fabricatedStoredResources: 0,
-            },
-          });
-          return;
-        }
-
-        this.stageEvent({
-          eventId: this.stableOperationEventId('intervention', operationId),
-          worldId: this.state.id,
-          kind: eventKind,
-          source: 'cardinal',
-          occurredAt: now,
-          occurredWorldMinutes: requestedWorldMinutes,
-          payload: {
-            magnitude: amount,
-            durationWorldMinutes,
-          },
-          // Compatibility/index projection only. Canonical expiration below is
-          // authoritative for v0.3.15 world semantics.
-          activeUntil:
-            now +
-            Math.max(
-              1,
-              Math.ceil(
-                durationWorldMinutes /
-                  V15_SIMULATION_QUANTUM_WORLD_MINUTES,
-              ),
-            ),
-          activeUntilWorldMinutes:
-            requestedWorldMinutes + durationWorldMinutes,
-        });
-      },
-      expectedWorldRevision,
-    );
-  }
-
-  /** Cardinal may propose world laws, but only the independent authority
-   * gateway receives this mutation capability. Personhood is not addressable
-   * through this method. */
-  async applyAuthorizedOceanDecision(decision:OceanDecision,revision:number):Promise<WorldMutationResult> {
-    return this.mutateDetailed(`ocean-frontier:${this.committedState.epoch??1}:${decision.requestId}`,
-      stableJsonStringify(decision),async()=>{
-        applyOceanDecision(this.state,decision);
-        this.stageEvent({eventId:this.stableOperationEventId('ocean-frontier',decision.requestId),worldId:this.state.id,
-          kind:'world.geography.extended',source:'cardinal',occurredAt:this.state.now,
-          payload:{requestId:decision.requestId,landKind:decision.land?.kind??'ocean',landId:decision.land?.id??null}});
-      },revision);
-  }
-
-  async applyAuthorizedWorldLaw(
-    worldId: string,
-    lawId: string,
-    domain: WorldLawDomain,
-    mechanism: WorldLawMechanism,
-    value: number,
-    minimum: number,
-    maximum: number,
-    rationale: string,
-    now: number,
-    operationId: string,
-    expectedWorldRevision: number,
-  ): Promise<WorldMutationResult> {
-    if (worldId !== this.committedState.id) {
-      throw new Error('World-law proposal belongs to a different world.');
-    }
-    if (!lawId.trim() || !rationale.trim() || !operationId.trim()) {
-      throw new Error('World-law mutation requires IDs and rationale.');
-    }
-    if (LAW_MECHANISM_DOMAINS[mechanism] !== domain) {
-      throw new Error('World-law mechanism does not belong to its domain.');
-    }
-    if (
-      !Number.isFinite(value) ||
-      !Number.isFinite(minimum) ||
-      !Number.isFinite(maximum) ||
-      minimum > maximum ||
-      value < minimum ||
-      value > maximum ||
-      !Number.isFinite(now)
-    ) {
-      throw new Error('World-law value and time must be finite.');
-    }
-    const fingerprint = stableJsonStringify({
-      kind: 'world_law',
-      worldId,
-      lawId,
-      domain,
-      mechanism,
-      value,
-      minimum,
-      maximum,
-      rationale,
-      now,
-      worldMinutes: this.committedState.calendar.elapsedWorldMinutes,
-      expectedWorldRevision,
-    });
-    return await this.mutateDetailed(
-      `world-authority:${operationId}`,
-      fingerprint,
-      async () => {
-        let current = this.state.governance.laws[lawId];
-        const worldMinutes = this.state.calendar.elapsedWorldMinutes;
-        if (!current) {
-          current = {
-            id: lawId,
-            domain,
-            mechanism,
-            value,
-            minimum,
-            maximum,
-            revision: 0,
-            createdAt: now,
-            updatedAt: now,
-            createdWorldMinutes: worldMinutes,
-            updatedWorldMinutes: worldMinutes,
-            createdBy: 'cardinal',
-            rationale,
-          };
-          this.state.governance.laws[lawId] = current;
-        } else if (
-          current.domain !== domain ||
-          current.mechanism !== mechanism ||
-          minimum < current.minimum ||
-          maximum > current.maximum ||
-          value < current.minimum ||
-          value > current.maximum
-        ) {
-          throw new Error(`World law ${lawId} exceeds its constitutional range.`);
-        } else {
-          current.value = value;
-          current.revision += 1;
-          current.updatedAt = now;
-          current.updatedWorldMinutes = worldMinutes;
-          current.createdBy = 'cardinal';
-          current.rationale = rationale;
-        }
-        this.state.governance.authorityRevision += 1;
-        this.state.governance.lastCardinalAuthorityAt = now;
-        this.state.governance.lastCardinalAuthorityWorldMinutes = worldMinutes;
-        this.stageEvent({
-          eventId: this.stableOperationEventId('world-law', operationId),
-          worldId: this.state.id,
-          kind: 'cardinal.world_law.changed',
-          source: 'cardinal',
-          occurredAt: now,
-          payload: {
-            lawId,
-            domain: current.domain,
-            mechanism: current.mechanism,
-            value,
-            lawRevision: current.revision,
-            rationale,
-          },
-        });
-      },
-      expectedWorldRevision,
-    );
-  }
-
-  async applyAuthorizedCatastrophe(
-    worldId: string,
-    catastropheKind: string,
-    magnitude: number,
-    maxCasualtyRatio: number,
-    recoveryPlan: string,
-    now: number,
-    durationWorldMinutes: number,
-    operationId: string,
-    expectedWorldRevision: number,
-  ): Promise<WorldMutationResult> {
-    const allowed = ['wildfire', 'flood', 'epidemic', 'earthquake', 'drought'];
-    if (worldId !== this.committedState.id) {
-      throw new Error('Catastrophe proposal belongs to a different world.');
-    }
-    if (!allowed.includes(catastropheKind)) {
-      throw new Error('Unknown catastrophe kind.');
-    }
-    if (
-      !Number.isFinite(magnitude) ||
-      magnitude <= 0 ||
-      magnitude > 0.35 ||
-      !Number.isFinite(maxCasualtyRatio) ||
-      maxCasualtyRatio < 0 ||
-      maxCasualtyRatio > 0.18 ||
-      !Number.isFinite(now) ||
-      !Number.isFinite(durationWorldMinutes) ||
-      durationWorldMinutes < 1 ||
-      !recoveryPlan.trim() ||
-      !operationId.trim()
-    ) {
-      throw new Error('Catastrophe parameters exceed the world safety envelope.');
-    }
-    const fingerprint = stableJsonStringify({
-      kind: 'catastrophe',
-      worldId,
-      catastropheKind,
-      magnitude,
-      maxCasualtyRatio,
-      recoveryPlan,
-      now,
-      durationWorldMinutes,
-      expectedWorldRevision,
-    });
-    return await this.mutateDetailed(
-      `world-authority:${operationId}`,
-      fingerprint,
-      async () => {
-        const living = this.shuffled(
-          Object.values(this.state.agents).filter((agent) => agent.life.alive),
-        );
-        const maximumDeaths = Math.max(
-          0,
-          Math.min(
-            Math.floor(living.length * maxCasualtyRatio),
-            Math.max(0, living.length - 8),
-          ),
-        );
-        let deaths = 0;
-        const livingByRace = new Map<string, number>();
-        for (const resident of living) {
-          const race = resident.race ?? 'human';
-          livingByRace.set(race, (livingByRace.get(race) ?? 0) + 1);
-        }
-        for (const agent of living) {
-          const race = agent.race ?? 'human';
-          const raceFloor = race === 'human' ? 8 : 2;
-          const place = this.state.places[agent.locationId];
-          const exposure = clamp01(
-            magnitude *
-              (0.34 + (place?.danger ?? 0.1) * 0.5) *
-              (1.16 - agent.personality.resilience * 0.32),
-          );
-          agent.life.health = clamp01(agent.life.health - exposure);
-          agent.stress = clamp01(agent.stress + magnitude * 0.32);
-          agent.mind.emotions.fear = clamp01(
-            agent.mind.emotions.fear + magnitude * 0.46,
-          );
-          agent.mind.emotions.awe = clamp01(
-            agent.mind.emotions.awe + magnitude * 0.2,
-          );
-          const canLoseMember = (livingByRace.get(race) ?? 0) > raceFloor;
-          if (
-            agent.life.health <= 0.06 &&
-            deaths < maximumDeaths &&
-            canLoseMember
-          ) {
-            this.recordDeath(agent, 'catastrophe', now);
-            livingByRace.set(race, (livingByRace.get(race) ?? 1) - 1);
-            deaths += 1;
-          } else {
-            agent.life.health = Math.max(agent.life.health, 0.07);
-            this.stageMemory({
-              memoryId: this.nextId('memory'),
-              worldId: this.state.id,
-              agentId: agent.id,
-              createdAt: now,
-              kind: 'world_event',
-              summary: `${agent.name} survived the ${catastropheKind}.`,
-              importance: 0.9,
-              valence: -0.74,
-              relatedAgentIds: [],
-            });
-          }
-        }
-
-        const wildlifeLoss = clamp01(magnitude * 0.58);
-        for (const population of Object.values(this.state.wildlife)) {
-          population.count = Math.max(
-            0,
-            population.count - Math.floor(population.count * wildlifeLoss),
-          );
-          population.lastChangedAt = now;
-        }
-        if (catastropheKind === 'drought' || catastropheKind === 'wildfire') {
-          this.addV15StoredResources(-magnitude * 0.62);
-          this.damageRenewableBase(magnitude * 0.22);
-        }
-        this.state.cosmology.mysteryLevel = clamp01(
-          this.state.cosmology.mysteryLevel + magnitude * 0.12,
-        );
-        this.state.governance.authorityRevision += 1;
-        this.state.governance.lastCardinalAuthorityAt = now;
-        const requestedWorldMinutes =
-          this.state.calendar.elapsedWorldMinutes;
-        this.state.governance.lastCardinalAuthorityWorldMinutes =
-          requestedWorldMinutes;
-        const recoveryMagnitude = clamp01(
-          magnitude * this.lawValue('catastrophe_recovery', 0.75),
-        );
-        this.stageEvent({
-          eventId: this.stableOperationEventId('catastrophe', operationId),
-          worldId: this.state.id,
-          kind: `cardinal.catastrophe.${catastropheKind}`,
-          source: 'cardinal',
-          occurredAt: now,
-          activeUntil:
-            now +
-            Math.max(
-              1,
-              Math.ceil(
-                durationWorldMinutes /
-                  V15_SIMULATION_QUANTUM_WORLD_MINUTES,
-              ),
-            ) * 3,
-          activeUntilWorldMinutes:
-            requestedWorldMinutes + durationWorldMinutes * 3,
-          payload: {
-            magnitude,
-            deaths,
-            maximumDeaths,
-            maxCasualtyRatio,
-            recoveryPlan,
-            destructiveUntil:
-              now +
-              Math.max(
-                1,
-                Math.ceil(
-                  durationWorldMinutes /
-                    V15_SIMULATION_QUANTUM_WORLD_MINUTES,
-                ),
-              ),
-            destructiveUntilWorldMinutes:
-              requestedWorldMinutes + durationWorldMinutes,
-            durationWorldMinutes,
-            recoveryMagnitude,
-          },
-        });
-      },
-      expectedWorldRevision,
-    );
-  }
-
-  async applyAuthorizedResidentEntry(
-    worldId: string,
-    entryId: string,
-    name: string,
-    now: number,
-    operationId: string,
-    expectedWorldRevision: number,
-  ): Promise<WorldMutationResult> {
-    if (worldId !== this.committedState.id) {
-      throw new Error('Resident entry belongs to a different world.');
-    }
-    if (
-      !entryId.trim() ||
-      !name.trim() ||
-      !operationId.trim() ||
-      !Number.isFinite(now) ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}$/.test(entryId) ||
-      name.length > 64
-    ) {
-      throw new Error('Resident entry requires stable identity and name.');
-    }
-    const residentId = `visitor_${entryId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    const fingerprint = stableJsonStringify({
-      kind: 'resident_entry',
-      worldId,
-      residentId,
-      name,
-      now,
-      expectedWorldRevision,
-    });
-    return await this.mutateDetailed(
-      `world-entry:${operationId}`,
-      fingerprint,
-      async () => {
-        if (this.state.agents[residentId]) {
-          throw new Error(`Resident entry ${residentId} already exists.`);
-        }
-        const personality: AgentState['personality'] = {
-          sociability: this.rng.between(0.35, 0.8),
-          diligence: this.rng.between(0.35, 0.8),
-          curiosity: this.rng.between(0.55, 0.92),
-          generosity: this.rng.between(0.35, 0.82),
-          resilience: this.rng.between(0.45, 0.86),
-          riskTolerance: this.rng.between(0.35, 0.8),
-        };
-        const needs = { belonging: 0.55, purpose: 0.62 };
-        const homeId = `home_${residentId}`;
-        const homeIndex = Object.values(this.state.places).filter(
-          (place) => place.kind === 'home',
-        ).length;
-        this.state.places[homeId] = createPlace(
-          homeId,
-          `${name}'s Home`,
-          'home',
-          3,
-          placeMigrationDefaults({ id: homeId, kind: 'home' }, homeIndex),
-        );
-        makeConnectionsReciprocal(this.state.places);
-        this.rebuildSpatialProjection();
-        const ageYears = 25;
-        const partial = {
-          id: residentId,
-          name,
-          origin: 'external_resident' as const,
-          sex: (this.state.population.nextAgentSequence % 2 === 0
-            ? 'female'
-            : 'male') as AgentState['sex'],
-          race: 'human' as const,
-          progression: {
-            level: 1,
-            experience: 0,
-            objectControlAuthority: 0.12,
-            systemControlAuthority: 0.1,
-            combatMastery: 0.08,
-            sacredArts: 0.04,
-          },
-          energy: 0.84,
-          stress: 0.08,
-          resources: 0.62,
-          socialDrive: personality.sociability,
-          personality,
-          life: {
-            bornAt: now - ageYears * WORLD_TICKS_PER_YEAR,
-            ageYears,
-            lifespanYears: 78 + personality.resilience * 22,
-            stage: 'adult' as const,
-            alive: true,
-            health: 0.92,
-            physiology: physiologyForAge(
-              ageYears,
-              78 + personality.resilience * 22,
-              0.92,
-            ),
-            generation: 0,
-            parentIds: [],
-            childIds: [],
-          },
-          mind: createMindState(this.state.id, residentId, personality, needs),
-          needs,
-          skills: {
-            gathering: 0.25,
-            hunting: 0.18,
-            craft: 0.26,
-            social: 0.3,
-            exploration: 0.42,
-          },
-          homeId,
-          locationId: 'commons',
-          position: {
-            x: this.state.places.commons.mapX,
-            y: this.state.places.commons.mapY,
-            layerId: 'surface' as const,
-          },
-          lastMeaningfulEventAt: now,
-        } satisfies Omit<AgentState, 'goal'>;
-        this.state.agents[residentId] = {
-          ...partial,
-          goal: goalFromInitialState(partial, now),
-        };
-        ensureAgentV15State(this.state, this.state.agents[residentId]);
-        ensureAgentV16State(this.state, this.state.agents[residentId]);
-        ensureRussianKnowledgeV18(this.state, this.state.agents[residentId]);
-        ensureLivelihoodV18(this.state, this.state.agents[residentId]);
-        ensureLifeRhythmV18(this.state, this.state.agents[residentId]);
-        this.state.population.nextAgentSequence += 1;
-        this.stageEvent({
-          eventId: this.stableOperationEventId('resident-entry', operationId),
-          worldId: this.state.id,
-          kind: 'world.entry.resident_manifested',
-          source: 'player',
-          occurredAt: now,
-          payload: { agentId: residentId, name },
-        });
-      },
-      expectedWorldRevision,
-    );
-  }
-
-  async applyAuthorizedDeityEntry(
-    worldId: string,
-    deityId: string,
-    name: string,
-    now: number,
-    operationId: string,
-    expectedWorldRevision: number,
-  ): Promise<WorldMutationResult> {
-    if (worldId !== this.committedState.id) {
-      throw new Error('Deity entry belongs to a different world.');
-    }
-    if (
-      !deityId.trim() ||
-      !name.trim() ||
-      !operationId.trim() ||
-      !Number.isFinite(now) ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}$/.test(deityId) ||
-      name.length > 64
-    ) {
-      throw new Error('Deity entry requires stable identity and name.');
-    }
-    const fingerprint = stableJsonStringify({
-      kind: 'deity_entry',
-      worldId,
-      deityId,
-      name,
-      now,
-      expectedWorldRevision,
-    });
-    return await this.mutateDetailed(
-      `world-entry:${operationId}`,
-      fingerprint,
-      async () => {
-        if (this.state.cosmology.deities[deityId]) {
-          throw new Error(`Deity ${deityId} already exists.`);
-        }
-        this.state.cosmology.deities[deityId] = {
-          id: deityId,
-          name,
-          origin: 'external_entry',
-          enteredAt: now,
-        };
-        this.state.cosmology.mysteryLevel = clamp01(
-          this.state.cosmology.mysteryLevel + 0.08,
-        );
-        this.stageEvent({
-          eventId: this.stableOperationEventId('deity-entry', operationId),
-          worldId: this.state.id,
-          kind: 'world.entry.deity_manifested',
-          source: 'player',
-          occurredAt: now,
-          payload: { deityId, name },
-        });
-      },
-      expectedWorldRevision,
-    );
-  }
-
-  async applyAuthorizedDivineOmen(
-    worldId: string,
-    deityId: string,
-    omen: string,
-    magnitude: number,
-    now: number,
-    operationId: string,
-    expectedWorldRevision: number,
-  ): Promise<WorldMutationResult> {
-    if (worldId !== this.committedState.id) {
-      throw new Error('Divine omen belongs to a different world.');
-    }
-    if (
-      !['aurora', 'voice', 'eclipse', 'miracle', 'storm_sign'].includes(omen) ||
-      !Number.isFinite(magnitude) ||
-      magnitude <= 0 ||
-      magnitude > 0.35 ||
-      !Number.isFinite(now) ||
-      !operationId.trim()
-    ) {
-      throw new Error('Divine omen is outside the entry gateway envelope.');
-    }
-    const fingerprint = stableJsonStringify({
-      kind: 'divine_omen',
-      worldId,
-      deityId,
-      omen,
-      magnitude,
-      now,
-      expectedWorldRevision,
-    });
-    return await this.mutateDetailed(
-      `world-entry:${operationId}`,
-      fingerprint,
-      async () => {
-        const deity = this.state.cosmology.deities[deityId];
-        if (!deity) throw new Error(`Unknown deity ${deityId}.`);
-        if (deity.origin !== 'external_entry') {
-          throw new Error('An emergent belief cannot be impersonated by an external deity.');
-        }
-        deity.lastOmenAt = now;
-        this.state.cosmology.omenCount += 1;
-        this.state.cosmology.mysteryLevel = clamp01(
-          this.state.cosmology.mysteryLevel + magnitude * 0.32,
-        );
-        const living = Object.values(this.state.agents).filter(
-          (agent) => agent.life.alive,
-        );
-        const witnesses: AgentState[] = [];
-        for (const agent of living) {
-          const perceptionChance = clamp01(
-            0.38 +
-              magnitude * 0.8 +
-              agent.personality.curiosity * 0.18 +
-              agent.mind.beliefs.divinePresence * 0.1,
-          );
-          if (this.rng.next() < perceptionChance) witnesses.push(agent);
-        }
-        if (witnesses.length === 0 && living.length > 0) {
-          witnesses.push(
-            [...living].sort(
-              (a, b) =>
-                b.personality.curiosity + b.mind.emotions.awe -
-                (a.personality.curiosity + a.mind.emotions.awe),
-            )[0],
-          );
-        }
-        for (const agent of witnesses) {
-          agent.mind.emotions.awe = clamp01(
-            agent.mind.emotions.awe + magnitude * 0.5,
-          );
-          agent.mind.emotions.fear = clamp01(
-            agent.mind.emotions.fear +
-              magnitude * (0.28 - agent.personality.resilience * 0.12),
-          );
-          agent.mind.beliefs.divinePresence = clamp01(
-            agent.mind.beliefs.divinePresence + magnitude * 0.22,
-          );
-          this.stageMemory({
-            memoryId: this.nextId('memory'),
-            worldId: this.state.id,
-            agentId: agent.id,
-            createdAt: now,
-            kind: 'omen',
-            summary: `${agent.name} witnessed ${deity.name}'s ${omen}.`,
-            importance: clamp01(0.66 + magnitude * 0.7),
-            valence: clampSigned(0.14 - agent.mind.emotions.fear * 0.2),
-            relatedAgentIds: [],
-          });
-        }
-        this.stageEvent({
-          eventId: this.stableOperationEventId('divine-omen', operationId),
-          worldId: this.state.id,
-          kind: `world.omen.${omen}`,
-          source: 'player',
-          occurredAt: now,
-          payload: {
-            deityId,
-            deityName: deity.name,
-            magnitude,
-            witnessCount: witnesses.length,
-          },
-        });
-      },
-      expectedWorldRevision,
-    );
-  }
-
-  async applyAuthorizedPrivateDivineAudience(
-    worldId: string,
-    agentId: string,
-    deityId: string,
-    deityName: string,
-    religionName: string | undefined,
-    message: string | undefined,
-    gift: DivineGiftKind | undefined,
-    contactKind: DivineContactKind | undefined,
-    relatedPrayerId: string | undefined,
-    now: number,
-    operationId: string,
-    expectedWorldRevision: number,
-    inheritanceGift?: DivineGiftKind,
-    burden?: DivineBurdenKind,
-    lineageCurse?: boolean,
-  ): Promise<WorldMutationResult> {
-    if (
-      worldId !== this.committedState.id ||
-      !agentId.trim() ||
-      !deityId.trim() ||
-      !deityName.trim() ||
-      !operationId.trim() ||
-      !Number.isFinite(now) ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}$/.test(deityId) ||
-      deityName.length > 64 ||
-      (!gift && !burden && !contactKind) ||
-      Boolean(gift && burden) ||
-      (contactKind !== undefined && !message?.trim()) ||
-      (message !== undefined && message.length > 480) ||
-      (religionName !== undefined &&
-        (!religionName.trim() || religionName.length > 64)) ||
-      (gift !== undefined && !DIVINE_GIFTS_V19.includes(gift)) ||
-      (burden !== undefined && !DIVINE_BURDENS_V22.includes(burden)) ||
-      (lineageCurse !== undefined && typeof lineageCurse !== 'boolean') ||
-      (contactKind !== undefined && !DIVINE_CONTACT_KINDS_V19.includes(contactKind))
-    ) {
-      throw new Error('Private divine audience is outside the entry gateway envelope.');
-    }
-    const fingerprint = stableJsonStringify({
-      kind: 'private_divine_action',
-      inheritanceGift,
-      burden,
-      lineageCurse,
-      worldId,
-      agentId,
-      deityId,
-      deityName,
-      religionName,
-      message,
-      gift,
-      contactKind,
-      relatedPrayerId,
-      now,
-      expectedWorldRevision,
-    });
-    return await this.mutateDetailed(
-      `world-entry:${operationId}`,
-      fingerprint,
-      async () => {
-        const agent = this.state.agents[agentId];
-        if (!agent || !agent.life.alive) {
-          throw new Error(`Living audience resident ${agentId} was not found.`);
-        }
-        const result = applyDivineActionV19(this.state, {
-          operationId,
-          agentId,
-          deityId,
-          deityName,
-          ...(religionName ? { religionName } : {}),
-          ...(gift ? { gift } : {}),
-          ...(inheritanceGift ? { inheritanceGift } : {}),
-          ...(burden ? { burden, lineageCurse: Boolean(lineageCurse) } : {}),
-          ...(contactKind ? { contactKind } : {}),
-          ...(message?.trim() ? { message: message.trim() } : {}),
-          ...(relatedPrayerId ? { relatedPrayerId } : {}),
-          worldMinute: this.state.calendar.elapsedWorldMinutes,
-          interpretationRoll: this.rng.next(),
-        });
-
-        // Deliberately no public WorldEvent: neither Cardinal nor bystanders
-        // receive a direct notification. This durable memory belongs only to
-        // the selected person. Consequences can become public only if that
-        // person later chooses to speak or acts with changed capabilities.
-        this.stageMemory({
-          memoryId: this.stableOperationEventId('private-divine-audience', operationId),
-          worldId: this.state.id,
-          agentId: agent.id,
-          createdAt: now,
-          kind: 'divine_audience',
-          summary: contactKind
-            ? `${agent.name} privately received a ${contactKind} from ${deityName}: ${message}${gift ? `; gift: ${gift}` : ''}${burden ? `; burden: ${burden}${lineageCurse ? ' (lineage)' : ''}` : ''}`
-            : `${agent.name} experienced an unexplained change: ${gift ?? burden}.`,
-          importance: 1,
-          valence: burden ? -0.48 : result.interpretation === 'frightening' ? -0.32 : 0.42,
-          relatedAgentIds: [],
-        });
-      },
-      expectedWorldRevision,
-    );
   }
 
   private async mutate(
@@ -13106,7 +12124,7 @@ export class WorldEngine {
           },
         ]
       : [];
-    if (stage >= 5 && (stage - 5) % 3 === 0) {
+    if (!isIskorkaWorld(this.state) && stage >= 5 && (stage - 5) % 3 === 0) {
       const monsterByBiome: Partial<Record<WorldBiome, WildlifeSpecies>> = {
         forest: 'dire_wolf',
         mountains: 'dire_wolf',

@@ -22,7 +22,7 @@ for (const [name, mutate] of [
 ]) test(`rejects ${name}`, () => {
   const p = structuredClone(original); mutate(p); assert.ok(validateProfile(p).length);
 });
-test('unapproved donor blocks the import gate', () => assert.ok(donorRecordIssues(original.donor).length));
+test('unapproved donor blocks the import gate', () => assert.ok(donorRecordIssues({ ...original.donor, sha: null, ownerApproval: null }).length));
 test('branch names cannot stand in for SHA', () => assert.ok(donorRecordIssues({ ...original.donor, sha: 'main' }).length));
 test('approval for a different SHA is rejected', () => {
   assert.ok(donorRecordIssues({ repository: original.donor.repository, sha: 'a'.repeat(40),
@@ -37,3 +37,5 @@ test('validation does not change the profile', () => {
   const before = JSON.stringify(original); validateProfile(original); donorRecordIssues(original.donor);
   assert.equal(JSON.stringify(original), before);
 });
+
+test('selected donor has a complete approval record (structure only)', () => assert.deepEqual(donorRecordIssues(original.donor), []));

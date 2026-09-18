@@ -1,11 +1,11 @@
 node_modules/
 dist/
+.test-build/
 coverage/
 .env
 .env.*
 !.env.example
 .DS_Store
-node_modules
 .tmp-audit/
 tsconfig.tsbuildinfo
 *.cpuprofile

@@ -1,0 +1,94 @@
+{
+  "seed": "iskorka-baseline-20260918",
+  "milliseconds": 33638.960147,
+  "records": [
+    {
+      "year": 10,
+      "alive": 15,
+      "births": 5,
+      "deaths": 0,
+      "settlements": 1,
+      "places": 21
+    },
+    {
+      "year": 20,
+      "alive": 26,
+      "births": 16,
+      "deaths": 0,
+      "settlements": 1,
+      "places": 22
+    },
+    {
+      "year": 30,
+      "alive": 30,
+      "births": 20,
+      "deaths": 0,
+      "settlements": 1,
+      "places": 23
+    },
+    {
+      "year": 40,
+      "alive": 34,
+      "births": 24,
+      "deaths": 0,
+      "settlements": 1,
+      "places": 25
+    },
+    {
+      "year": 50,
+      "alive": 34,
+      "births": 24,
+      "deaths": 0,
+      "settlements": 1,
+      "places": 26
+    },
+    {
+      "year": 60,
+      "alive": 30,
+      "births": 26,
+      "deaths": 6,
+      "settlements": 1,
+      "places": 28
+    },
+    {
+      "year": 70,
+      "alive": 29,
+      "births": 29,
+      "deaths": 10,
+      "settlements": 1,
+      "places": 28
+    },
+    {
+      "year": 80,
+      "alive": 29,
+      "births": 29,
+      "deaths": 10,
+      "settlements": 1,
+      "places": 31
+    },
+    {
+      "year": 90,
+      "alive": 27,
+      "births": 32,
+      "deaths": 15,
+      "settlements": 1,
+      "places": 35
+    },
+    {
+      "year": 100,
+      "alive": 24,
+      "births": 36,
+      "deaths": 22,
+      "settlements": 1,
+      "places": 37
+    },
+    {
+      "year": 110,
+      "alive": 24,
+      "births": 42,
+      "deaths": 28,
+      "settlements": 1,
+      "places": 38
+    }
+  ]
+}

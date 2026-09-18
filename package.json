@@ -1,27 +1,23 @@
 {
-  "name": "ainkrad-v0-3",
-  "version": "0.3.22-f2",
+  "name": "iskorka",
+  "version": "0.1.0-stage1",
   "private": true,
-  "description": "Experimental autonomous world for developing and testing Cardinal.",
+  "description": "Independent autonomous human world; physical F2 transplant, first stage.",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --minWorkers=1 --maxWorkers=1 --testTimeout=60000",
-    "check": "npm run typecheck && npm run test",
-    "audit:v16-demography": "tsx src/v16/runDemographicAcceptanceV16.ts",
-    "audit:v18-offline": "tsx src/v18/runOfflineCatchUpBenchmarkV18.ts",
-    "demo": "tsx src/demo.ts"
+    "test": "node scripts/run-tests.mjs",
+    "check": "npm run typecheck && npm test",
+    "verify": "npm run check && npm run build"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
-    "vite": "7.0.4",
-    "tsx": "4.19.3",
+    "esbuild": "0.25.12",
     "typescript": "5.8.3",
-    "vitest": "3.1.1",
     "fake-indexeddb": "6.2.2"
   }
 }

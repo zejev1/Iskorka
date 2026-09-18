@@ -1,0 +1,393 @@
+A	.github/workflows/ci.yml
+D	.github/workflows/import-f2.yml
+D	.github/workflows/iskorka-import.yml
+M	.gitignore
+M	.iskorka-donor.json
+M	AGENTS.md
+M	BOOTSTRAP_STATUS.md
+D	PROJECT_FILES.txt
+M	README.md
+D	RETURN_POINT.txt
+D	SHA256SUMS.txt
+D	SHA256SUMS_RETURN_POINT.txt
+D	SHA256SUMS_V15_WORK.txt
+D	SHA256SUMS_V19.txt
+M	SPCK_IMPORT.md
+A	assets/browser.css
+A	assets/browser.js
+A	assets/worker.js
+R100	docs/AINKRAD_TOWN_REVIEW.md	docs/donor-reference/AINKRAD_TOWN_REVIEW.md
+R100	docs/ARCHITECTURE_INVARIANTS.md	docs/donor-reference/ARCHITECTURE_INVARIANTS.md
+R100	docs/CARDINAL_CONSTITUTION_PIN_2026-09-15.md	docs/donor-reference/CARDINAL_CONSTITUTION_PIN_2026-09-15.md
+R100	docs/CARDINAL_DETACHABLE_CONDUCTOR_CONSTITUTION.md	docs/donor-reference/CARDINAL_DETACHABLE_CONDUCTOR_CONSTITUTION.md
+R100	docs/CARDINAL_PORTABILITY_CONTRACT.md	docs/donor-reference/CARDINAL_PORTABILITY_CONTRACT.md
+R100	docs/CARDINAL_RECOVERY.md	docs/donor-reference/CARDINAL_RECOVERY.md
+R100	docs/CARDINAL_RESEARCH.md	docs/donor-reference/CARDINAL_RESEARCH.md
+R100	docs/CARDINAL_VALIDATION_PROTOCOL.md	docs/donor-reference/CARDINAL_VALIDATION_PROTOCOL.md
+R100	docs/CARDINAL_WORLD_BOUNDARIES.md	docs/donor-reference/CARDINAL_WORLD_BOUNDARIES.md
+R100	docs/DIVINE_GIFT_SEMANTICS_F2.md	docs/donor-reference/DIVINE_GIFT_SEMANTICS_F2.md
+R100	docs/EXTERNAL_BOUNDARY.md	docs/donor-reference/EXTERNAL_BOUNDARY.md
+R100	docs/F2_GITHUB_RELEASE_AUDIT_2026-09-16.md	docs/donor-reference/F2_GITHUB_RELEASE_AUDIT_2026-09-16.md
+R100	docs/F2_MULTIPLE_BIRTHS_CHECKPOINT_2026-09-16.md	docs/donor-reference/F2_MULTIPLE_BIRTHS_CHECKPOINT_2026-09-16.md
+R100	docs/F2_RELEASE_AUDIT_2026-09-16.md	docs/donor-reference/F2_RELEASE_AUDIT_2026-09-16.md
+R100	docs/F2_RUNTIME_RELOAD_2026-09-16.json	docs/donor-reference/F2_RUNTIME_RELOAD_2026-09-16.json
+R100	docs/F2_RUNTIME_SMOKE_2026-09-16.json	docs/donor-reference/F2_RUNTIME_SMOKE_2026-09-16.json
+R100	docs/FIX10_3_LOCAL_EXPLORATION.md	docs/donor-reference/FIX10_3_LOCAL_EXPLORATION.md
+R100	docs/FIX10_3_VERIFICATION.json	docs/donor-reference/FIX10_3_VERIFICATION.json
+R100	docs/FIX10_4_RELEASE.md	docs/donor-reference/FIX10_4_RELEASE.md
+R100	docs/FIX10_4_VERIFICATION.json	docs/donor-reference/FIX10_4_VERIFICATION.json
+R100	docs/LOCAL_FINAL_FAMILY_MAPS_PERF_2026-09-15.md	docs/donor-reference/LOCAL_FINAL_FAMILY_MAPS_PERF_2026-09-15.md
+R100	docs/MIGRATION_RULES.md	docs/donor-reference/MIGRATION_RULES.md
+R100	docs/MIND_BODY_PORTABILITY_DESIGN.md	docs/donor-reference/MIND_BODY_PORTABILITY_DESIGN.md
+R100	docs/PERMANENT_PERFORMANCE_INVARIANT.md	docs/donor-reference/PERMANENT_PERFORMANCE_INVARIANT.md
+R100	docs/PERSISTENCE_CONTRACT.md	docs/donor-reference/PERSISTENCE_CONTRACT.md
+R100	docs/PERSONHOOD_CONTRACT.md	docs/donor-reference/PERSONHOOD_CONTRACT.md
+R100	docs/PR5_PERFORMANCE_CARTOGRAPHY.md	docs/donor-reference/PR5_PERFORMANCE_CARTOGRAPHY.md
+A	docs/donor-reference/README.md
+R100	docs/RELEASE_0_3_22_F1.md	docs/donor-reference/RELEASE_0_3_22_F1.md
+R100	docs/RELEASE_0_3_22_F1_AUDIT.json	docs/donor-reference/RELEASE_0_3_22_F1_AUDIT.json
+R100	RELEASE_NOTES_v0.3.15.md	docs/donor-reference/RELEASE_NOTES_v0.3.15.md
+R100	RELEASE_NOTES_v0.3.16.md	docs/donor-reference/RELEASE_NOTES_v0.3.16.md
+R100	RELEASE_NOTES_v0.3.17.md	docs/donor-reference/RELEASE_NOTES_v0.3.17.md
+R100	RELEASE_NOTES_v0.3.18.md	docs/donor-reference/RELEASE_NOTES_v0.3.18.md
+R100	RELEASE_NOTES_v0.3.19.md	docs/donor-reference/RELEASE_NOTES_v0.3.19.md
+R100	RELEASE_NOTES_v0.3.20.md	docs/donor-reference/RELEASE_NOTES_v0.3.20.md
+R100	RELEASE_NOTES_v0.3.20_FIX1.md	docs/donor-reference/RELEASE_NOTES_v0.3.20_FIX1.md
+R100	RELEASE_NOTES_v0.3.20_FIX2.md	docs/donor-reference/RELEASE_NOTES_v0.3.20_FIX2.md
+R100	RELEASE_NOTES_v0.3.20_FIX3.md	docs/donor-reference/RELEASE_NOTES_v0.3.20_FIX3.md
+R100	RELEASE_NOTES_v0.3.21.md	docs/donor-reference/RELEASE_NOTES_v0.3.21.md
+R100	RELEASE_NOTES_v0.3.21_FIX1.md	docs/donor-reference/RELEASE_NOTES_v0.3.21_FIX1.md
+R100	RELEASE_NOTES_v0.3.22_F2.md	docs/donor-reference/RELEASE_NOTES_v0.3.22_F2.md
+R100	docs/SAO_CARDINAL_REFERENCE.md	docs/donor-reference/SAO_CARDINAL_REFERENCE.md
+R100	docs/SETTLEMENT_VISUAL_REFERENCES.md	docs/donor-reference/SETTLEMENT_VISUAL_REFERENCES.md
+R100	docs/SPCK_FILES.json	docs/donor-reference/SPCK_FILES.json
+R100	TEST_RESULTS_v0.3.15.md	docs/donor-reference/TEST_RESULTS_v0.3.15.md
+R100	TEST_RESULTS_v0.3.16.md	docs/donor-reference/TEST_RESULTS_v0.3.16.md
+R100	TEST_RESULTS_v0.3.17.md	docs/donor-reference/TEST_RESULTS_v0.3.17.md
+R100	TEST_RESULTS_v0.3.18.md	docs/donor-reference/TEST_RESULTS_v0.3.18.md
+R100	TEST_RESULTS_v0.3.19.md	docs/donor-reference/TEST_RESULTS_v0.3.19.md
+R100	TEST_RESULTS_v0.3.20.md	docs/donor-reference/TEST_RESULTS_v0.3.20.md
+R100	TEST_RESULTS_v0.3.22_F2.md	docs/donor-reference/TEST_RESULTS_v0.3.22_F2.md
+R100	docs/UNDERWORLD_CONTINUATION_CONTRACT.md	docs/donor-reference/UNDERWORLD_CONTINUATION_CONTRACT.md
+R100	docs/V0_3_14_WORLD_LOGIC.md	docs/donor-reference/V0_3_14_WORLD_LOGIC.md
+R100	docs/V0_3_15_RELEASE_AUDIT.json	docs/donor-reference/V0_3_15_RELEASE_AUDIT.json
+R100	docs/V0_3_16_RELEASE_AUDIT.json	docs/donor-reference/V0_3_16_RELEASE_AUDIT.json
+R100	docs/V0_3_17_RELEASE_AUDIT.json	docs/donor-reference/V0_3_17_RELEASE_AUDIT.json
+R100	docs/V0_3_18_MOBILE_CATCHUP_HOTFIX_AUDIT.json	docs/donor-reference/V0_3_18_MOBILE_CATCHUP_HOTFIX_AUDIT.json
+R100	docs/V0_3_18_RELEASE_AUDIT.json	docs/donor-reference/V0_3_18_RELEASE_AUDIT.json
+R100	docs/V0_3_19_RELEASE_AUDIT.json	docs/donor-reference/V0_3_19_RELEASE_AUDIT.json
+R100	docs/V0_3_20_BENCHMARK_50_YEARS.json	docs/donor-reference/V0_3_20_BENCHMARK_50_YEARS.json
+R100	docs/V0_3_20_FIX1_AUDIT.json	docs/donor-reference/V0_3_20_FIX1_AUDIT.json
+R100	docs/V0_3_20_FIX1_BUILD_LOG.txt	docs/donor-reference/V0_3_20_FIX1_BUILD_LOG.txt
+R100	docs/V0_3_20_FIX1_TEST_LOG.txt	docs/donor-reference/V0_3_20_FIX1_TEST_LOG.txt
+R100	docs/V0_3_20_FIX1_WORK_STATE.md	docs/donor-reference/V0_3_20_FIX1_WORK_STATE.md
+R100	docs/V0_3_20_FIX2_AUDIT.json	docs/donor-reference/V0_3_20_FIX2_AUDIT.json
+R100	docs/V0_3_20_FIX2_BUILD_LOG.txt	docs/donor-reference/V0_3_20_FIX2_BUILD_LOG.txt
+R100	docs/V0_3_20_FIX2_CLOCK_LOG.txt	docs/donor-reference/V0_3_20_FIX2_CLOCK_LOG.txt
+R100	docs/V0_3_20_FIX2_TEST_LOG.txt	docs/donor-reference/V0_3_20_FIX2_TEST_LOG.txt
+R100	docs/V0_3_20_FIX2_TYPECHECK_LOG.txt	docs/donor-reference/V0_3_20_FIX2_TYPECHECK_LOG.txt
+R100	docs/V0_3_20_FIX2_WORK_STATE.md	docs/donor-reference/V0_3_20_FIX2_WORK_STATE.md
+R100	docs/V0_3_20_FIX3_AUDIT.json	docs/donor-reference/V0_3_20_FIX3_AUDIT.json
+R100	docs/V0_3_20_FIX3_BUILD_LOG.txt	docs/donor-reference/V0_3_20_FIX3_BUILD_LOG.txt
+R100	docs/V0_3_20_FIX3_TEST_LOG.txt	docs/donor-reference/V0_3_20_FIX3_TEST_LOG.txt
+R100	docs/V0_3_20_FIX3_TYPECHECK_LOG.txt	docs/donor-reference/V0_3_20_FIX3_TYPECHECK_LOG.txt
+R100	V0_3_20_FIX3_WORK_STATE.md	docs/donor-reference/V0_3_20_FIX3_WORK_STATE.md
+R100	docs/V0_3_20_RELEASE_AUDIT.json	docs/donor-reference/V0_3_20_RELEASE_AUDIT.json
+R100	docs/V0_3_20_TEST_LOG.txt	docs/donor-reference/V0_3_20_TEST_LOG.txt
+R100	docs/V0_3_20_WORK_STATE.md	docs/donor-reference/V0_3_20_WORK_STATE.md
+R100	docs/V0_3_21_ADOPTION_MATRIX.md	docs/donor-reference/V0_3_21_ADOPTION_MATRIX.md
+R100	docs/V0_3_21_AUDIT.json	docs/donor-reference/V0_3_21_AUDIT.json
+R100	docs/V0_3_21_BUILD_LOG.txt	docs/donor-reference/V0_3_21_BUILD_LOG.txt
+R100	docs/V0_3_21_FIX1_AUDIT.json	docs/donor-reference/V0_3_21_FIX1_AUDIT.json
+R100	docs/V0_3_21_FIX1_BUILD_LOG.txt	docs/donor-reference/V0_3_21_FIX1_BUILD_LOG.txt
+R100	docs/V0_3_21_FIX1_TARGETED_LOG.txt	docs/donor-reference/V0_3_21_FIX1_TARGETED_LOG.txt
+R100	docs/V0_3_21_FIX1_TEST_LOG.txt	docs/donor-reference/V0_3_21_FIX1_TEST_LOG.txt
+R100	docs/V0_3_21_FIX2_AUDIT.json	docs/donor-reference/V0_3_21_FIX2_AUDIT.json
+R100	docs/V0_3_21_FIX2_FILES.json	docs/donor-reference/V0_3_21_FIX2_FILES.json
+R100	docs/V0_3_21_FIX2_REVIEW.md	docs/donor-reference/V0_3_21_FIX2_REVIEW.md
+R100	docs/V0_3_21_FIX3_AUDIT.json	docs/donor-reference/V0_3_21_FIX3_AUDIT.json
+R100	docs/V0_3_21_FIX3_FILES.json	docs/donor-reference/V0_3_21_FIX3_FILES.json
+R100	docs/V0_3_21_FIX3_REVIEW.md	docs/donor-reference/V0_3_21_FIX3_REVIEW.md
+R100	docs/V0_3_21_FIX4_ALICIZATION.md	docs/donor-reference/V0_3_21_FIX4_ALICIZATION.md
+R100	docs/V0_3_21_FIX4_AUDIT.json	docs/donor-reference/V0_3_21_FIX4_AUDIT.json
+R100	docs/V0_3_21_FIX4_FILES.json	docs/donor-reference/V0_3_21_FIX4_FILES.json
+R100	docs/V0_3_21_FIX4_REVIEW.md	docs/donor-reference/V0_3_21_FIX4_REVIEW.md
+R100	docs/V0_3_21_FIX5_AUDIT.json	docs/donor-reference/V0_3_21_FIX5_AUDIT.json
+R100	docs/V0_3_21_FIX5_FILES.json	docs/donor-reference/V0_3_21_FIX5_FILES.json
+R100	docs/V0_3_21_FIX5_REVIEW.md	docs/donor-reference/V0_3_21_FIX5_REVIEW.md
+R100	docs/V0_3_21_FIX6_AUDIT.json	docs/donor-reference/V0_3_21_FIX6_AUDIT.json
+R100	docs/V0_3_21_FIX6_FILES.json	docs/donor-reference/V0_3_21_FIX6_FILES.json
+R100	docs/V0_3_21_FIX6_REVIEW.md	docs/donor-reference/V0_3_21_FIX6_REVIEW.md
+R100	docs/V0_3_21_FIX7_REVIEW.md	docs/donor-reference/V0_3_21_FIX7_REVIEW.md
+R100	docs/V0_3_21_FIX8_REVIEW.md	docs/donor-reference/V0_3_21_FIX8_REVIEW.md
+R100	docs/V0_3_21_FIX9_AUDIT.json	docs/donor-reference/V0_3_21_FIX9_AUDIT.json
+R100	docs/V0_3_21_FIX9_REVIEW.md	docs/donor-reference/V0_3_21_FIX9_REVIEW.md
+R100	docs/V0_3_21_LEARNING_CONTRACT.md	docs/donor-reference/V0_3_21_LEARNING_CONTRACT.md
+R100	docs/V0_3_21_TEST_LOG.txt	docs/donor-reference/V0_3_21_TEST_LOG.txt
+R100	docs/V0_3_21_TYPECHECK_LOG.txt	docs/donor-reference/V0_3_21_TYPECHECK_LOG.txt
+R100	V15_RETURN_POINT_BEFORE_FAMILY_AGENCY_FIX.txt	docs/donor-reference/V15_RETURN_POINT_BEFORE_FAMILY_AGENCY_FIX.txt
+R100	V15_WORK_CHECKPOINT_HUNT_DEATH_SMITHING.txt	docs/donor-reference/V15_WORK_CHECKPOINT_HUNT_DEATH_SMITHING.txt
+R100	V15_WORK_CHECKPOINT_STATE_RESET_GATEWAY_CLOCK.txt	docs/donor-reference/V15_WORK_CHECKPOINT_STATE_RESET_GATEWAY_CLOCK.txt
+R100	V15_WORK_RECOVERY_0920.txt	docs/donor-reference/V15_WORK_RECOVERY_0920.txt
+R100	V18_RETURN_POINT_FAST_OFFLINE_CATCHUP.txt	docs/donor-reference/V18_RETURN_POINT_FAST_OFFLINE_CATCHUP.txt
+R100	V18_RETURN_POINT_SCHEMA_FOUNDATION.txt	docs/donor-reference/V18_RETURN_POINT_SCHEMA_FOUNDATION.txt
+R100	docs/WORLD_AUTHORITY.md	docs/donor-reference/WORLD_AUTHORITY.md
+R100	docs/WORLD_AUTONOMY.md	docs/donor-reference/WORLD_AUTONOMY.md
+R100	docs/WORLD_ENTRY_GATEWAY.md	docs/donor-reference/WORLD_ENTRY_GATEWAY.md
+R100	docs/WORLD_TIME.md	docs/donor-reference/WORLD_TIME.md
+R100	docs/life-continuity-repair-2026-09-15.md	docs/donor-reference/life-continuity-repair-2026-09-15.md
+M	index.html
+M	iskorka-origin.json
+M	iskorka.bootstrap.json
+M	package-lock.json
+M	package.json
+D	scripts/apply-f2-family-rendezvous-final.mjs
+D	scripts/apply-f2-frontier-integrity-final.mjs
+D	scripts/apply-f2-frontier-integrity-fix.mjs
+D	scripts/apply-f2-frontier-integrity-followup.mjs
+D	scripts/benchmark-catchup.ts
+A	scripts/build.mjs
+A	scripts/century-probe.ts
+A	scripts/dev.mjs
+D	scripts/diagnose-century-demography.ts
+D	scripts/diagnose-exploration-fix8.ts
+D	scripts/fix5-browser-fixture.ts
+D	scripts/fix5-browser-performance.mjs
+D	scripts/fix5-browser-smoke.mjs
+D	scripts/package-spck.mjs
+D	scripts/reproduce-shore.ts
+A	scripts/run-tests.mjs
+D	src/boundary/ExternalGateway.ts
+D	src/boundary/OceanFrontierGateway.ts
+D	src/boundary/WorldClockGateway.ts
+D	src/boundary/WorldEntryGateway.ts
+D	src/browser.ts
+D	src/cardinal/CardinalAuditContext.ts
+D	src/cardinal/CardinalAuditor.ts
+D	src/cardinal/CardinalCore.ts
+D	src/cardinal/CardinalExperience.ts
+D	src/cardinal/CardinalJournal.ts
+D	src/cardinal/CardinalObserver.ts
+D	src/cardinal/CardinalOceanArchitect.ts
+D	src/cardinal/CardinalRecovery.ts
+D	src/cardinal/CardinalResearch.ts
+D	src/cardinal/CardinalRuntime.ts
+D	src/cardinal/InMemoryCardinalJournal.ts
+D	src/cardinal/InterventionGateway.ts
+D	src/cardinal/InterventionGatewayLedger.ts
+D	src/cardinal/LogBackedCardinalJournal.ts
+D	src/cardinal/SystemAgentCatalog.ts
+D	src/cardinal/SystemAgentContracts.ts
+D	src/cardinal/SystemAgentOrchestrator.ts
+D	src/cardinal/WorldAuthorityGateway.ts
+D	src/cardinal/WorldPresenceBoundary.ts
+D	src/cardinal/portable/AinkradCardinalAdapters.ts
+D	src/cardinal/portable/CardinalExperienceTransfer.ts
+D	src/cardinal/portable/PortableCardinalRuntime.ts
+D	src/cardinal/portable/types.ts
+D	src/cardinal/types.ts
+D	src/core/stableId.ts
+D	src/demo.ts
+D	src/experiment/ExperimentRunner.ts
+D	src/index.ts
+A	src/iskorka/Profile.ts
+A	src/iskorka/WorldRuntime.ts
+A	src/iskorka/browser.ts
+A	src/iskorka/index.html
+A	src/iskorka/protocol.ts
+A	src/iskorka/style.css
+A	src/iskorka/worker.ts
+M	src/persistence/IndexedDbPersistence.ts
+D	src/presentation/MapInteraction.ts
+D	src/presentation/ObserverChrome.ts
+D	src/presentation/ResidentLearningView.ts
+D	src/presentation/ResidentMotionProjection.ts
+D	src/presentation/SettlementPicker.ts
+D	src/presentation/WorldClockPanel.ts
+D	src/presentation/WorldExplorationProgress.ts
+D	src/presentation/WorldLevelDisplay.ts
+D	src/presentation/WorldMapFocus.ts
+D	src/presentation/WorldMapProjection.ts
+D	src/runtime/ClockContinuity.ts
+D	src/runtime/ExternalClockCommands.ts
+D	src/runtime/LiveAccelerationBudget.ts
+D	src/runtime/LiveWallClock.ts
+D	src/runtime/LiveWorldRuntime.ts
+D	src/runtime/OfflineWorldClock.ts
+D	src/runtime/WorldRuntime.ts
+D	src/runtime/inputBus/InMemoryInputBus.ts
+D	src/runtime/inputBus/InputBus.ts
+D	src/runtime/inputBus/createEnvelope.ts
+D	src/runtime/inputBus/createEventId.ts
+D	src/runtime/inputBus/types.ts
+D	src/runtime/liveWorld.worker.ts
+D	src/runtime/scheduler/types.ts
+D	src/sensors/WorldSensors.ts
+D	src/sensors/types.ts
+D	src/v15/CanonicalSimulationClock.ts
+D	src/v15/CardinalEpistemicConfidenceV15.ts
+D	src/v15/CardinalReadableReport.ts
+D	src/v15/CardinalResearchContextV15.ts
+D	src/v15/CardinalResearchEvidence.ts
+D	src/v15/CardinalSelfLearning.ts
+D	src/v15/CardinalWorldTimeAdapter.ts
+D	src/v15/CivilizationDiagnostics.ts
+D	src/v15/DeterminismAcceptanceV15.ts
+D	src/v15/EcologyBalanceAuditV15.ts
+D	src/v15/EpochResetAudit.ts
+D	src/v15/FamilyEmotionalContinuityV15.ts
+D	src/v15/FutureDungeonFoundation.ts
+D	src/v15/GenerationalKnowledgeAuditV15.ts
+D	src/v15/GeographyBoundaryAudit.ts
+D	src/v15/LegacyWorldClockMigration.ts
+D	src/v15/ResidentProgressionV15.ts
+D	src/v15/V15CoreIntegration.ts
+D	src/v15/V15LongRunAudit.ts
+D	src/v15/WorldHealthReportV15.ts
+D	src/v15/WorldLawConstitutionV15.ts
+D	src/v15/WorldTimeContract.ts
+D	src/v15/runReleaseAcceptance.ts
+D	src/v16/TruthfulInspectorsV16.ts
+D	src/v16/runDemographicAcceptanceV16.ts
+D	src/v18/LifeContinuityDiagnosticsV22.ts
+D	src/v18/PlayerEntryFoundationV18.ts
+D	src/v18/SecretLibraryGatewayV18.ts
+D	src/v18/runLifeContinuityAuditV22.ts
+D	src/v18/runOfflineCatchUpBenchmarkV18.ts
+M	src/v19/AdventureEconomyV19.ts
+M	src/v20/LibraryLearningV20.ts
+D	src/world/DemographyByRace.ts
+D	src/world/InMemoryEventStore.ts
+D	src/world/InMemoryMemoryStore.ts
+M	src/world/WorldEngine.ts
+M	src/world/types.ts
+A	tests/donor-reference/README.md
+R100	tests/auditor.test.ts	tests/donor-reference/auditor.test.ts
+R100	tests/browserUiSmoke.test.ts	tests/donor-reference/browserUiSmoke.test.ts
+R100	tests/cardinalCore.test.ts	tests/donor-reference/cardinalCore.test.ts
+R100	tests/cardinalExperience.test.ts	tests/donor-reference/cardinalExperience.test.ts
+R100	tests/cardinalJournal.test.ts	tests/donor-reference/cardinalJournal.test.ts
+R100	tests/cardinalJournalScaling.test.ts	tests/donor-reference/cardinalJournalScaling.test.ts
+R100	tests/cardinalResearch.test.ts	tests/donor-reference/cardinalResearch.test.ts
+R100	tests/experimentIntegrity.test.ts	tests/donor-reference/experimentIntegrity.test.ts
+R100	tests/externalGateway.test.ts	tests/donor-reference/externalGateway.test.ts
+R100	tests/gatewayRecovery.test.ts	tests/donor-reference/gatewayRecovery.test.ts
+R100	tests/generationalKnowledgeAudit.test.ts	tests/donor-reference/generationalKnowledgeAudit.test.ts
+R100	tests/history.test.ts	tests/donor-reference/history.test.ts
+R100	tests/inputBus.test.ts	tests/donor-reference/inputBus.test.ts
+R100	tests/interventionGateway.test.ts	tests/donor-reference/interventionGateway.test.ts
+R100	tests/liveWorldRuntime.test.ts	tests/donor-reference/liveWorldRuntime.test.ts
+R100	tests/logBackedJournal.test.ts	tests/donor-reference/logBackedJournal.test.ts
+R100	tests/memoryStore.test.ts	tests/donor-reference/memoryStore.test.ts
+R100	tests/modes.test.ts	tests/donor-reference/modes.test.ts
+R100	tests/observer.test.ts	tests/donor-reference/observer.test.ts
+R100	tests/offlineWorldClock.test.ts	tests/donor-reference/offlineWorldClock.test.ts
+R100	tests/persistence.test.ts	tests/donor-reference/persistence.test.ts
+R100	tests/personhoodLifecycle.test.ts	tests/donor-reference/personhoodLifecycle.test.ts
+R100	tests/portableCardinal.test.ts	tests/donor-reference/portableCardinal.test.ts
+R100	tests/residentNavigationKnowledge.test.ts	tests/donor-reference/residentNavigationKnowledge.test.ts
+R100	tests/scheduler.test.ts	tests/donor-reference/scheduler.test.ts
+R100	tests/sensors.test.ts	tests/donor-reference/sensors.test.ts
+R100	tests/v0_3_13_releaseAudit.test.ts	tests/donor-reference/v0_3_13_releaseAudit.test.ts
+R100	tests/v0_3_14_habitatIntegrity.test.ts	tests/donor-reference/v0_3_14_habitatIntegrity.test.ts
+R100	tests/v0_3_14_worldLogic.test.ts	tests/donor-reference/v0_3_14_worldLogic.test.ts
+R100	tests/v0_3_16_societyFoundation.test.ts	tests/donor-reference/v0_3_16_societyFoundation.test.ts
+R100	tests/v0_3_18_culturalAgency.test.ts	tests/donor-reference/v0_3_18_culturalAgency.test.ts
+R100	tests/v0_3_18_livelihoodAndPlace.test.ts	tests/donor-reference/v0_3_18_livelihoodAndPlace.test.ts
+R100	tests/v0_3_18_offlineCatchUp.test.ts	tests/donor-reference/v0_3_18_offlineCatchUp.test.ts
+R100	tests/v0_3_18_secretLibrary.test.ts	tests/donor-reference/v0_3_18_secretLibrary.test.ts
+R100	tests/v0_3_18_underworldFoundation.test.ts	tests/donor-reference/v0_3_18_underworldFoundation.test.ts
+R100	tests/v0_3_19_adventureEconomy.test.ts	tests/donor-reference/v0_3_19_adventureEconomy.test.ts
+R100	tests/v0_3_19_divineAgency.test.ts	tests/donor-reference/v0_3_19_divineAgency.test.ts
+R100	tests/v0_3_19_sapientPeoples.test.ts	tests/donor-reference/v0_3_19_sapientPeoples.test.ts
+R100	tests/v0_3_20_fix2Clock.test.ts	tests/donor-reference/v0_3_20_fix2Clock.test.ts
+R100	tests/v0_3_20_fix2Map.test.ts	tests/donor-reference/v0_3_20_fix2Map.test.ts
+R100	tests/v0_3_20_fix3Viewport.test.ts	tests/donor-reference/v0_3_20_fix3Viewport.test.ts
+R100	tests/v0_3_20_regressions.test.ts	tests/donor-reference/v0_3_20_regressions.test.ts
+R100	tests/v0_3_20_startupRepair.test.ts	tests/donor-reference/v0_3_20_startupRepair.test.ts
+R100	tests/v0_3_21_atlasGeography.test.ts	tests/donor-reference/v0_3_21_atlasGeography.test.ts
+R100	tests/v0_3_21_boatNavigation.test.ts	tests/donor-reference/v0_3_21_boatNavigation.test.ts
+R100	tests/v0_3_21_bodyBoundary.test.ts	tests/donor-reference/v0_3_21_bodyBoundary.test.ts
+R100	tests/v0_3_21_continentalGeography.test.ts	tests/donor-reference/v0_3_21_continentalGeography.test.ts
+R100	tests/v0_3_21_cooperativeTime.test.ts	tests/donor-reference/v0_3_21_cooperativeTime.test.ts
+R100	tests/v0_3_21_fix10AgentsSystems.test.ts	tests/donor-reference/v0_3_21_fix10AgentsSystems.test.ts
+R100	tests/v0_3_21_fix7DemographyMonsterRoads.test.ts	tests/donor-reference/v0_3_21_fix7DemographyMonsterRoads.test.ts
+R100	tests/v0_3_21_fix8ExplorationGiftsRoads.test.ts	tests/donor-reference/v0_3_21_fix8ExplorationGiftsRoads.test.ts
+R100	tests/v0_3_21_foundingOcean.test.ts	tests/donor-reference/v0_3_21_foundingOcean.test.ts
+R100	tests/v0_3_21_indexedDbContinuity.test.ts	tests/donor-reference/v0_3_21_indexedDbContinuity.test.ts
+R100	tests/v0_3_21_learning.test.ts	tests/donor-reference/v0_3_21_learning.test.ts
+R100	tests/v0_3_21_libraryAdmissions.test.ts	tests/donor-reference/v0_3_21_libraryAdmissions.test.ts
+R100	tests/v0_3_21_localExplorationReading.test.ts	tests/donor-reference/v0_3_21_localExplorationReading.test.ts
+R100	tests/v0_3_21_mapGestures.test.ts	tests/donor-reference/v0_3_21_mapGestures.test.ts
+R100	tests/v0_3_21_randomFoundingWorld.test.ts	tests/donor-reference/v0_3_21_randomFoundingWorld.test.ts
+R100	tests/v0_3_21_residentChoice.test.ts	tests/donor-reference/v0_3_21_residentChoice.test.ts
+R100	tests/v0_3_21_responsiveClock.test.ts	tests/donor-reference/v0_3_21_responsiveClock.test.ts
+R100	tests/v0_3_21_settlementGeometry.test.ts	tests/donor-reference/v0_3_21_settlementGeometry.test.ts
+R100	tests/v0_3_21_timeReceiptRetention.test.ts	tests/donor-reference/v0_3_21_timeReceiptRetention.test.ts
+R100	tests/v0_3_21_visibilityAndTown.test.ts	tests/donor-reference/v0_3_21_visibilityAndTown.test.ts
+R100	tests/v0_3_22_bodySleep.test.ts	tests/donor-reference/v0_3_22_bodySleep.test.ts
+R100	tests/v0_3_22_f2DivineSystem.test.ts	tests/donor-reference/v0_3_22_f2DivineSystem.test.ts
+R100	tests/v0_3_22_familyLifecycle.test.ts	tests/donor-reference/v0_3_22_familyLifecycle.test.ts
+R100	tests/v0_3_22_frontierIntegrity.test.ts	tests/donor-reference/v0_3_22_frontierIntegrity.test.ts
+R100	tests/v0_3_22_genesisAdventureMentor.test.ts	tests/donor-reference/v0_3_22_genesisAdventureMentor.test.ts
+R100	tests/v0_3_22_hotPathContinuity.test.ts	tests/donor-reference/v0_3_22_hotPathContinuity.test.ts
+R100	tests/v0_3_22_lifeContinuity.test.ts	tests/donor-reference/v0_3_22_lifeContinuity.test.ts
+R100	tests/v0_3_22_lifeDiagnostics.test.ts	tests/donor-reference/v0_3_22_lifeDiagnostics.test.ts
+R100	tests/v0_3_22_maritimeEvolution.test.ts	tests/donor-reference/v0_3_22_maritimeEvolution.test.ts
+R100	tests/v0_3_22_multipleBirths.test.ts	tests/donor-reference/v0_3_22_multipleBirths.test.ts
+R100	tests/v0_3_22_navigationPerformance.test.ts	tests/donor-reference/v0_3_22_navigationPerformance.test.ts
+R100	tests/v0_3_22_oceanFrontier.test.ts	tests/donor-reference/v0_3_22_oceanFrontier.test.ts
+R100	tests/v0_3_22_settlementCartography.test.ts	tests/donor-reference/v0_3_22_settlementCartography.test.ts
+R100	tests/v0_3_22_systemAgentsAndAtlas.test.ts	tests/donor-reference/v0_3_22_systemAgentsAndAtlas.test.ts
+R100	tests/v0_3_22_terrainDetails.test.ts	tests/donor-reference/v0_3_22_terrainDetails.test.ts
+R100	tests/v0_3_22_threeHumanSettlements.test.ts	tests/donor-reference/v0_3_22_threeHumanSettlements.test.ts
+R100	tests/v0_3_22_worldExplorationLevel.test.ts	tests/donor-reference/v0_3_22_worldExplorationLevel.test.ts
+R100	tests/v15FamilyAgency.test.ts	tests/donor-reference/v15FamilyAgency.test.ts
+R100	tests/worldAuthority.test.ts	tests/donor-reference/worldAuthority.test.ts
+R100	tests/worldAutonomy.test.ts	tests/donor-reference/worldAutonomy.test.ts
+R100	tests/worldClockCivilization.test.ts	tests/donor-reference/worldClockCivilization.test.ts
+R100	tests/worldModuleBoundary.test.ts	tests/donor-reference/worldModuleBoundary.test.ts
+R100	tests/worldRuntime.test.ts	tests/donor-reference/worldRuntime.test.ts
+R100	tests/worldSpatial.test.ts	tests/donor-reference/worldSpatial.test.ts
+A	tests/iskorka/donor-geometry.json
+A	tests/iskorka/hunting.test.ts
+A	tests/iskorka/library-and-housing.test.ts
+A	tests/iskorka/maritime.test.ts
+A	tests/iskorka/persistence.test.ts
+A	tests/iskorka/worker-harness.ts
+A	tests/iskorka/worker.test.ts
+A	tests/iskorka/world.test.ts
+M	tools/bootstrap-profile.test.mjs
+M	tsconfig.json
+A	validation/build-inputs.json
+A	validation/century-world.json
+A	validation/desktop-detail.png
+A	validation/desktop-first.png
+R100	validation/20y-performance-local-final.json	validation/donor-reference/20y-performance-local-final.json
+R100	validation/30y-family-local-final.json	validation/donor-reference/30y-family-local-final.json
+R100	validation/F2_GITHUB_CI_2026-09-16.log	validation/donor-reference/F2_GITHUB_CI_2026-09-16.log
+R100	validation/F2_GITHUB_JOBS_2026-09-16.json	validation/donor-reference/F2_GITHUB_JOBS_2026-09-16.json
+R100	validation/F2_GITHUB_RUN_2026-09-16.json	validation/donor-reference/F2_GITHUB_RUN_2026-09-16.json
+R100	validation/F2_PERFORMANCE_2026-09-16.md	validation/donor-reference/F2_PERFORMANCE_2026-09-16.md
+R100	validation/F2_RUNTIME_VERIFY_2026-09-16.json	validation/donor-reference/F2_RUNTIME_VERIFY_2026-09-16.json
+R100	validation/F2_SAVE_RELOAD_VERIFY_2026-09-16.json	validation/donor-reference/F2_SAVE_RELOAD_VERIFY_2026-09-16.json
+R100	validation/F2_SELECTED_REGRESSIONS_2026-09-16.txt	validation/donor-reference/F2_SELECTED_REGRESSIONS_2026-09-16.txt
+R100	validation/F2_TYPECHECK_LOG_2026-09-16.txt	validation/donor-reference/F2_TYPECHECK_LOG_2026-09-16.txt
+R100	validation/F2_VERIFIED_EXECUTABLES_SHA256SUMS.txt	validation/donor-reference/F2_VERIFIED_EXECUTABLES_SHA256SUMS.txt
+R100	validation/fixed-save-local-final.json	validation/donor-reference/fixed-save-local-final.json
+R100	validation/fixed-save-prior-rework.json	validation/donor-reference/fixed-save-prior-rework.json
+R100	validation/multiple-births-local-check.json	validation/donor-reference/multiple-births-local-check.json
+R100	validation/old-save-family-repair.txt	validation/donor-reference/old-save-family-repair.txt
+R100	validation/targeted-family-tests.txt	validation/donor-reference/targeted-family-tests.txt
+A	validation/donor-test-classification.json
+A	validation/mobile-detail.png
+A	validation/mobile-first.png
+A	validation/source-provenance.json
+A	validation/source-removal.json
+A	validation/stage1-results.json
+A	validation/stage1-verify.log
+A	validation/ten-year-world.json
+A	validation/ui-render-tests.json
+M	vercel.json
+D	vite.config.ts
+D	vitest.config.ts
