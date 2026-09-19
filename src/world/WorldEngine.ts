@@ -3,6 +3,12 @@ import {
   completeBodyCorePregnancyV1,
   setBodyCorePregnancyV1,
 } from '../iskorka/BodyCoreV1';
+import {
+  advanceBodyPhysiologyV1,
+  applyBodyMindFeedbackV1,
+  bodyDecisionPressureV1,
+  recordAdultIntimacyBodyResponseV1,
+} from '../iskorka/BodyPhysiologyV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -5352,9 +5358,25 @@ export class WorldEngine {
       // descendant gets before ageing. The runtime yields between quanta;
       // indexes/caches optimize work without dropping resident opportunities.
       for (const agent of livingAgents) {
-        if (advanceBodySleepV21(this.state, agent)) continue;
-        this.applyPassiveNeeds(agent, effectiveEnvironment);
-        if (agent.energy <= 0) advanceBodySleepV21(this.state, agent);
+        const sleeping = advanceBodySleepV21(this.state, agent);
+        if (!sleeping) this.applyPassiveNeeds(agent, effectiveEnvironment);
+        const bodySignals = advanceBodyPhysiologyV1(
+          this.state,
+          agent,
+          elapsedWorldMinutes,
+        );
+        if (!sleeping && bodySignals) {
+          const body = this.state.v21?.bodiesByAgentId[agent.id];
+          if (body) {
+            applyBodyMindFeedbackV1(
+              agent,
+              body,
+              bodySignals,
+              elapsedWorldMinutes,
+            );
+          }
+        }
+        if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
       this.beginSecretLibraryYearV18(livingAgents, now);
@@ -7025,14 +7047,20 @@ export class WorldEngine {
 
   private updateGoal(agent: AgentState, now: number): void {
     const resourceSecurity = this.v15EffectiveResourceSecurity(agent);
+    const bodyPressure = bodyDecisionPressureV1(this.state, agent);
     const scores: Array<{ kind: AgentGoalKind; strength: number }> = [
       {
         kind: 'recover',
-        strength: (1 - agent.energy) * 0.85 + agent.stress * 0.55,
+        strength:
+          (1 - agent.energy) * 0.85 +
+          agent.stress * 0.55 +
+          bodyPressure.recover * 0.48,
       },
       {
         kind: 'secure_resources',
-        strength: (1 - resourceSecurity) * 0.95,
+        strength:
+          (1 - resourceSecurity) * 0.95 +
+          bodyPressure.secureResources * 0.52,
       },
       {
         kind: 'connect',
@@ -13200,6 +13228,13 @@ export class WorldEngine {
       selectedRace,
       'intimacy',
     );
+    const bodyResponses = recordAdultIntimacyBodyResponseV1(
+      this.state,
+      a,
+      b,
+      mutualAttachment,
+      mutualIntimacyInterest,
+    );
     this.stageEvent({
       eventId: this.nextId('intimacy-decision'),
       worldId: this.state.id,
@@ -13217,6 +13252,11 @@ export class WorldEngine {
         mutualIntimacyInterest,
         childDecisionChosen,
         physicallyCoPresent: true,
+        bodyPleasureMean:
+          bodyResponses.length > 0
+            ? bodyResponses.reduce((sum, response) => sum + response.pleasure, 0) /
+              bodyResponses.length
+            : 0,
       },
     });
   }
