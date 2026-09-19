@@ -6,7 +6,7 @@ export function isWorldTimeOperation(id:string):boolean {
   return /^(tick:|canonical-frame:|canonical-world-time:|canonical-world-slice:)/.test(id);
 }
 /** Only replaceable time-idempotency receipts expire. World evidence and
- * Cardinal/Gateway journals are separate stores and never enter this sweep. */
+ * Unrelated append-only records are outside this sweep. */
 export async function pruneWorldTimeOperations(database:IDBDatabase,worldId:string,revision:number):Promise<void> {
   const cutoff=revision-WORLD_TIME_OPERATION_RETENTION;if(cutoff<=0)return;
   const transaction=database.transaction('operations','readwrite');

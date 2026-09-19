@@ -79,8 +79,8 @@ export interface SecretLibraryKnowledgeRecordV18 {
 
 /**
  * Only compact evidence lives in WorldState. Full public-domain texts are
- * requested through SecretLibraryGatewayV18 only on an explicit user action;
- * no simulation tick performs a network request or stores whole books.
+ * requested only on an explicit user action; no simulation tick performs a
+ * network request or stores whole books.
  */
 export interface SecretLibraryStateV18 {
   version: 'secret-library-v18.1';

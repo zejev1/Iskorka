@@ -587,6 +587,5 @@ export const SMITHING_AGENCY_CONSTITUTION_V15 = {
   learnerCompulsory: false,
   realWorkshopRequired: true,
   innovationGuaranteed: false,
-  cardinalMayAssignInventedTechnology: false,
   directKnowledgeWriteAllowed: false,
 } as const;

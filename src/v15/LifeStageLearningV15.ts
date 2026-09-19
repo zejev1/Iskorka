@@ -146,7 +146,7 @@ export interface TeachingEligibilityV15 {
 
 /**
  * Teaching becomes a natural result of age + lived knowledge.
- * No resident is assigned "teacher" by Cardinal.
+ * No resident is assigned "teacher" by an external controller.
  */
 export function evaluateTeachingEligibilityV15(
   person: KnowledgeCarrierV15,

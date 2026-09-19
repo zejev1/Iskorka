@@ -18,7 +18,7 @@ export class AppendOnlyLogConflictError extends Error {
  * The domain does not know or care which provider is behind this interface.
  *
  * append() is compare-and-append per stream. There is deliberately no global
- * sequence shared by all worlds, Cardinal cycles or gateway decisions.
+ * sequence shared by all worlds or unrelated control records.
  */
 export interface AppendOnlyLog {
   read(streamId: string): Promise<string[]>;

@@ -81,7 +81,7 @@ export interface ProtectedFamilyPersonalityV15 {
   childDesire: number;
 
   /**
-   * General personal autonomy. Cardinal/Gateway may not write it.
+   * General personal autonomy. External systems may not write it.
    */
   autonomy: number;
 }

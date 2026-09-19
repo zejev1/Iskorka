@@ -255,7 +255,7 @@ export interface LivelihoodPracticeInputV18 {
 /**
  * Records completed practice, then lets the resident decide whether that lived
  * pattern has become (or replaced) a livelihood. No population quota or
- * Cardinal signal participates in the choice.
+ * external control signal participates in the choice.
  */
 export function recordLivelihoodPracticeV18(
   state: WorldState,
