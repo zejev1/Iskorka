@@ -344,7 +344,6 @@ export function ensureBodyCoreV1(
 
   const adult = agent.life.ageYears >= 18;
   const now = world.calendar.elapsedWorldMinutes;
-  const elapsedSinceBodyAdvance = Math.max(0, now - existing.lastAdvancedWorldMinute);
   if (adult) {
     existing.homeostasis.sexualArousal ??= 0;
     if (existing.reproductive.type === 'male') {
@@ -352,16 +351,11 @@ export function ensureBodyCoreV1(
     } else {
       const postpartum = existing.reproductive.postpartum;
       if (postpartum) {
+        // Expiration is absolute-time repair only. The gradual recovery itself
+        // belongs to the physiology layer so repeated ensure() calls cannot
+        // accidentally apply the same elapsed interval more than once.
         const postpartumAge = Math.max(0, now - postpartum.startedWorldMinute);
-        postpartum.recoveryLoad = clamp01(
-          approachBodyValueV1(
-            postpartum.recoveryLoad,
-            0,
-            POSTPARTUM_RECOVERY_HALF_LIFE,
-            elapsedSinceBodyAdvance,
-          ),
-        );
-        if (postpartumAge >= POSTPARTUM_MAX_RECOVERY || postpartum.recoveryLoad < 0.02) {
+        if (postpartumAge >= POSTPARTUM_MAX_RECOVERY) {
           delete existing.reproductive.postpartum;
         }
       }
@@ -381,7 +375,6 @@ export function ensureBodyCoreV1(
       delete existing.reproductive.postpartum;
     }
   }
-  existing.lastAdvancedWorldMinute = now;
   return existing;
 }
 
