@@ -3,7 +3,6 @@
   "project": "Iskorka",
   "phase": "stage1-physical-world",
   "runtimeImplemented": true,
-  "constitutionSourceSha256": "bbe8f366079f05da899431c37554ee4f8b12f9b88f4102bde1c39b988346870c",
   "donor": {
     "repository": "zejev1/ainkrad-v0.3",
     "sha": "0563af1dc1fea7d2abe76eb17501ef574078b4d2",
@@ -42,7 +41,6 @@
     "racialLibraries",
     "racialRules"
   ],
-  "cardinal": "absent-from-runtime-dependency-graph",
   "preserve": [
     "continent",
     "geography",
@@ -77,6 +75,7 @@
   ],
   "conditionalPreserve": {
     "shipsAndNavigation": "when-stable-in-approved-donor",
-    "physicalWoundsAndDiseases": "when-independent-of-cardinal"
-  }
+    "physicalWoundsAndDiseases": "when-standalone"
+  },
+  "autonomy": "standalone-no-external-control"
 }

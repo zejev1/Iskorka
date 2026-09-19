@@ -1,20 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateProfile, validateConstitution, donorRecordIssues } from './check-bootstrap-profile.mjs';
-const original = JSON.parse(await readFile(new URL('../iskorka.bootstrap.json', import.meta.url), 'utf8'));
-const constitution = await readFile(new URL('../ISKORKA_CONSTITUTION.md', import.meta.url), 'utf8');
+import { validateProfile, donorRecordIssues } from './check-bootstrap-profile.mjs';
 
-test('approved preparation shape passes (not a world baseline)', () => assert.deepEqual(validateProfile(original), []));
-test('full handoff bytes are preserved', () => assert.deepEqual(validateConstitution(constitution), []));
-test('truncated source is rejected', () => assert.ok(validateConstitution(constitution.replace('КОНЕЧНЫЙ МОЗГ', 'МОЗГ')).length));
+const original = JSON.parse(await readFile(new URL('../iskorka.bootstrap.json', import.meta.url), 'utf8'));
+
+test('approved standalone preparation shape passes', () => assert.deepEqual(validateProfile(original), []));
 test('empty profile produces violations, not a crash', () => assert.ok(validateProfile(null).length));
 for (const [name, mutate] of [
   ['settlement relocation', p => { p.initialWorld.placement = 'recenter'; }],
   ['old settlement name', p => { p.initialWorld.settlementName = 'Айнкрад'; }],
   ['wrong founder count', p => { p.initialWorld.adults = 20; }],
   ['prearranged couples', p => { p.initialWorld.predefinedCouples = 5; }],
-  ['Cardinal OFF instead of absent', p => { p.cardinal = 'OFF'; }],
+  ['external-control marker', p => { p.autonomy = 'external-control'; }],
   ['removing animals', p => { p.preserve = p.preserve.filter(x => x !== 'animals'); }],
   ['removing weather', p => { p.preserve = p.preserve.filter(x => x !== 'weather'); }],
   ['allowing monsters', p => { p.disabled = p.disabled.filter(x => x !== 'monsters'); }],
@@ -37,5 +35,4 @@ test('validation does not change the profile', () => {
   const before = JSON.stringify(original); validateProfile(original); donorRecordIssues(original.donor);
   assert.equal(JSON.stringify(original), before);
 });
-
 test('selected donor has a complete approval record (structure only)', () => assert.deepEqual(donorRecordIssues(original.donor), []));

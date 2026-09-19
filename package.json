@@ -9,8 +9,9 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node scripts/run-tests.mjs",
-    "check": "npm run typecheck && npm test",
-    "verify": "npm run check && npm run build"
+    "check": "npm run standalonecheck && npm run typecheck && npm test",
+    "verify": "npm run check && npm run build",
+    "standalonecheck": "node scripts/check-standalone-tree.mjs"
   },
   "engines": {
     "node": ">=22"
