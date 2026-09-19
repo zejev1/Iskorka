@@ -8,6 +8,8 @@ import type {
 export const BODY_CORE_VERSION_V1 = 1 as const;
 const ISKORKA_PROFILE = 'iskorka-human-lab-v1';
 const DAY = 24 * 60;
+const POSTPARTUM_RECOVERY_HALF_LIFE = 21 * DAY;
+const POSTPARTUM_MAX_RECOVERY = 84 * DAY;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 const clampSigned = (value: number): number => Math.max(-1, Math.min(1, value));
@@ -341,12 +343,33 @@ export function ensureBodyCoreV1(
   existing.phenotype = phenotypeFor(world, agent, existing.phenotype);
 
   const adult = agent.life.ageYears >= 18;
+  const now = world.calendar.elapsedWorldMinutes;
+  const elapsedSinceBodyAdvance = Math.max(0, now - existing.lastAdvancedWorldMinute);
   if (adult) {
     existing.homeostasis.sexualArousal ??= 0;
     if (existing.reproductive.type === 'male') {
       existing.reproductive.refractoryLoad ??= 0;
-    } else if (!existing.reproductive.pregnancy && !existing.reproductive.postpartum) {
-      existing.reproductive.cyclePhase = cyclePhaseAt(world, agent);
+    } else {
+      const postpartum = existing.reproductive.postpartum;
+      if (postpartum) {
+        const postpartumAge = Math.max(0, now - postpartum.startedWorldMinute);
+        postpartum.recoveryLoad = clamp01(
+          approachBodyValueV1(
+            postpartum.recoveryLoad,
+            0,
+            POSTPARTUM_RECOVERY_HALF_LIFE,
+            elapsedSinceBodyAdvance,
+          ),
+        );
+        if (postpartumAge >= POSTPARTUM_MAX_RECOVERY || postpartum.recoveryLoad < 0.02) {
+          delete existing.reproductive.postpartum;
+        }
+      }
+      if (!existing.reproductive.pregnancy && !existing.reproductive.postpartum) {
+        existing.reproductive.cyclePhase = cyclePhaseAt(world, agent);
+      } else {
+        delete existing.reproductive.cyclePhase;
+      }
     }
   } else {
     delete existing.homeostasis.sexualArousal;
@@ -358,6 +381,7 @@ export function ensureBodyCoreV1(
       delete existing.reproductive.postpartum;
     }
   }
+  existing.lastAdvancedWorldMinute = now;
   return existing;
 }
 
