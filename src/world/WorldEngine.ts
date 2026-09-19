@@ -1,4 +1,8 @@
 import { ISKORKA_FOUNDER_NAMES, ISKORKA_PROFILE, initializeIskorkaWorld, isIskorkaWorld, assertIskorkaProfile } from '../iskorka/Profile';
+import {
+  completeBodyCorePregnancyV1,
+  setBodyCorePregnancyV1,
+} from '../iskorka/BodyCoreV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -4821,6 +4825,7 @@ export class WorldEngine {
     const state: WorldState = {
       id: options.worldId,
       simulationProfile: ISKORKA_PROFILE,
+      bootstrapSeed: options.seed,
       epoch: 1,
       epochStartedAt: now,
       now,
@@ -5029,6 +5034,7 @@ export class WorldEngine {
         this.state.epoch = nextEpoch;
         this.state.epochStartedAt = resetAt;
         this.state.rulesVersion = WORLD_RULES_VERSION;
+        this.state.bootstrapSeed = seed;
         this.state.environment = { resourcePool: 1, resourceRegenerationRate: 0.012, socialOpportunity: 0.62, safetySupport: 0.64, habitatSupport: 0.5 };
         this.state.calendar = { elapsedWorldMinutes: 0 };
         this.state.growth = {
@@ -13278,6 +13284,10 @@ export class WorldEngine {
         }
       }
 
+      // BodyCore mirrors the authoritative family lifecycle at the physical
+      // delivery boundary. It does not run a fetus tick loop.
+      completeBodyCorePregnancyV1(this.state, mother.id, expectedChildCount);
+
       // Multiple delivery has a bounded physical cost evaluated once, at the
       // birth event itself. It adds no recurring family-tick scan.
       const rawHealthLoss = maternalPostpartumHealthLossV22(
@@ -13407,6 +13417,11 @@ export class WorldEngine {
         ),
         this.rng.next(),
       );
+      setBodyCorePregnancyV1(this.state, mother.id, {
+        conceptionWorldMinute: worldMinutes,
+        dueWorldMinute: lifecycle.dueWorldMinute,
+        expectedChildCount: lifecycle.expectedChildCount ?? 1,
+      });
       practiceGiftV20(this.state, a.id, 'fertility', 0.0008);
       practiceGiftV20(this.state, b.id, 'fertility', 0.0008);
       pregnantAgentIds.add(mother.id);
