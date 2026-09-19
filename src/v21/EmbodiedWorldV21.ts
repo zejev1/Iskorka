@@ -17,6 +17,11 @@ import type {
 } from '../world/types';
 import { WORLD_MINUTES_PER_YEAR } from '../world/WorldClock';
 import { worldWeatherV21 } from './WeatherV21';
+import {
+  assertBodyCoreV1,
+  ensureBodyCoreV1,
+  reconcileBodyCorePregnanciesV1,
+} from '../iskorka/BodyCoreV1';
 
 export const EMBODIED_WORLD_VERSION_V21 = 'v21-embodied-world' as const;
 export const MAX_WOUNDS_PER_BODY_V21 = 12;
@@ -82,7 +87,7 @@ function emptyKnowledge(agentId: string): V21AppliedKnowledgeState {
 
 function emptyBody(world: Readonly<WorldState>, agent: Readonly<AgentState>): V21BodyState {
   const health = clamp01(agent.life.health);
-  return {
+  const body: V21BodyState = {
     agentId: agent.id,
     systems: {
       skin: health,
@@ -102,6 +107,10 @@ function emptyBody(world: Readonly<WorldState>, agent: Readonly<AgentState>): V2
     nextWoundSequence: 1,
     nextDiseaseSequence: 1,
   };
+  // BodyCore is additive and deterministic. It consumes no world RNG and
+  // derives biological body type only from the resident's existing sex.
+  ensureBodyCoreV1(world, agent, body);
+  return body;
 }
 
 function weaponComposition(kind: V15WeaponKind | undefined): V21ItemPhysicalState['materials'] {
@@ -164,7 +173,8 @@ export function ensureAgentEmbodiedWorldV21(world: WorldState, agentId?: string)
   state.childSupervisionByChildId ??= {};
   const agent = agentId ? world.agents[agentId] : undefined;
   if (agent?.life.alive) {
-    state.bodiesByAgentId[agent.id] ??= emptyBody(world, agent);
+    const body = (state.bodiesByAgentId[agent.id] ??= emptyBody(world, agent));
+    ensureBodyCoreV1(world, agent, body);
     const knowledge = (state.appliedKnowledgeByAgentId[agent.id] ??= emptyKnowledge(agent.id));
     knowledge.homeTheory ??= 0;
     knowledge.familyTheory ??= 0;
@@ -197,7 +207,8 @@ export function ensureEmbodiedWorldV21(world: WorldState): WorldV21State {
       delete state.childSupervisionByChildId[agent.id];
       continue;
     }
-    state.bodiesByAgentId[agent.id] ??= emptyBody(world, agent);
+    const body = (state.bodiesByAgentId[agent.id] ??= emptyBody(world, agent));
+    ensureBodyCoreV1(world, agent, body);
     const knowledge = (state.appliedKnowledgeByAgentId[agent.id] ??=
       emptyKnowledge(agent.id));
     knowledge.homeTheory ??= 0;
@@ -209,6 +220,7 @@ export function ensureEmbodiedWorldV21(world: WorldState): WorldV21State {
     knowledge.foundingPrimerWordsRead ??= 0;
     knowledge.foundingPrimerCompletedReadings ??= 0;
   }
+  reconcileBodyCorePregnanciesV1(world);
   for (const item of Object.values(world.v15?.items ?? {})) {
     const physics = (state.itemPhysicsByItemId[item.id] ??=
       emptyItemPhysics(item));
@@ -705,6 +717,11 @@ export function assertEmbodiedWorldV21(world: Readonly<WorldState>): void {
       if (!Number.isFinite(body.systems[system]) || body.systems[system] < 0 || body.systems[system] > 1) {
         throw new Error(`Body ${agentId}.${system} is invalid.`);
       }
+    }
+    // Missing BodyCore is tolerated only for stage-1 saves before additive
+    // repair. Once present, sex/anatomy mismatch is always a hard error.
+    if (body.bodyCore) {
+      assertBodyCoreV1(world.agents[agentId], body.bodyCore);
     }
   }
 }
