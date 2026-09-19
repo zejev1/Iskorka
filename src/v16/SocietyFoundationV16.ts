@@ -276,9 +276,9 @@ export function settlementFamilyCapacityV16(
 }
 
 /**
- * This is observable housing capacity, not reproductive permission. Cardinal
- * can compare it with population to reason about crowding and territory, but
- * the world engine never uses it as a hidden birth ceiling.
+ * This is observable housing capacity, not reproductive permission. It may be
+ * compared with population for crowding and territory, but the world engine
+ * never uses it as a hidden birth ceiling.
  */
 export function worldPopulationCapacityV16(
   state: Readonly<WorldState>,
@@ -824,7 +824,7 @@ export function ensureWorldV16State(
   if (runtimeValidatedWorldsV16.has(state)) return state.v16;
   // Recovery checkpoints produced during the additive v16 work may predate
   // settlement-local resources. Fill the new map in place without resetting
-  // residents, RNG, evidence, Cardinal history or any existing v16 counters.
+  // residents, RNG, evidence or any existing v16 counters.
   state.v16.familyLifecycleByPairId ??= {};
   state.v16.settlementResourcesById ??= {};
   state.v16.settlementEconomyById ??= {};

@@ -24,7 +24,6 @@ import type { WorldTimeExecution } from './WorldTimeExecution';
 import { createFoundingOcean, repairFoundingOcean } from './FoundingOcean';
 import { LIBRARY_IDS, LIBRARY_YEAR, admissionDeadline, isSecretLibrary, libraryIdOf, libraryIdForAgent, hasLibraryAdmission, reconcileLibraryAdmissions, enforceLibraryBoundary, noteLibraryArrival } from '../v21/LibraryAdmissions';
 import { ensureElfLibraryV20, elfStudyMaterialV20, readingBudgetV20 } from '../v20/LibraryLearningV20';
-import type { WorldInterventionKind as InterventionKind, WorldInputEnvelope as InputEnvelope } from '../core/WorldContracts';
 import { observeLocalPlacesV20, sharePlaceKnowledgeV20, removeUnsurveyedHomelandLinksV20, mayKnowPlaceV20 } from '../v20/KnowledgeBoundariesV20';
 import { nextUrbanHomeLot } from './SettlementStreets';
 import { repairCompactSettlementLayout } from './CompactSettlementLayout';
@@ -1089,26 +1088,6 @@ function assertWorldState(value: unknown): asserts value is WorldState {
   ) {
     throw new Error('World personhood constitution was altered.');
   }
-  if (governance.lastCardinalAuthorityAt !== undefined) {
-    finiteNumber(
-      governance.lastCardinalAuthorityAt,
-      'World governance.lastCardinalAuthorityAt',
-    );
-  }
-  if (governance.lastCardinalAuthorityWorldMinutes !== undefined) {
-    const authorityWorldMinutes = finiteNumber(
-      governance.lastCardinalAuthorityWorldMinutes,
-      'World governance.lastCardinalAuthorityWorldMinutes',
-    );
-    if (
-      authorityWorldMinutes < 0 ||
-      authorityWorldMinutes > elapsedWorldMinutes
-    ) {
-      throw new Error(
-        'World governance.lastCardinalAuthorityWorldMinutes must be inside the persisted calendar.',
-      );
-    }
-  }
   const laws = asRecord(governance.laws, 'World governance.laws');
   for (const [lawId, rawLaw] of Object.entries(laws)) {
     const worldLaw = asRecord(rawLaw, `World law ${lawId}`);
@@ -1164,8 +1143,8 @@ function assertWorldState(value: unknown): asserts value is WorldState {
         throw new Error(`World law ${lawId}.updatedWorldMinutes is negative.`);
       }
     }
-    if (!['system', 'cardinal'].includes(worldLaw.createdBy as string)) {
-      throw new Error(`World law ${lawId}.createdBy is invalid.`);
+    if (worldLaw.createdBy !== 'system') {
+      throw new Error(`World law ${lawId}.createdBy must be system-owned.`);
     }
     requiredString(worldLaw.rationale, `World law ${lawId}.rationale`);
   }
@@ -4079,7 +4058,7 @@ async function migrateLegacyWorld(
 
 /**
  * The v0.3.15 -> v0.3.16 migration is intentionally additive. It does not
- * rebuild geography, residents, relationships, resources, RNG or v15/Cardinal
+ * rebuild geography, residents, relationships, resources, RNG or v15 historical
  * evidence. It adds bounded society evidence maps with an empty observation
  * history beginning at the already persisted canonical world minute.
  */
@@ -4164,7 +4143,7 @@ const V16_ADDITIVE_SCHEMA_REPAIR_OPERATION_ID =
  * Some early v0.3.16 recovery packages persisted the v16 version marker before
  * every additive economy/evidence field existed. Repair those same-version
  * saves atomically before strict validation. No resident state, existing
- * evidence, world time, RNG state or Cardinal history is reconstructed.
+ * evidence, world time, RNG state or external-control history is reconstructed.
  */
 async function repairCompatibleV16World(
   store: WorldStore,
@@ -4389,7 +4368,7 @@ async function repairCompatibleV18World(
 
 /**
  * v0.3.19 adds only bounded spiritual evidence. Existing minds, professions,
- * families, relationships, Cardinal experience and v18 cultural history are
+ * families, relationships and v18 cultural history are
  * carried forward byte-for-byte. A legacy audience is translated into a gift
  * and a contact record, but its old calling label no longer drives behaviour.
  */
@@ -4935,6 +4914,17 @@ export class WorldEngine {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const repaired = structuredClone(state);
       const before = stableJsonStringify(repaired);
+      repaired.governance = {
+        constitutionVersion: repaired.governance.constitutionVersion,
+        authorityRevision: repaired.governance.authorityRevision,
+        protectedPersonhoodDomains: [...repaired.governance.protectedPersonhoodDomains],
+        laws: Object.fromEntries(
+          Object.entries(repaired.governance.laws).map(([lawId, law]) => [
+            lawId,
+            { ...law, createdBy: 'system' as const },
+          ]),
+        ),
+      };
       ensureEmbodiedWorldV21(repaired);
       if (stableJsonStringify(repaired) === before) break;
 
@@ -4997,7 +4987,7 @@ export class WorldEngine {
 
   /**
    * Internal runtime observation view. Callers must never retain or mutate it;
-   * UI, gateways and public consumers continue to receive snapshot() clones.
+   * UI and public consumers continue to receive snapshot() clones.
    * This avoids serializing a century-old world merely to read its clock.
    */
   runtimeStateView(): Readonly<WorldState> {
@@ -5422,7 +5412,7 @@ export class WorldEngine {
   /**
    * One bounded selection per world year. Curiosity and prior lived learning
    * influence the invitation, but each resident still accepts or declines
-   * through their own personality state. Cardinal has no input or write path.
+   * through their own personality state. No external controller has an input or write path.
    */
   private beginSecretLibraryYearV18(livingAgents: readonly AgentState[], now: number): void {
     const minute = this.state.calendar.elapsedWorldMinutes;
@@ -6697,7 +6687,7 @@ export class WorldEngine {
     now: number,
   ): void {
     if (!canResidentAct(agent)) return;
-    // The body, not Cardinal, can suspend cognition when physically exhausted.
+    // The body can suspend cognition when physically exhausted.
     if (advanceBodySleepV21(this.state, agent)) return;
     // Territorial danger is evaluated while the resident is physically
     // present, before a new route can make that presence disappear. A person
@@ -6933,7 +6923,7 @@ export class WorldEngine {
         break;
     }
     if (!agent.life.alive) return;
-    // Private recollections stay with this resident. Cardinal observes the ordinary physical action events.
+    // Private recollections stay with this resident. Ordinary physical action events remain in world history.
     finishLearningAttempt(this.state, agent);
     const livedAction = agent.lastAction ?? action;
     recordLifeRhythmActionV18(this.state, agent, livedAction);
@@ -12235,7 +12225,7 @@ export class WorldEngine {
         continue;
       }
 
-      // Monster populations cannot grow from danger or Cardinal habitat
+      // Monster populations cannot grow from danger or ambient habitat
       // support alone. They need reachable, actually persisted prey or a meal
       // recorded during the previous Ainkrad year. An extinct population
       // cannot return merely because its former members once ate.
@@ -12255,7 +12245,7 @@ export class WorldEngine {
 
       const density = population.count / population.carryingCapacity;
       const emptyHabitatBoost = population.count === 0 ? 0.22 : 0;
-      // Cardinal habitat support protects ordinary ecology, never monsters.
+      // Ambient habitat support protects ordinary ecology, never monsters.
       const habitatSupport = population.isMonster
         ? Math.min(0.3, environment.habitatSupport)
         : environment.habitatSupport;
@@ -15963,8 +15953,6 @@ export class WorldEngine {
       .sort(
         (a, b) =>
           b.updatedAt - a.updatedAt ||
-          Number(b.createdBy === 'cardinal') -
-            Number(a.createdBy === 'cardinal') ||
           b.revision - a.revision ||
           b.id.localeCompare(a.id),
       )[0];
@@ -16072,18 +16060,18 @@ export class WorldEngine {
       const magnitude =
         typeof signal.payload.magnitude === 'number' ? signal.payload.magnitude : 0;
 
-      if (signal.kind === 'cardinal.effect.open_shared_space') {
+      if (signal.kind === 'world.effect.social_support') {
         socialModifier += magnitude;
       } else if (signal.kind === 'world.effect.social_barrier') {
         socialModifier -= magnitude;
-      } else if (signal.kind === 'cardinal.effect.safety_support') {
+      } else if (signal.kind === 'world.effect.safety_support') {
         safetyModifier += magnitude;
       } else if (signal.kind === 'world.effect.safety_shock') {
         safetyModifier -= magnitude;
         habitatModifier -= magnitude * 0.25;
-      } else if (signal.kind === 'cardinal.effect.habitat_support') {
+      } else if (signal.kind === 'world.effect.habitat_support') {
         habitatModifier += magnitude;
-      } else if (signal.kind.startsWith('cardinal.catastrophe.')) {
+      } else if (signal.kind.startsWith('world.catastrophe.')) {
         const destructiveUntil =
           typeof signal.payload.destructiveUntil === 'number'
             ? signal.payload.destructiveUntil

@@ -3,7 +3,7 @@ import { cancelLearningAttempt } from '../world/learning/ResidentLearning';
 import { ensureAgentEmbodiedWorldV21 } from './EmbodiedWorldV21';
 import { worldWeatherV21 } from './WeatherV21';
 
-// Sleep is a body constraint, not a Cardinal decision. Expensive context is
+// Sleep is a body constraint, not an external decision. Expensive context is
 // captured once when sleep begins; sleeping itself is a timestamp comparison.
 const SIX_HOURS = 6 * 60;
 const FATIGUE_SIGNAL_THRESHOLD = 0.10;

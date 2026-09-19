@@ -104,8 +104,8 @@ export function countOrdinaryPopulation(
  * There is deliberately no "reviveGenesisTeacher" API.
  *
  * A new world creates a new epoch and therefore a fresh set of teacher IDs
- * and fresh teaching histories. Cardinal/Gateway may observe their state but
- * the normal intervention path cannot reactivate expired teachers.
+ * and fresh teaching histories. Expired teachers cannot be reactivated by
+ * any external control path.
  */
 export function assertGenesisEpochIsolation(
   previous: readonly GenesisTeacher[],

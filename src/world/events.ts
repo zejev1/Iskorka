@@ -4,9 +4,7 @@ export type WorldEventSource =
   | 'agent'
   | 'world'
   | 'player'
-  | 'system'
-  | 'cardinal'
-  | 'auditor';
+  | 'system';
 
 export interface WorldEvent {
   eventId: string;
@@ -35,9 +33,9 @@ export interface AppendEventResult {
   duplicate: boolean;
 }
 
-// Cardinal sensors receive this read-only capability, never EventStore itself.
+// Read-only consumers receive this capability, never EventStore itself.
 // Every method in this interface must be observational: reads may not compact,
-// delete or otherwise mutate experiment history or current projections.
+// delete or otherwise mutate world history or current projections.
 export interface EventReader {
   get(worldId: string, eventId: string): Promise<WorldEvent | undefined>;
   history(worldId: string): Promise<WorldEvent[]>;

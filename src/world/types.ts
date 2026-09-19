@@ -110,8 +110,7 @@ export interface AgentBeliefState {
 
 /**
  * Persistent personhood layer inspired by bottom-up artificial people.
- * Cardinal may observe aggregate consequences, but this state is never an
- * intervention target and may only change through the resident's lived life.
+ * This state changes only through the resident's lived life.
  */
 export interface AgentMindState {
   identityId: string;
@@ -524,7 +523,7 @@ export interface WorldLawState {
   /** Canonical Ainkrad time; technical timestamps above are ordering only. */
   createdWorldMinutes?: number;
   updatedWorldMinutes?: number;
-  createdBy: 'system' | 'cardinal';
+  createdBy: 'system';
   rationale: string;
 }
 
@@ -539,9 +538,6 @@ export interface WorldGovernanceState {
     'relationships',
   ];
   laws: Record<string, WorldLawState>;
-  lastCardinalAuthorityAt?: number;
-  /** Canonical semantic time for authority cooldowns. */
-  lastCardinalAuthorityWorldMinutes?: number;
 }
 
 export interface WorldEnvironment {
@@ -555,8 +551,7 @@ export interface WorldEnvironment {
   // Baseline environmental support. Temporary signals can modify it.
   safetySupport: number;
 
-  // Baseline support for habitats and wildlife recovery. Cardinal may only
-  // request a temporary bounded modifier through the independent gateway.
+  // Baseline support for habitats and wildlife recovery.
   habitatSupport: number;
 }
 

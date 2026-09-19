@@ -1,7 +1,7 @@
 export interface FamilyPersonality {
   /**
-   * Protected personal inclination. Cardinal may observe aggregate statistics
-   * but may not write this value.
+   * Protected personal inclination. It changes only through the resident's
+   * own lived state and ordinary relationship experience.
    */
   physicalIntimacyInclination: number;
 
@@ -319,23 +319,4 @@ export function decideChildVoluntarily(
     probability,
     reason: chosen ? 'voluntary_yes' : 'voluntary_no',
   };
-}
-
-export function assertProtectedFamilyPersonalityMutation(
-  before: FamilyPersonality,
-  after: FamilyPersonality,
-  actor: 'resident' | 'world' | 'cardinal' | 'gateway',
-): void {
-  if (
-    (actor === 'cardinal' || actor === 'gateway') &&
-    (
-      before.physicalIntimacyInclination !== after.physicalIntimacyInclination ||
-      before.childDesire !== after.childDesire ||
-      before.autonomy !== after.autonomy
-    )
-  ) {
-    throw new Error(
-      `${actor} attempted to write protected resident family/personality state.`,
-    );
-  }
 }
