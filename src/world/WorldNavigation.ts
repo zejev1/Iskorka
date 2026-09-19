@@ -68,7 +68,7 @@ function traversalBetween(
   if (isSurfaceWalkable(a.surface) && isSurfaceWalkable(b.surface)) {
     return 'walk';
   }
-  // No implicit water walking: a later gateway/world rule must explicitly
+  // No implicit water walking: a later world rule must explicitly
   // create a bridge or boat route.
   return undefined;
 }

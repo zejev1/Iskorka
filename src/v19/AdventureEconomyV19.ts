@@ -115,7 +115,7 @@ function emptyMarket(settlementId: string): V19SettlementMarketState {
   return {
     settlementId,
     // Currency enters circulation only when residents physically recover old
-    // coin from a dungeon. A settlement does not receive money from Cardinal.
+    // coin from a dungeon. A settlement does not receive invented outside money.
     treasuryCoin: 0,
     tradeVolume: 0,
     foodSold: 0,
@@ -453,7 +453,7 @@ export function isAdventureCandidateV19(
 
 /**
  * Called only after the resident has independently selected exploration.
- * The roll is a personal decision; neither Cardinal nor settlement quotas are
+ * The roll is a personal decision; neither external control nor settlement quotas are
  * inputs. Candidate ids must already be physically reachable by the engine.
  */
 export function chooseDungeonExpeditionV19(
@@ -1068,7 +1068,7 @@ function artifactPrice(artifact: Readonly<V19ArtifactState>): number {
 /**
  * A resident can trade only while physically standing inside the market's
  * settlement. Food is deducted from the real v16 granary; no resource aid is
- * created by Cardinal or by this economy layer.
+ * created from outside the world or by this economy layer.
  */
 export function tryAdventureMarketTradeV19(
   world: WorldState,

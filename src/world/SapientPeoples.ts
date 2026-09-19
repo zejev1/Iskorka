@@ -318,7 +318,7 @@ function rebuildAffectedMovement(world: WorldState, agent: AgentState): void {
 /**
  * One-time, idempotent repair for v0.3.18/v0.3.19 saves whose generated
  * homelands were only 11-23 km from Ainkrad. Identity, memories, inventories,
- * ages, Cardinal history and world time are untouched.
+ * ages, historical evidence and world time are untouched.
  */
 export function repairSapientHomelandGeography(world: WorldState): number {
   const movedSettlementIds = new Set<string>();

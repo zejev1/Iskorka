@@ -139,7 +139,7 @@ export type V18LivelihoodStage =
 
 /**
  * A livelihood is a truthful summary of repeated lived practice. It is never
- * assigned by Cardinal or by a settlement quota, and a resident may change it
+ * assigned by an external controller or by a settlement quota, and a resident may change it
  * when another path becomes more important to them.
  */
 export interface V18ExplorationEvidence {

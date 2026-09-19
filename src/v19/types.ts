@@ -216,7 +216,7 @@ export type V19AdventureRank =
   | 'S';
 
 /**
- * These are kinds of lived practice, not jobs assigned by Cardinal.  A
+ * These are kinds of lived practice, not externally assigned jobs. A
  * community may combine any two of them into a profession title that was not
  * present in a static catalogue (for example, a smith-scout).
  */

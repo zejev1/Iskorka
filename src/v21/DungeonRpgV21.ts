@@ -121,7 +121,7 @@ export function assessDungeonRiskV21(
 }
 
 /** Candidates join only from the same physical entrance and each makes a
- * seeded personal decision. No guild, settlement or Cardinal can insert a
+ * seeded personal decision. No guild, settlement or external controller can insert a
  * member into the returned party. */
 export function formVoluntaryDungeonPartyV21(
   world: Readonly<WorldState>,
