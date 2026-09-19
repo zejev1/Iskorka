@@ -356,7 +356,7 @@ export function advanceBodyPhysiologyV1(
       h.muscleFatigue,
       clamp01(
         load * (0.92 - agent.life.physiology.strength * 0.24) +
-        h.energyReserve < 0.28 ? 0.08 : 0
+        (h.energyReserve < 0.28 ? 0.08 : 0)
       ),
       sleeping || load < 0.1 ? 5 * 60 : 4 * 60,
       elapsedWorldMinutes,
