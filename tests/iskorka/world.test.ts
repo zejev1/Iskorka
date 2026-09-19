@@ -72,6 +72,12 @@ test('world survives ten years with autonomous decisions, exploration and births
  }
  const w=runtime.snapshot();assert.equal(w.calendar.elapsedWorldMinutes,YEAR*10);
  assert.ok(w.population.births>0);assert.ok(Object.keys(w.places).length>Object.keys(initial.places).length);
+ const born=Object.values(w.agents).filter(a=>a.life.generation>0);
+ assert.ok(born.length>0);
+ for(const child of born){
+  const core=w.v21!.bodiesByAgentId[child.id]?.bodyCore;assert.ok(core,child.id);assert.equal(core.sex,child.sex);assert.equal(core.reproductive.type,child.sex);
+  if(child.life.ageYears<18){assert.equal(core.homeostasis.sexualArousal,undefined);if(core.reproductive.type==='female')assert.equal(core.reproductive.cyclePhase,undefined);else assert.equal(core.reproductive.refractoryLoad,undefined);}
+ }
  assert.ok(Object.values(w.v16!.residentEvidenceByAgentId).reduce((a,e)=>a+e.recordedDecisionCount,0)>1000);
  assert.ok(Object.values(w.agents).some(a=>a.lastAction));
  const history=await store.history(w.id);assert.ok(history.length>0);
