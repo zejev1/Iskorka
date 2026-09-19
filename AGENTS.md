@@ -59,4 +59,6 @@
 
 ## Human body architecture
 
-Before changing body, physiology, emotion-body feedback, sleep integration, movement limits, pain, hunger/thirst, temperature, touch, pleasure or adult sexual physiology, read `docs/ISKORKA_HUMAN_BODY_ARCHITECTURE.md` and `docs/ISKORKA_BODY_REFERENCE_AUDIT.md`. Do not rebuild the existing sleep system unless tests prove it necessary. Body signals constrain and inform the mind; they do not choose for the person. External projects are references only: preserve Iskorka's low-cost event/analytic architecture instead of importing a heavyweight physiology engine.
+Before changing body, physiology, emotion-body feedback, sleep integration, movement limits, pain, hunger/thirst, temperature, touch, pleasure or adult sexual physiology, read `docs/ISKORKA_HUMAN_BODY_ARCHITECTURE.md`, `docs/ISKORKA_BODYCORE_V1.md` and `docs/ISKORKA_BODY_REFERENCE_AUDIT.md`. Do not rebuild the existing sleep system unless tests prove it necessary. Body signals constrain and inform the mind; they do not choose for the person. External projects are references only: preserve Iskorka's low-cost event/analytic architecture instead of importing a heavyweight physiology engine.
+
+Body sex is not an independent random trait. Any body implementation must derive its male/female reproductive profile from existing `agent.sex`, preserve it through save/reload and child creation, and must not use sex to assign personality, intelligence, profession, values or agency.
