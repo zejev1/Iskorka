@@ -4928,6 +4928,63 @@ export class WorldEngine {
     if (state.rulesVersion !== WORLD_RULES_VERSION) {
       throw new Error('Версия сохранения не поддерживается. Автоматическое преобразование запрещено.');
     }
+
+    // Stage-1 Iskorka saves predate BodyCore. Add the deterministic body layer
+    // atomically on open rather than rejecting the save or inventing it only
+    // in memory. The repair consumes no world RNG and never changes agent.sex.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const repaired = structuredClone(state);
+      const before = stableJsonStringify(repaired);
+      ensureEmbodiedWorldV21(repaired);
+      if (stableJsonStringify(repaired) === before) break;
+
+      await options.store.checkpointWorld?.(
+        state.id,
+        state.revision,
+        'before-body-core-v1-additive-repair',
+      );
+      repaired.revision = state.revision + 1;
+      const operationId =
+        `migration:${state.id}:body-core-v1:revision:${state.revision}`;
+      const operationFingerprint = stableJsonStringify({
+        kind: 'world_migration',
+        mode: 'iskorka_body_core_v1_additive_repair',
+        worldId: state.id,
+        fromRevision: state.revision,
+      });
+      try {
+        const result = await options.store.commit({
+          operationId,
+          operationFingerprint,
+          worldId: state.id,
+          expectedRevision: state.revision,
+          nextState: repaired,
+          events: [{
+            eventId: `${operationId}:event`,
+            worldId: state.id,
+            kind: 'world.migrated',
+            source: 'system',
+            occurredAt: state.now,
+            occurredWorldMinutes: state.calendar.elapsedWorldMinutes,
+            payload: {
+              migrationMode: 'iskorka_body_core_v1_additive_repair',
+              preservedWorldMinutes: state.calendar.elapsedWorldMinutes,
+              preservedPeople: Object.keys(state.agents).length,
+              preservedRngState: state.determinism.rngState,
+            },
+          }],
+          memories: [],
+        });
+        state = result.state;
+        break;
+      } catch (error) {
+        if (!(error instanceof WorldRevisionConflictError)) throw error;
+        const concurrent = await options.store.loadWorld(options.worldId);
+        if (!concurrent) throw error;
+        state = concurrent;
+      }
+    }
+
     assertWorldState(state);
     return new WorldEngine(options.store, state);
   }
