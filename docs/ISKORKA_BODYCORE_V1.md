@@ -346,3 +346,81 @@ Ordinary non-pregnant adult:
 Implementation should prefer compact nested structures or numeric arrays in hot paths instead of many tiny JS objects.
 
 The target is not "medical solver accuracy per heartbeat". The target is human-like causal behavior across many years with enough physiological truth that body state changes choices and experience.
+
+
+## 15. Реализованный слой Body Physiology + Mind Bridge
+
+Статус: реализовано в `src/iskorka/BodyPhysiologyV1.ts`.
+
+### Тело живёт во времени аналитически
+Без микротиков сердца/дыхания обновляются:
+- гидратация и грубый водно-солевой баланс;
+- желудочная наполненность и энергетический резерв;
+- мочевой пузырь и кишечная нагрузка;
+- температура ядра и кожи;
+- объём крови;
+- кислородный долг;
+- нагрузка кровообращения и дыхания;
+- физическая нагрузка, мышечная усталость и долг восстановления;
+- воспаление и иммунная активация;
+- тошнота и головокружение;
+- вегетативное возбуждение;
+- мышечное напряжение;
+- стрессовый гормональный фон;
+- позыв к слезам;
+- физическое удовольствие;
+- взрослое сексуальное возбуждение;
+- мужское рефрактерное восстановление;
+- женская беременность/послеродовая нагрузка;
+- репродуктивное здоровье.
+
+### Разум → тело
+- fear/stress/pain повышают autonomic arousal, напряжение, сердечно-дыхательную нагрузку и стрессовый гормональный фон;
+- grief/fear/pain и пик сильной радости формируют tearDrive;
+- awe может давать мурашки;
+- нагрузка тела усиливает вегетативную реакцию;
+- сон остаётся существующей отдельной системой и только снижает телесную нагрузку/восстановительный долг.
+
+### Тело → разум
+Из BodyCore вычисляются:
+- thirst;
+- hunger;
+- breathlessness;
+- weakness;
+- cold/heat stress;
+- sweating;
+- tremor;
+- heart pounding;
+- bladder/bowel urge;
+- physical discomfort;
+- crying drive;
+- tears;
+- blushing;
+- goosebumps;
+- dry mouth;
+- startle;
+- physical pleasure;
+- adult sexual arousal;
+- post-pleasure relaxation.
+
+Эти сигналы:
+- слегка изменяют stress/fear/joy/hope;
+- увеличивают salience целей recover и secure_resources;
+- никогда сами не выбирают действие.
+
+### Взрослая добровольная близость
+После уже принятого обоими взрослыми решения тело получает физическую реакцию:
+- sexual arousal;
+- physical pleasure;
+- autonomic response;
+- post-pleasure relaxation;
+- у мужского профиля — refractory load.
+
+Физическое удовольствие может дать краткий положительный телесный feedback в joy/stress, но не создаёт автоматически любовь, доверие, согласие, желание ребёнка, ценности или отношения.
+
+### Производительность
+- один аналитический расчёт на существующую семантическую границу;
+- decay/approach по `elapsedWorldMinutes`;
+- нет heartbeat/breath/fetus minute loops;
+- сигналы в основном derived, не persisted;
+- текущая проверка: 58/58 тестов, standalone build проходит.
