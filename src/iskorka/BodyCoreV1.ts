@@ -138,6 +138,14 @@ export interface BodySignalsV1 {
   bowelUrge: number;
   physicalDiscomfort: number;
   cryingDrive: number;
+  tears: number;
+  blushing: number;
+  goosebumps: number;
+  dryMouth: number;
+  startle: number;
+  physicalPleasure: number;
+  sexualArousal: number;
+  postPleasureRelaxation: number;
 }
 
 function phenotypeFor(
@@ -606,6 +614,10 @@ export function bodySignalsV1(
     h.bladderFill * 0.04 +
     h.bowelLoad * 0.04,
   );
+  const cryingDrive = clamp01(
+    h.tearDrive * (0.72 + core.phenotype.painSensitivity * 0.28),
+  );
+  const physicalPleasure = clamp01(h.physicalPleasure);
   return {
     thirst,
     hunger,
@@ -619,7 +631,27 @@ export function bodySignalsV1(
     bladderUrge: clamp01((h.bladderFill - 0.55) / 0.45),
     bowelUrge: clamp01((h.bowelLoad - 0.62) / 0.38),
     physicalDiscomfort,
-    cryingDrive: clamp01(h.tearDrive * (0.72 + core.phenotype.painSensitivity * 0.28)),
+    cryingDrive,
+    tears: clamp01((cryingDrive - 0.28) / 0.72),
+    blushing: clamp01(
+      h.autonomicArousal * 0.38 +
+      agent.mind.emotions.joy * 0.16 +
+      Math.max(0, agent.stress - 0.55) * 0.22,
+    ),
+    goosebumps: clamp01(
+      Math.max(coldStress * 0.88, agent.mind.emotions.awe * 0.52),
+    ),
+    dryMouth: clamp01(
+      h.autonomicArousal * 0.5 + (1 - h.hydration) * 0.38,
+    ),
+    startle: clamp01(
+      agent.mind.emotions.fear * 0.56 + h.autonomicArousal * 0.28,
+    ),
+    physicalPleasure,
+    sexualArousal: clamp01(h.sexualArousal ?? 0),
+    postPleasureRelaxation: clamp01(
+      physicalPleasure * (1 - h.muscleTension * 0.45),
+    ),
   };
 }
 
