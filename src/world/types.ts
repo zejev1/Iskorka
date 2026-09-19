@@ -1050,6 +1050,11 @@ export interface V21BodyState {
   pain: number;
   mobilityScale: number;
   recoveryScale: number;
+  /**
+   * Iskorka-only additive physiology layer. Optional on older stage-1 saves so
+   * load-time repair can add it without rejecting the save first.
+   */
+  bodyCore?: import('../iskorka/BodyCoreV1').BodyCoreV1;
   lastAdvancedWorldMinute: number;
   nextWoundSequence: number;
   nextDiseaseSequence: number;
