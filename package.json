@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm test",
-    "verify": "npm run check && npm run build && npm run standalonecheck",
+    "verify": "npm run standalonecheck && npm run check && npm run build && npm run standalonecheck",
     "standalonecheck": "node scripts/check-standalone-tree.mjs"
   },
   "engines": {
