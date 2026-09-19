@@ -1,1 +1,0 @@
-PASS: TypeScript 5.8.3 tsc -p tsconfig.json

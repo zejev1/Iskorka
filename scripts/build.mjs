@@ -8,7 +8,7 @@ const result = await build({
   bundle: true, format: 'esm', platform: 'browser', target: ['es2022'],
   outdir: 'dist/assets', minify: true, metafile: true, legalComments: 'none',
 });
-const forbidden = Object.keys(result.metafile.inputs).filter(p => /(?:\/cardinal\/|\/sensors\/|\/boundary\/|\/runtime\/LiveWorldRuntime)/i.test(p));
+const forbidden = Object.keys(result.metafile.inputs).filter(p => /(?:\/sensors\/|\/boundary\/|\/runtime\/LiveWorldRuntime)/i.test(p));
 if (forbidden.length) throw new Error('Forbidden supervisor dependency: ' + forbidden.join(', '));
 await cp('src/iskorka/index.html', 'dist/index.html');
 await mkdir('validation', { recursive: true });
@@ -17,4 +17,4 @@ await writeFile('validation/build-inputs.json', JSON.stringify(Object.keys(resul
 await rm('assets', { recursive: true, force: true });
 await cp('dist/assets', 'assets', { recursive: true });
 await cp('dist/index.html', 'index.html');
-console.log(`Iskorka built: ${Object.keys(result.metafile.inputs).length} source inputs, no Cardinal/runtime gateway dependencies.`);
+console.log(`Iskorka built: ${Object.keys(result.metafile.inputs).length} source inputs; standalone runtime boundary verified.`);

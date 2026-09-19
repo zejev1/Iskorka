@@ -81,7 +81,7 @@ test('world survives ten years with autonomous decisions, exploration and births
  assert.ok(Object.values(w.v16!.residentEvidenceByAgentId).reduce((a,e)=>a+e.recordedDecisionCount,0)>1000);
  assert.ok(Object.values(w.agents).some(a=>a.lastAction));
  const history=await store.history(w.id);assert.ok(history.length>0);
- assert.ok(history.every(e=>e.source!=='cardinal'&&e.source!=='auditor'));
+ assert.ok(history.every(e=>['agent','world','player','system'].includes(e.source)));
  writeFileSync('validation/ten-year-world.json',JSON.stringify({seed:w.bootstrapSeed,elapsedMs:performance.now()-start,yearly,eventCount:history.length},null,2));
 });
 test('save/open preserves full state, identity and deterministic continuation',async()=>{
