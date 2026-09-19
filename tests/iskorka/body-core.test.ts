@@ -8,6 +8,12 @@ import {
   completeBodyCorePregnancyV1,
   ensureBodyCoreV1,
 } from '../../src/iskorka/BodyCoreV1';
+import {
+  advanceBodyPhysiologyV1,
+  applyBodyMindFeedbackV1,
+  bodyDecisionPressureV1,
+  recordAdultIntimacyBodyResponseV1,
+} from '../../src/iskorka/BodyPhysiologyV1';
 import { assertEmbodiedWorldV21 } from '../../src/v21/EmbodiedWorldV21';
 
 async function create(seed='body-core-seed', id='body-core-world') {
@@ -118,4 +124,89 @@ test('female postpartum recovery expires analytically without minute ticks', asy
   if (repaired.reproductive.type !== 'female') throw new Error('expected female BodyCore');
   assert.equal(repaired.reproductive.postpartum, undefined);
   assert.equal(typeof repaired.reproductive.cyclePhase, 'number');
+});
+
+
+test('mind drives autonomic body reactions and tears without microticks', async () => {
+  const { world } = await create('bridge-seed', 'bridge-world');
+  const agent = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  const core = body.bodyCore!;
+  agent.stress = 0.82;
+  agent.mind.emotions.fear = 0.9;
+  agent.mind.emotions.grief = 0.88;
+  agent.lastAction = 'work';
+  body.pain = 0.48;
+  core.homeostasis.autonomicArousal = 0;
+  core.homeostasis.tearDrive = 0;
+
+  const signals = advanceBodyPhysiologyV1(world, agent, 8_760)!;
+  assert.ok(core.homeostasis.autonomicArousal > 0.5);
+  assert.ok(core.homeostasis.muscleTension > 0.35);
+  assert.ok(core.homeostasis.stressHormoneLoad > 0.45);
+  assert.ok(core.homeostasis.tearDrive > 0.55);
+  assert.ok(signals.tears > 0.25);
+  assert.ok(signals.heartPounding > 0.2);
+  assert.ok(signals.dryMouth > 0.2);
+});
+
+test('body signals feed back into stress, emotion and goal salience without choosing actions', async () => {
+  const { world } = await create('feedback-seed', 'feedback-world');
+  const agent = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  const core = body.bodyCore!;
+  core.homeostasis.hydration = 0.32;
+  core.homeostasis.energyReserve = 0.24;
+  core.homeostasis.muscleFatigue = 0.78;
+  core.homeostasis.respiratoryLoad = 0.55;
+  core.homeostasis.oxygenDebt = 0.48;
+  body.pain = 0.42;
+
+  const signals = bodySignalsV1(agent, body, core);
+  const beforeStress = agent.stress;
+  const beforeFear = agent.mind.emotions.fear;
+  applyBodyMindFeedbackV1(agent, body, signals, 8_760);
+  assert.ok(agent.stress > beforeStress);
+  assert.ok(agent.mind.emotions.fear >= beforeFear);
+
+  const pressure = bodyDecisionPressureV1(world, agent);
+  assert.ok(pressure.recover > 0.35);
+  assert.ok(pressure.secureResources > 0.3);
+  assert.equal(agent.lastAction, undefined);
+});
+
+test('voluntary adult intimacy creates sex-linked physical pleasure but not relationship meaning', async () => {
+  const { world } = await create('intimacy-body-seed', 'intimacy-body-world');
+  const male = Object.values(world.agents).find(agent => agent.sex === 'male')!;
+  const female = Object.values(world.agents).find(agent => agent.sex === 'female')!;
+  const maleCore = world.v21!.bodiesByAgentId[male.id].bodyCore!;
+  const femaleCore = world.v21!.bodiesByAgentId[female.id].bodyCore!;
+  const maleJoy = male.mind.emotions.joy;
+  const femaleJoy = female.mind.emotions.joy;
+  const maleValues = structuredClone(male.mind.values);
+  const femaleValues = structuredClone(female.mind.values);
+
+  const responses = recordAdultIntimacyBodyResponseV1(
+    world,
+    male,
+    female,
+    0.86,
+    0.9,
+  );
+  assert.equal(responses.length, 2);
+  assert.ok(responses.every(response => response.arousal > 0.45));
+  assert.ok(responses.every(response => response.pleasure > 0.25));
+  assert.ok(maleCore.homeostasis.sexualArousal! > 0.45);
+  assert.ok(femaleCore.homeostasis.sexualArousal! > 0.45);
+  assert.equal(maleCore.reproductive.type, 'male');
+  assert.equal(femaleCore.reproductive.type, 'female');
+  if (maleCore.reproductive.type !== 'male' || femaleCore.reproductive.type !== 'female') {
+    throw new Error('unexpected reproductive body types');
+  }
+  assert.ok((maleCore.reproductive.refractoryLoad ?? 0) > 0);
+  assert.ok(!('refractoryLoad' in femaleCore.reproductive));
+  assert.ok(male.mind.emotions.joy > maleJoy);
+  assert.ok(female.mind.emotions.joy > femaleJoy);
+  assert.deepEqual(male.mind.values, maleValues);
+  assert.deepEqual(female.mind.values, femaleValues);
 });
