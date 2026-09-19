@@ -1,5 +1,6 @@
 [
   "src/core/stableJson.ts",
+  "src/iskorka/BodyCoreV1.ts",
   "src/iskorka/Profile.ts",
   "src/iskorka/WorldRuntime.ts",
   "src/iskorka/browser.ts",
