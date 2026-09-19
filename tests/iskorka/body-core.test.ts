@@ -5,6 +5,8 @@ import { InMemoryWorldStore } from '../../src/world/InMemoryWorldStore';
 import {
   assertBodyCoreV1,
   bodySignalsV1,
+  completeBodyCorePregnancyV1,
+  ensureBodyCoreV1,
 } from '../../src/iskorka/BodyCoreV1';
 import { assertEmbodiedWorldV21 } from '../../src/v21/EmbodiedWorldV21';
 
@@ -97,4 +99,23 @@ test('derived body signals are bounded and do not mutate persisted physiology', 
     assert.ok(value >= 0 && value <= 1);
   }
   assert.deepEqual(core, before);
+});
+
+
+test('female postpartum recovery expires analytically without minute ticks', async () => {
+  const { world } = await create('postpartum-seed', 'postpartum-world');
+  const mother = Object.values(world.agents).find(agent => agent.sex === 'female')!;
+  const body = world.v21!.bodiesByAgentId[mother.id];
+  completeBodyCorePregnancyV1(world, mother.id, 2);
+  assert.ok(body.bodyCore!.reproductive.type === 'female');
+  if (body.bodyCore!.reproductive.type !== 'female') throw new Error('expected female BodyCore');
+  assert.ok(body.bodyCore!.reproductive.postpartum);
+  assert.equal(body.bodyCore!.reproductive.cyclePhase, undefined);
+
+  world.calendar.elapsedWorldMinutes += 90 * 24 * 60;
+  const repaired = ensureBodyCoreV1(world, mother, body)!;
+  assert.equal(repaired.reproductive.type, 'female');
+  if (repaired.reproductive.type !== 'female') throw new Error('expected female BodyCore');
+  assert.equal(repaired.reproductive.postpartum, undefined);
+  assert.equal(typeof repaired.reproductive.cyclePhase, 'number');
 });
