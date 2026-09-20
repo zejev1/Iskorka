@@ -17,7 +17,13 @@ export const MAJOR_REVIEW_MAX_WORLD_MINUTES = 8 * HOUR;
 
 export interface ResidentAgencyCadenceV1 {
   currentIntent?: AgentActionKind;
+  dominantIntent?: AgentActionKind;
+  consideredActionCount?: number;
+  openness?: number;
+  innerThought?: string;
+  deliberationWorldMinutes?: number;
   intentSinceWorldMinute?: number;
+  decisionWorldMinute?: number;
   lastReviewWorldMinute: number;
   nextReviewWorldMinute: number;
   reviewCount: number;
