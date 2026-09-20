@@ -4998,12 +4998,15 @@ export class WorldEngine {
   }
 
   snapshot(): WorldState {
-    // Never expose an operation's uncommitted working copy. Sensors and other
-    // readers see only the last atomically committed world projection.
-    const snapshot = structuredClone(this.committedState);
+    // Durable causal projection only. This remains byte-comparable with the
+    // atomically committed store across save/reload and failed commits.
+    return structuredClone(this.committedState);
+  }
+
+  presentationSnapshot(): WorldState {
+    const snapshot = this.snapshot();
     // Human-scale current intention is a pure observation projection. It is
-    // deliberately not persisted as causal state, so save/reload and x1/x10
-    // time partitioning cannot invent different history.
+    // deliberately not persisted as causal history.
     for (const agent of Object.values(snapshot.agents)) {
       if (agent.life.alive) {
         agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
