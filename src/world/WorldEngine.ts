@@ -17,6 +17,13 @@ import {
   recordSocialTouchBodyResponseV1,
   resolveBodyEliminationV1,
 } from '../iskorka/BodyActionsV1';
+import {
+  agencyIntentV1,
+  deferResidentAgencyReviewV1,
+  ensureResidentAgencyCadenceV1,
+  nextResidentAgencyReviewWorldMinuteV1,
+  scheduleNextResidentAgencyReviewV1,
+} from '../iskorka/ResidentAgencyCadenceV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -5271,6 +5278,9 @@ export class WorldEngine {
     const clock = this.v15World().simulationClock;
     const quantum = clock.quantumWorldMinutes;
     let remainingWorldMinutes = addedWorldMinutes;
+    for (const agent of Object.values(this.state.agents)) {
+      if (agent.life.alive) ensureResidentAgencyCadenceV1(this.state, agent);
+    }
 
     // Physical travel consumes the exact canonical minutes supplied by the
     // external clock. The loop partitions only at semantic boundaries, so a
@@ -5293,6 +5303,13 @@ export class WorldEngine {
           nextWakeWorldMinute < segmentStartWorldMinute + segmentWorldMinutes - PHYSICAL_TIME_EPSILON) {
         segmentWorldMinutes = nextWakeWorldMinute - segmentStartWorldMinute;
       }
+      const nextAgencyWorldMinute =
+        nextResidentAgencyReviewWorldMinuteV1(this.state);
+      if (nextAgencyWorldMinute !== undefined &&
+          nextAgencyWorldMinute > segmentStartWorldMinute + PHYSICAL_TIME_EPSILON &&
+          nextAgencyWorldMinute < segmentStartWorldMinute + segmentWorldMinutes - PHYSICAL_TIME_EPSILON) {
+        segmentWorldMinutes = nextAgencyWorldMinute - segmentStartWorldMinute;
+      }
       this.advancePhysicalMovementForWorldMinutes(segmentWorldMinutes);
       clock.pendingWorldMinutes += segmentWorldMinutes;
       remainingWorldMinutes = Math.max(
@@ -5302,6 +5319,9 @@ export class WorldEngine {
       this.state.calendar.elapsedWorldMinutes =
         clock.simulatedWorldMinutes + clock.pendingWorldMinutes;
       wakeDueSleepingBodiesV21(this.state, this.state.calendar.elapsedWorldMinutes);
+      await this.advanceResidentAgencyReviewsV1(
+        this.state.calendar.elapsedWorldMinutes,
+      );
 
       if (clock.pendingWorldMinutes + PHYSICAL_TIME_EPSILON < quantum) {
         continue;
@@ -5368,23 +5388,6 @@ export class WorldEngine {
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
         if (!sleeping) this.applyPassiveNeeds(agent, effectiveEnvironment);
-        const bodySignals = advanceBodyPhysiologyV1(
-          this.state,
-          agent,
-          elapsedWorldMinutes,
-        );
-        if (!sleeping && bodySignals) {
-          const body = this.state.v21?.bodiesByAgentId[agent.id];
-          if (body) {
-            applyBodyMindFeedbackV1(
-              agent,
-              body,
-              bodySignals,
-              elapsedWorldMinutes,
-            );
-          }
-          resolveBodyEliminationV1(this.state, agent);
-        }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
@@ -6711,6 +6714,95 @@ export class WorldEngine {
     }
   }
 
+  /**
+   * Human-scale cognition clock. This reviews intention and body state on
+   * minutes/hours, while expensive ecology/economy/history services keep their
+   * coarse six-day batch. A review is a real autonomous decision, not a full
+   * duplicate of the batched world action.
+   */
+  private async advanceResidentAgencyReviewsV1(
+    atWorldMinute: number,
+  ): Promise<void> {
+    const due = Object.values(this.state.agents)
+      .filter((agent) =>
+        agent.life.alive &&
+        ensureResidentAgencyCadenceV1(this.state, agent)
+          .nextReviewWorldMinute <= atWorldMinute + PHYSICAL_TIME_EPSILON,
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (due.length === 0) return;
+
+    const living = Object.values(this.state.agents)
+      .filter((agent) => agent.life.alive)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    this.buildResidentDecisionIndexes(living);
+    const environment = await this.effectiveEnvironment(this.state.now);
+
+    for (const agent of due) {
+      const cadence = ensureResidentAgencyCadenceV1(this.state, agent);
+      const elapsed = Math.max(
+        1,
+        atWorldMinute - cadence.lastReviewWorldMinute,
+      );
+      const body = this.state.v21?.bodiesByAgentId[agent.id];
+      const signals = advanceBodyPhysiologyV1(
+        this.state,
+        agent,
+        elapsed,
+      );
+      if (body && signals) {
+        applyBodyMindFeedbackV1(agent, body, signals, elapsed);
+        resolveBodyEliminationV1(this.state, agent);
+      }
+
+      if (isBodySleepingV21(this.state, agent.id)) {
+        deferResidentAgencyReviewV1(this.state, agent, 60);
+        continue;
+      }
+
+      if (!canResidentAct(agent)) {
+        deferResidentAgencyReviewV1(this.state, agent, 120);
+        continue;
+      }
+
+      if (agent.movement) {
+        const pressure = bodyDecisionPressureV1(this.state, agent);
+        if (pressure.recover >= 0.78 || agent.energy <= 0.08) {
+          // An urgent physical condition can interrupt travel immediately;
+          // ordinary route-following does not require a fresh large decision.
+          this.performTravelPause(agent, this.state.now);
+          scheduleNextResidentAgencyReviewV1(this.state, agent, 'rest');
+        } else {
+          scheduleNextResidentAgencyReviewV1(
+            this.state,
+            agent,
+            agent.movement.purpose,
+          );
+        }
+        continue;
+      }
+
+      observeLocalPlacesV20(this.state, agent);
+      consultSettlementMap(this.state, agent);
+      const localAgents = this.agentsAtLocation(agent.locationId);
+      const decision = this.chooseAction(agent, localAgents, environment);
+      const reflection = residentDecisionReflection(agent, decision);
+      agent.lastDecision = {
+        action: decision.action,
+        dominantAction: decision.dominantAction,
+        consideredActionCount: decision.consideredActionCount,
+        openness: decision.openness,
+        chosenAt: this.state.now,
+        ...reflection,
+      };
+      scheduleNextResidentAgencyReviewV1(
+        this.state,
+        agent,
+        decision.action,
+      );
+    }
+  }
+
   private stepAgent(
     agent: AgentState,
     allAgents: AgentState[],
@@ -6794,6 +6886,7 @@ export class WorldEngine {
       chosenAt: now,
       ...reflection,
     };
+    scheduleNextResidentAgencyReviewV1(this.state, agent, decision.action);
     const action = decision.action;
     beginLearningAttempt(this.state, agent, action);
     switch (action) {
@@ -7524,6 +7617,17 @@ export class WorldEngine {
           goalBoost('seek_truth'),
       },
     ];
+
+    const recentIntent = agencyIntentV1(agent);
+    if (recentIntent && allowedActions.has(recentIntent)) {
+      const intended = scores.find((item) => item.action === recentIntent);
+      if (intended && Number.isFinite(intended.score)) {
+        // Human-scale reviews form intentions. The coarse world-services
+        // quantum later executes a compatible intention instead of inventing
+        // a completely unrelated six-day action.
+        intended.score += 0.34;
+      }
+    }
 
     // Weather changes the real cost and perceived risk of outdoor choices.
     // Knowledge improves judgement; it never overwrites the selected action.
