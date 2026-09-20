@@ -14,6 +14,14 @@ import {
   bodyDecisionPressureV1,
   recordAdultIntimacyBodyResponseV1,
 } from '../../src/iskorka/BodyPhysiologyV1';
+import {
+  bodyRegionalPainV1,
+  recordBodyDrinkV1,
+  recordBodyMealV1,
+  recordBodyMovementV1,
+  recordSocialTouchBodyResponseV1,
+  resolveBodyEliminationV1,
+} from '../../src/iskorka/BodyActionsV1';
 import { assertEmbodiedWorldV21 } from '../../src/v21/EmbodiedWorldV21';
 
 async function create(seed='body-core-seed', id='body-core-world') {
@@ -209,4 +217,120 @@ test('voluntary adult intimacy creates sex-linked physical pleasure but not rela
   assert.ok(female.mind.emotions.joy > femaleJoy);
   assert.deepEqual(male.mind.values, maleValues);
   assert.deepEqual(female.mind.values, femaleValues);
+});
+
+
+test('concrete eating and drinking update body state and latest body action', async () => {
+  const { world } = await create('consume-seed', 'consume-world');
+  const agent = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  const core = body.bodyCore!;
+  core.homeostasis.hydration = 0.42;
+  core.homeostasis.stomachFill = 0.2;
+  core.homeostasis.energyReserve = 0.35;
+
+  const gained = recordBodyDrinkV1(world, agent, 0.3);
+  assert.ok(gained > 0.1);
+  assert.ok(core.homeostasis.hydration > 0.5);
+  assert.equal(core.lastBodyAction?.kind, 'drink');
+
+  recordBodyMealV1(world, agent, 0.28);
+  assert.ok(core.homeostasis.stomachFill > 0.35);
+  assert.ok(core.homeostasis.energyReserve > 0.35);
+  assert.equal(core.lastBodyAction?.kind, 'eat');
+});
+
+test('urination and defecation are concrete bounded maintenance actions', async () => {
+  const { world } = await create('elimination-seed', 'elimination-world');
+  const agent = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  const core = body.bodyCore!;
+  core.homeostasis.bladderFill = 0.93;
+  core.homeostasis.bowelLoad = 0.95;
+
+  const result = resolveBodyEliminationV1(world, agent);
+  assert.deepEqual(result.kinds, ['urinate', 'defecate']);
+  assert.ok(core.homeostasis.bladderFill < 0.2);
+  assert.ok(core.homeostasis.bowelLoad < 0.3);
+  assert.equal(core.lastBodyAction?.kind, 'defecate');
+});
+
+test('regional pain stays local and leg injury increases movement load', async () => {
+  const { world } = await create('regional-pain-seed', 'regional-pain-world');
+  const agent = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  body.wounds.push({
+    id: 'test-leg-fracture',
+    kind: 'fracture',
+    region: 'leg',
+    severity: 0.72,
+    bleeding: 0.05,
+    contamination: 0,
+    pain: 0.82,
+    mobilityPenalty: 0.68,
+    causedWorldMinute: world.calendar.elapsedWorldMinutes,
+    source: 'accident',
+  });
+
+  const pain = bodyRegionalPainV1(body);
+  assert.equal(pain.dominantRegion, 'leg');
+  assert.ok(pain.leg > 0.7);
+  assert.equal(pain.arm, 0);
+
+  const before = body.bodyCore!.homeostasis.muscleFatigue;
+  recordBodyMovementV1(world, agent, 8_760, 0.7);
+  assert.ok(body.bodyCore!.homeostasis.muscleFatigue > before);
+  assert.ok(body.bodyCore!.homeostasis.exertionDebt > 0);
+  assert.ok(body.bodyCore!.homeostasis.oxygenDebt > 0);
+});
+
+test('accepted hug creates contextual physical comfort without changing relationship', async () => {
+  const { world } = await create('touch-seed', 'touch-world');
+  const agents = Object.values(world.agents);
+  const a = agents[0];
+  const b = agents[1];
+  const relationship = {
+    agentA: a.id,
+    agentB: b.id,
+    trust: 0.82,
+    affinity: 0.86,
+    respect: 0.7,
+    conflict: 0.05,
+    updatedAt: world.now,
+  };
+  const before = structuredClone(relationship);
+  const responses = recordSocialTouchBodyResponseV1(
+    world,
+    a,
+    b,
+    relationship,
+    'hug',
+    true,
+  );
+  assert.equal(responses.length, 2);
+  assert.ok(responses.every(response => response.valence === 'pleasant'));
+  assert.ok(responses.every(response => response.pleasure > 0.2));
+  assert.deepEqual(relationship, before);
+  assert.equal(world.v21!.bodiesByAgentId[a.id].bodyCore!.lastBodyAction?.kind, 'hug');
+  assert.equal(world.v21!.bodiesByAgentId[b.id].bodyCore!.lastBodyAction?.kind, 'hug');
+});
+
+test('physiology no longer hydrates or eliminates without concrete body actions', async () => {
+  const { world } = await create('no-auto-body-seed', 'no-auto-body-world');
+  const agent = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  const core = body.bodyCore!;
+  agent.resources = 1;
+  core.homeostasis.hydration = 0.7;
+  core.homeostasis.bladderFill = 0.92;
+  core.homeostasis.bowelLoad = 0.94;
+
+  advanceBodyPhysiologyV1(world, agent, 8_760);
+  assert.ok(core.homeostasis.hydration < 0.7);
+  assert.ok(core.homeostasis.bladderFill >= 0.92);
+  assert.ok(core.homeostasis.bowelLoad >= 0.94);
+
+  resolveBodyEliminationV1(world, agent);
+  assert.ok(core.homeostasis.bladderFill < 0.2);
+  assert.ok(core.homeostasis.bowelLoad < 0.3);
 });
