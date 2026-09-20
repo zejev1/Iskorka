@@ -7,6 +7,10 @@ import { worldWeatherV21 } from '../v21/WeatherV21';
 import type { AgentState, WorldState } from '../world/types';
 import { ISKORKA_VERSION, ISKORKA_DATABASE, ISKORKA_WORLD_ID } from './Profile';
 import { MINUTES_PER_SECOND, type WorldCommand, type WorldMessage, type Speed, type WorldFrame } from './protocol';
+import {
+  canonicalIskorkaProductionUrl,
+  requestDurableBrowserStorage,
+} from './BrowserPersistence';
 import './style.css';
 
 // Host operation IDs only; simulation randomness remains the persisted F2 RNG.
@@ -56,7 +60,7 @@ $('app').innerHTML = `
     </aside>
   </main>
   <footer class="controls-bar">
-    <div class="time-controls"><button id="pause" class="primary" disabled>▶ Запустить</button><label class="speed-label" for="speed">Скорость</label><select id="speed" aria-label="Скорость времени"><option value="slow">День / мин</option><option value="normal" selected>Год / мин</option><option value="fast">10 лет / мин</option></select><button id="step" title="Продвинуть мир на один сохранённый квант F2" disabled>Один шаг</button></div>
+    <div class="time-controls"><button id="pause" class="primary" disabled>▶ Запустить</button><label class="speed-label" for="speed">Скорость</label><select id="speed" aria-label="Скорость времени"><option value="realtime">Минута = минута</option><option value="slow">День / мин</option><option value="normal" selected>Год / мин</option><option value="fast">10 лет / мин</option></select><button id="step" title="Продвинуть мир на один сохранённый квант F2" disabled>Один шаг</button></div>
     <div class="reset-controls"><span id="pace" class="pace">Время не пропускается</span><button id="reset" disabled>Новый мир</button></div>
   </footer>
   <div id="notice" role="status" class="notice" hidden></div>
@@ -179,7 +183,9 @@ function display(frame:WorldFrame):void {
   ($('speed') as HTMLSelectElement).value=frame.speed;
   ($('step') as HTMLButtonElement).disabled=!ready||!frame.paused;
   $('save-state').textContent='Сохранено · '+number(w.revision);
-  $('pace').textContent=frame.paused?'На паузе':`Цель: ${frame.speed==='fast'?'10 лет':frame.speed==='slow'?'день':'год'} / мин`;
+  $('pace').textContent=frame.paused?'На паузе':
+    frame.speed==='realtime'?'1 мин мира = 1 мин реального времени':
+    `Цель: ${frame.speed==='fast'?'10 лет':frame.speed==='slow'?'день':'год'} / мин`;
   try { localStorage.setItem('iskorka-view-settings',JSON.stringify({paused:frame.paused,speed:frame.speed})); } catch { /* World durability is IndexedDB, not this convenience preference. */ }
   if(!focused)center();renderPanel();requestRender();
 }
@@ -196,6 +202,10 @@ $('reset-dialog').addEventListener('close',()=>{
 
 async function launch():Promise<void>{
   if(!('Worker' in window)||!('indexedDB' in window))throw new Error('Браузер не поддерживает Worker или IndexedDB.');
+  const durable = await requestDurableBrowserStorage(navigator.storage);
+  if (durable === false) {
+    notice('Браузер не дал постоянное хранилище. Не очищайте данные сайта, иначе локальный мир будет удалён.');
+  }
   let settings:{paused:boolean;speed:Speed}={paused:false,speed:'normal'};
   try{const saved=JSON.parse(localStorage.getItem('iskorka-view-settings')??'null');if(saved&&typeof saved.paused==='boolean'&&Object.hasOwn(MINUTES_PER_SECOND,saved.speed))settings=saved;}catch{}
   worker=new Worker(new URL('./worker.js',import.meta.url),{type:'module',name:'iskorka-world'});
@@ -212,8 +222,12 @@ async function launch():Promise<void>{
   worker.onerror=event=>{notice('Не удалось запустить движок: '+event.message);$('status').textContent='Ошибка';};
   send({type:'init',seed:'iskorka-'+hostId(),...settings});
 }
-// Avoid two tabs advancing the same world concurrently. No reset or overwrite on conflict.
-if(navigator.locks){
+// IndexedDB is origin-scoped. Vercel's unique deployment hosts would otherwise
+// create a different world database after every deployment.
+const canonicalUrl = canonicalIskorkaProductionUrl(location.href);
+if (canonicalUrl) {
+  location.replace(canonicalUrl);
+} else if(navigator.locks){
   navigator.locks.request('iskorka-human-lab-owner',{mode:'exclusive',ifAvailable:true},async lock=>{
     if(!lock){notice('Этот мир уже открыт в другой вкладке. Закройте её и обновите страницу.');$('status').textContent='Другая вкладка';return;}
     await launch().catch(e=>notice(String(e)));
