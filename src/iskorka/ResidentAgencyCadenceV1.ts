@@ -3,6 +3,7 @@ import type {
   AgentState,
   WorldState,
 } from '../world/types';
+import { allowedActionsForAgeV16 } from '../v16/SocietyFoundationV16';
 import { bodySignalsV1 } from './BodyCoreV1';
 
 const MINUTE = 1;
@@ -162,4 +163,87 @@ export function agencyIntentV1(
   agent: Readonly<AgentState>,
 ): AgentActionKind | undefined {
   return agent.agencyCadence?.currentIntent;
+}
+
+
+export interface ResidentIntentPreviewV1 {
+  action: AgentActionKind;
+  dominantAction: AgentActionKind;
+  consideredActionCount: number;
+  openness: number;
+}
+
+/**
+ * Cheap, side-effect-free human-scale intention preview. It deliberately does
+ * not consume the world's RNG and does not mutate plans, relationships,
+ * resources or knowledge. Heavy world execution later remains authoritative.
+ */
+export function previewResidentIntentV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  reviewCount: number,
+): ResidentIntentPreviewV1 {
+  const allowed = allowedActionsForAgeV16(
+    agent.race ?? 'human',
+    agent.life.ageYears,
+  );
+  const body = world.v21?.bodiesByAgentId[agent.id];
+  const signals = body?.bodyCore
+    ? bodySignalsV1(agent, body, body.bodyCore)
+    : undefined;
+  const recover =
+    (1 - agent.energy) * 0.72 +
+    agent.stress * 0.28 +
+    (signals?.weakness ?? 0) * 0.48 +
+    (signals?.breathlessness ?? 0) * 0.34 +
+    (signals?.physicalDiscomfort ?? 0) * 0.28;
+  const resourceNeed =
+    (1 - agent.resources) * 0.42 +
+    (signals?.thirst ?? 0) * 0.52 +
+    (signals?.hunger ?? 0) * 0.4;
+  const socialNeed =
+    (1 - agent.needs.belonging) * 0.62 +
+    agent.personality.sociability * 0.18 +
+    agent.socialDrive * 0.12;
+  const purposeNeed = 1 - agent.needs.purpose;
+
+  const scores: Array<{ action: AgentActionKind; score: number }> = [
+    { action: 'rest', score: recover * 1.12 + (agent.goal.kind === 'recover' ? 0.22 : 0) },
+    { action: 'relax', score: agent.stress * 0.62 + recover * 0.28 + agent.mind.emotions.grief * 0.18 },
+    { action: 'walk', score: agent.personality.curiosity * 0.4 + agent.life.physiology.mobility * 0.2 + (1 - agent.stress) * 0.12 },
+    { action: 'gather', score: resourceNeed * 0.9 + agent.personality.diligence * 0.22 + agent.skills.gathering * 0.16 },
+    { action: 'hunt', score: resourceNeed * 0.68 + agent.skills.hunting * 0.25 + agent.personality.riskTolerance * 0.16 - agent.mind.emotions.fear * 0.22 },
+    { action: 'work', score: purposeNeed * 0.52 + agent.personality.diligence * 0.46 + agent.skills.craft * 0.15 },
+    { action: 'socialize', score: socialNeed * 0.9 + agent.mind.emotions.grief * 0.08 },
+    { action: 'help', score: agent.personality.generosity * 0.58 + agent.mind.values.care * 0.32 + purposeNeed * 0.18 },
+    { action: 'explore', score: agent.personality.curiosity * 0.58 + agent.personality.riskTolerance * 0.18 + agent.mind.values.freedom * 0.18 - recover * 0.35 },
+    { action: 'reflect', score: agent.stress * 0.48 + purposeNeed * 0.3 + agent.mind.values.knowledge * 0.16 },
+    { action: 'bond', score: socialNeed * 0.58 + agent.mind.values.care * 0.26 + agent.mind.emotions.hope * 0.12 },
+    { action: 'pray', score: purposeNeed * 0.4 + agent.mind.values.tradition * 0.22 + agent.mind.emotions.awe * 0.2 },
+  ];
+
+  for (const item of scores) {
+    if (!allowed.has(item.action)) {
+      item.score = Number.NEGATIVE_INFINITY;
+      continue;
+    }
+    const noise =
+      stableUnit(`${world.id}:${agent.id}:intent:${reviewCount}:${item.action}`) *
+        0.1 -
+      0.05;
+    item.score += noise;
+    if (agent.agencyCadence?.currentIntent === item.action) item.score += 0.08;
+  }
+  const viable = scores
+    .filter((item) => Number.isFinite(item.score))
+    .sort((a, b) => b.score - a.score || a.action.localeCompare(b.action));
+  const selected = viable[0] ?? { action: 'rest' as const, score: 0 };
+  const second = viable[1]?.score ?? selected.score;
+  const margin = Math.max(0, selected.score - second);
+  return {
+    action: selected.action,
+    dominantAction: selected.action,
+    consideredActionCount: viable.length,
+    openness: clamp01(1 - margin / 0.6),
+  };
 }
