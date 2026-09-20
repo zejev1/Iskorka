@@ -21,7 +21,7 @@ import {
   agencyIntentV1,
   deferResidentAgencyReviewV1,
   ensureResidentAgencyCadenceV1,
-  nextResidentAgencyReviewWorldMinuteV1,
+  previewResidentIntentV1,
   scheduleNextResidentAgencyReviewV1,
 } from '../iskorka/ResidentAgencyCadenceV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
@@ -5303,13 +5303,6 @@ export class WorldEngine {
           nextWakeWorldMinute < segmentStartWorldMinute + segmentWorldMinutes - PHYSICAL_TIME_EPSILON) {
         segmentWorldMinutes = nextWakeWorldMinute - segmentStartWorldMinute;
       }
-      const nextAgencyWorldMinute =
-        nextResidentAgencyReviewWorldMinuteV1(this.state);
-      if (nextAgencyWorldMinute !== undefined &&
-          nextAgencyWorldMinute > segmentStartWorldMinute + PHYSICAL_TIME_EPSILON &&
-          nextAgencyWorldMinute < segmentStartWorldMinute + segmentWorldMinutes - PHYSICAL_TIME_EPSILON) {
-        segmentWorldMinutes = nextAgencyWorldMinute - segmentStartWorldMinute;
-      }
       this.advancePhysicalMovementForWorldMinutes(segmentWorldMinutes);
       clock.pendingWorldMinutes += segmentWorldMinutes;
       remainingWorldMinutes = Math.max(
@@ -6720,6 +6713,12 @@ export class WorldEngine {
    * coarse six-day batch. A review is a real autonomous decision, not a full
    * duplicate of the batched world action.
    */
+  /**
+   * Human-scale cognition clock. Small/real-time advances review intentions on
+   * minutes/hours. Large acceleration compresses missed routine reviews into
+   * one analytic review at the segment end, so fast-forward never replays
+   * thousands of private thoughts just to reach the next world-services batch.
+   */
   private async advanceResidentAgencyReviewsV1(
     atWorldMinute: number,
   ): Promise<void> {
@@ -6731,12 +6730,6 @@ export class WorldEngine {
       )
       .sort((a, b) => a.id.localeCompare(b.id));
     if (due.length === 0) return;
-
-    const living = Object.values(this.state.agents)
-      .filter((agent) => agent.life.alive)
-      .sort((a, b) => a.id.localeCompare(b.id));
-    this.buildResidentDecisionIndexes(living);
-    const environment = await this.effectiveEnvironment(this.state.now);
 
     for (const agent of due) {
       const cadence = ensureResidentAgencyCadenceV1(this.state, agent);
@@ -6759,7 +6752,6 @@ export class WorldEngine {
         deferResidentAgencyReviewV1(this.state, agent, 60);
         continue;
       }
-
       if (!canResidentAct(agent)) {
         deferResidentAgencyReviewV1(this.state, agent, 120);
         continue;
@@ -6768,8 +6760,6 @@ export class WorldEngine {
       if (agent.movement) {
         const pressure = bodyDecisionPressureV1(this.state, agent);
         if (pressure.recover >= 0.78 || agent.energy <= 0.08) {
-          // An urgent physical condition can interrupt travel immediately;
-          // ordinary route-following does not require a fresh large decision.
           this.performTravelPause(agent, this.state.now);
           scheduleNextResidentAgencyReviewV1(this.state, agent, 'rest');
         } else {
@@ -6782,10 +6772,11 @@ export class WorldEngine {
         continue;
       }
 
-      observeLocalPlacesV20(this.state, agent);
-      consultSettlementMap(this.state, agent);
-      const localAgents = this.agentsAtLocation(agent.locationId);
-      const decision = this.chooseAction(agent, localAgents, environment);
+      const decision = previewResidentIntentV1(
+        this.state,
+        agent,
+        cadence.reviewCount,
+      );
       const reflection = residentDecisionReflection(agent, decision);
       agent.lastDecision = {
         action: decision.action,
