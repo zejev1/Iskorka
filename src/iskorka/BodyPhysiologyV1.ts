@@ -95,8 +95,20 @@ export function advanceBodyPhysiologyV1(
   const core = ensureBodyCoreV1(world, agent, body);
   if (!core) return undefined;
 
+  const pendingWorldMinutes = Math.max(
+    0,
+    world.calendar.elapsedWorldMinutes - core.lastAdvancedWorldMinute,
+  );
+  const effectiveElapsedWorldMinutes = Math.min(
+    elapsedWorldMinutes,
+    pendingWorldMinutes,
+  );
+  if (!(effectiveElapsedWorldMinutes > 0)) {
+    return bodySignalsV1(agent, body, core);
+  }
+
   const h = core.homeostasis;
-  const dose = Math.max(0, Math.min(2, elapsedWorldMinutes / SEMANTIC_QUANTUM));
+  const dose = Math.max(0, Math.min(2, effectiveElapsedWorldMinutes / SEMANTIC_QUANTUM));
   const load = activityLoad(agent, body);
   const sleeping = (body as SleepAwareBody).sleep?.status === 'sleeping';
   const sheltered = isSheltered(world, agent);
@@ -137,7 +149,7 @@ export function advanceBodyPhysiologyV1(
       h.inflammation,
       inflammationTarget,
       inflammationTarget > h.inflammation ? 10 * 60 : 2 * DAY,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.immuneActivation = clamp01(
@@ -145,7 +157,7 @@ export function advanceBodyPhysiologyV1(
       h.immuneActivation,
       clamp01(diseaseLoad * 0.62 + h.inflammation * 0.26),
       18 * 60,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
@@ -166,7 +178,7 @@ export function advanceBodyPhysiologyV1(
     30,
     Math.min(
       42,
-      approachBodyValueV1(h.coreTemperatureC, coreTarget, 150, elapsedWorldMinutes),
+      approachBodyValueV1(h.coreTemperatureC, coreTarget, 150, effectiveElapsedWorldMinutes),
     ),
   );
   const skinTarget = Math.max(
@@ -182,7 +194,7 @@ export function advanceBodyPhysiologyV1(
     10,
     Math.min(
       40,
-      approachBodyValueV1(h.skinTemperatureC, skinTarget, 90, elapsedWorldMinutes),
+      approachBodyValueV1(h.skinTemperatureC, skinTarget, 90, effectiveElapsedWorldMinutes),
     ),
   );
 
@@ -202,7 +214,7 @@ export function advanceBodyPhysiologyV1(
       h.autonomicArousal,
       autonomicTarget,
       50,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.muscleTension = clamp01(
@@ -210,7 +222,7 @@ export function advanceBodyPhysiologyV1(
       h.muscleTension,
       clamp01(agent.stress * 0.34 + fear * 0.24 + body.pain * 0.18 + load * 0.2),
       90,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.stressHormoneLoad = clamp01(
@@ -218,7 +230,7 @@ export function advanceBodyPhysiologyV1(
       h.stressHormoneLoad,
       clamp01(agent.stress * 0.48 + fear * 0.28 + body.pain * 0.18 + load * 0.12),
       3 * 60,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.tearDrive = clamp01(
@@ -226,7 +238,7 @@ export function advanceBodyPhysiologyV1(
       h.tearDrive,
       clamp01(grief * 0.58 + fear * 0.17 + body.pain * 0.21 + joyPeak * 0.14),
       35,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
@@ -251,12 +263,12 @@ export function advanceBodyPhysiologyV1(
       h.electrolyteDeviation,
       0,
       2 * DAY,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ) + sweatDrive * 0.01 * dose,
   );
 
   h.stomachFill = clamp01(
-    approachBodyValueV1(h.stomachFill, satiety, 8 * 60, elapsedWorldMinutes),
+    approachBodyValueV1(h.stomachFill, satiety, 8 * 60, effectiveElapsedWorldMinutes),
   );
   const energyTarget = clamp01(
     0.23 +
@@ -268,7 +280,7 @@ export function advanceBodyPhysiologyV1(
     h.inflammation * 0.06,
   );
   h.energyReserve = clamp01(
-    approachBodyValueV1(h.energyReserve, energyTarget, 2 * DAY, elapsedWorldMinutes),
+    approachBodyValueV1(h.energyReserve, energyTarget, 2 * DAY, effectiveElapsedWorldMinutes),
   );
 
   h.bladderFill = clamp01(
@@ -292,7 +304,7 @@ export function advanceBodyPhysiologyV1(
       h.bloodVolumeFraction,
       hydrationBloodTarget,
       bleedingLoad > 0.05 ? 4 * 60 : 3 * DAY,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
@@ -304,7 +316,7 @@ export function advanceBodyPhysiologyV1(
       h.exertionDebt,
       exertionTarget,
       exertionTarget > h.exertionDebt ? 150 : 90,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.oxygenDebt = clamp01(
@@ -316,7 +328,7 @@ export function advanceBodyPhysiologyV1(
         h.inflammation * 0.08,
       ),
       80,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.cardiovascularLoad = clamp01(
@@ -329,7 +341,7 @@ export function advanceBodyPhysiologyV1(
         (1 - h.hydration) * 0.16,
       ),
       50,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.respiratoryLoad = clamp01(
@@ -342,7 +354,7 @@ export function advanceBodyPhysiologyV1(
         fear * 0.08,
       ),
       45,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.muscleFatigue = clamp01(
@@ -353,7 +365,7 @@ export function advanceBodyPhysiologyV1(
         (h.energyReserve < 0.28 ? 0.08 : 0)
       ),
       sleeping || load < 0.1 ? 5 * 60 : 4 * 60,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
@@ -375,12 +387,12 @@ export function advanceBodyPhysiologyV1(
         restorative * agent.life.physiology.recovery * 0.4,
       ),
       8 * 60,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
   h.toxinLoad = clamp01(
-    approachBodyValueV1(h.toxinLoad, 0, 2 * DAY, elapsedWorldMinutes),
+    approachBodyValueV1(h.toxinLoad, 0, 2 * DAY, effectiveElapsedWorldMinutes),
   );
   h.nausea = clamp01(
     approachBodyValueV1(
@@ -392,7 +404,7 @@ export function advanceBodyPhysiologyV1(
         pregnancy * 0.08,
       ),
       4 * 60,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
   h.dizziness = clamp01(
@@ -404,16 +416,16 @@ export function advanceBodyPhysiologyV1(
         h.oxygenDebt * 0.22,
       ),
       45,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
   h.physicalPleasure = clamp01(
-    approachBodyValueV1(h.physicalPleasure, 0, 3 * 60, elapsedWorldMinutes),
+    approachBodyValueV1(h.physicalPleasure, 0, 3 * 60, effectiveElapsedWorldMinutes),
   );
   if (h.sexualArousal !== undefined) {
     h.sexualArousal = clamp01(
-      approachBodyValueV1(h.sexualArousal, 0, 2 * 60, elapsedWorldMinutes),
+      approachBodyValueV1(h.sexualArousal, 0, 2 * 60, effectiveElapsedWorldMinutes),
     );
   }
 
@@ -429,7 +441,7 @@ export function advanceBodyPhysiologyV1(
       core.reproductive.reproductiveHealth,
       reproductiveTarget,
       30 * DAY,
-      elapsedWorldMinutes,
+      effectiveElapsedWorldMinutes,
     ),
   );
 
@@ -439,7 +451,7 @@ export function advanceBodyPhysiologyV1(
         core.reproductive.refractoryLoad,
         0,
         90,
-        elapsedWorldMinutes,
+        effectiveElapsedWorldMinutes,
       ),
     );
   } else if (core.reproductive.type === 'female' && core.reproductive.postpartum) {
@@ -448,7 +460,7 @@ export function advanceBodyPhysiologyV1(
         core.reproductive.postpartum.recoveryLoad,
         0,
         21 * DAY,
-        elapsedWorldMinutes,
+        effectiveElapsedWorldMinutes,
       ),
     );
     if (core.reproductive.postpartum.recoveryLoad < 0.02) {
