@@ -114,12 +114,28 @@ export interface FemaleSexBodyStateV1 {
 
 export type SexBodyStateV1 = MaleSexBodyStateV1 | FemaleSexBodyStateV1;
 
+export type BodyActionKindV1 =
+  | 'eat'
+  | 'drink'
+  | 'urinate'
+  | 'defecate'
+  | 'touch'
+  | 'hug';
+
+export interface BodyActionRecordV1 {
+  kind: BodyActionKindV1;
+  worldMinute: number;
+  intensity: number;
+}
+
 export interface BodyCoreV1 {
   version: typeof BODY_CORE_VERSION_V1;
   sex: AgentSex;
   phenotype: BodyPhenotypeV1;
   homeostasis: BodyHomeostasisV1;
   reproductive: SexBodyStateV1;
+  /** Latest concrete body action only; no unbounded physiology history. */
+  lastBodyAction?: BodyActionRecordV1;
   createdWorldMinute: number;
   lastAdvancedWorldMinute: number;
 }
