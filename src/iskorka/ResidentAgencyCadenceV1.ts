@@ -4,16 +4,14 @@ import type {
   WorldState,
 } from '../world/types';
 import { allowedActionsForAgeV16 } from '../v16/SocietyFoundationV16';
+import { residentDecisionReflection } from '../world/ResidentDecisionReflection';
 import { bodySignalsV1 } from './BodyCoreV1';
 
 const MINUTE = 1;
-const HOUR = 60;
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-export const ROUTINE_REVIEW_MIN_WORLD_MINUTES = 30 * MINUTE;
-export const ROUTINE_REVIEW_MAX_WORLD_MINUTES = 3 * HOUR;
-export const MAJOR_REVIEW_MIN_WORLD_MINUTES = 2 * HOUR;
-export const MAJOR_REVIEW_MAX_WORLD_MINUTES = 8 * HOUR;
+export const AGENCY_REVIEW_MIN_WORLD_MINUTES = 30 * MINUTE;
+export const AGENCY_REVIEW_MAX_WORLD_MINUTES = 180 * MINUTE;
 
 export interface ResidentAgencyCadenceV1 {
   currentIntent?: AgentActionKind;
@@ -27,12 +25,13 @@ export interface ResidentAgencyCadenceV1 {
   lastReviewWorldMinute: number;
   nextReviewWorldMinute: number;
   reviewCount: number;
-  /**
-   * True when acceleration skipped many private reviews and only the latest
-   * intention was reconstructed. Compressed intentions are informational and
-   * do not bias the next heavyweight world action.
-   */
-  compressedCatchUp?: boolean;
+}
+
+export interface ResidentIntentPreviewV1 {
+  action: AgentActionKind;
+  dominantAction: AgentActionKind;
+  consideredActionCount: number;
+  openness: number;
 }
 
 function stableUnit(value: string): number {
@@ -44,166 +43,54 @@ function stableUnit(value: string): number {
   return (hash >>> 0) / 0xffffffff;
 }
 
-function bodyUrgency(
-  world: Readonly<WorldState>,
+/**
+ * Stable human-scale cadence. It depends only on durable individual traits,
+ * not on browser frame rate or how callers partition the same world time.
+ */
+export function agencyReviewIntervalV1(
+  _world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
 ): number {
-  const body = world.v21?.bodiesByAgentId[agent.id];
-  const core = body?.bodyCore;
-  if (!body || !core) {
-    return clamp01(
-      (1 - agent.energy) * 0.45 +
-      agent.stress * 0.3 +
-      (1 - agent.resources) * 0.25,
-    );
-  }
-  const signals = bodySignalsV1(agent, body, core);
-  return clamp01(
-    signals.weakness * 0.22 +
-    signals.breathlessness * 0.14 +
-    signals.physicalDiscomfort * 0.18 +
-    signals.thirst * 0.18 +
-    signals.hunger * 0.12 +
-    Math.max(signals.coldStress, signals.heatStress) * 0.08 +
-    agent.stress * 0.08,
+  const temperament =
+    agent.personality.diligence * 0.24 +
+    agent.personality.resilience * 0.18 -
+    agent.personality.curiosity * 0.18 -
+    agent.personality.sociability * 0.12;
+  const base = 0.5 + temperament * 0.34 +
+    (stableUnit(`${agent.id}:agency-cadence`) - 0.5) * 0.34;
+  return Math.round(
+    AGENCY_REVIEW_MIN_WORLD_MINUTES +
+    (AGENCY_REVIEW_MAX_WORLD_MINUTES - AGENCY_REVIEW_MIN_WORLD_MINUTES) *
+      clamp01(base),
   );
 }
 
-export function agencyReviewIntervalV1(
+function agencyScheduleV1(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
-  currentIntent?: AgentActionKind,
-  reviewCount = 0,
-): number {
-  const urgency = bodyUrgency(world, agent);
-  // Strong body signals can interrupt an intention quickly, but ordinary
-  // residents do not invent a new major life decision every simulated minute.
-  if (urgency >= 0.38) {
-    return 15 + Math.round(stableUnit(`${agent.id}:urgent:${reviewCount}`) * 15);
-  }
-  if (urgency >= 0.26) {
-    return 30 + Math.round(stableUnit(`${agent.id}:body:${reviewCount}`) * 30);
-  }
-
-  const routine = currentIntent === 'rest' ||
-    currentIntent === 'relax' ||
-    currentIntent === 'walk' ||
-    currentIntent === 'socialize' ||
-    currentIntent === 'reflect' ||
-    currentIntent === 'pray';
-  const min = routine
-    ? ROUTINE_REVIEW_MIN_WORLD_MINUTES
-    : MAJOR_REVIEW_MIN_WORLD_MINUTES;
-  const max = routine
-    ? ROUTINE_REVIEW_MAX_WORLD_MINUTES
-    : MAJOR_REVIEW_MAX_WORLD_MINUTES;
-  const temperament =
-    agent.personality.diligence * 0.22 +
-    agent.personality.resilience * 0.18 -
-    agent.personality.curiosity * 0.14 -
-    agent.personality.sociability * 0.08;
-  const roll = stableUnit(`${agent.id}:review:${reviewCount}`);
-  const fraction = clamp01(roll * 0.62 + 0.24 + temperament);
-  return Math.round(min + (max - min) * fraction);
-}
-
-export function ensureResidentAgencyCadenceV1(
-  world: Readonly<WorldState>,
-  agent: AgentState,
-): ResidentAgencyCadenceV1 {
-  const existing = agent.agencyCadence;
-  if (existing) return existing;
-  const now = world.calendar.elapsedWorldMinutes;
-  const initialOffset =
-    20 + Math.round(stableUnit(`${world.id}:${agent.id}:agency-start`) * 70);
-  const created: ResidentAgencyCadenceV1 = {
-    currentIntent: agent.lastDecision?.action,
-    intentSinceWorldMinute:
-      agent.lastDecision ? now : undefined,
-    lastReviewWorldMinute: now,
-    nextReviewWorldMinute: now + initialOffset,
-    reviewCount: 0,
-  };
-  agent.agencyCadence = created;
-  return created;
-}
-
-export function scheduleNextResidentAgencyReviewV1(
-  world: Readonly<WorldState>,
-  agent: AgentState,
-  action: AgentActionKind,
-  compressedCatchUp = false,
-): ResidentAgencyCadenceV1 {
-  const cadence = ensureResidentAgencyCadenceV1(world, agent);
-  const now = world.calendar.elapsedWorldMinutes;
-  if (cadence.currentIntent !== action) {
-    cadence.currentIntent = action;
-    cadence.intentSinceWorldMinute = now;
-  }
-  cadence.compressedCatchUp = compressedCatchUp;
-  if (compressedCatchUp) {
-    // High acceleration reconstructs only the latest private intention. Keep
-    // this projection absolute-time based so 1×120 days and 120×1 day produce
-    // byte-equivalent persisted state.
-    const interval = 12 * HOUR;
-    const index = Math.max(1, Math.floor(now / interval));
-    cadence.reviewCount = index;
-    cadence.lastReviewWorldMinute = index * interval;
-    cadence.nextReviewWorldMinute = (index + 1) * interval;
-    return cadence;
-  }
-  cadence.lastReviewWorldMinute = now;
-  cadence.reviewCount += 1;
-  cadence.nextReviewWorldMinute =
-    now + agencyReviewIntervalV1(world, agent, action, cadence.reviewCount);
-  return cadence;
-}
-
-export function deferResidentAgencyReviewV1(
-  world: Readonly<WorldState>,
-  agent: AgentState,
-  worldMinutes: number,
-): ResidentAgencyCadenceV1 {
-  const cadence = ensureResidentAgencyCadenceV1(world, agent);
-  const now = world.calendar.elapsedWorldMinutes;
-  cadence.lastReviewWorldMinute = now;
-  cadence.nextReviewWorldMinute = now + Math.max(5, worldMinutes);
-  return cadence;
-}
-
-export function nextResidentAgencyReviewWorldMinuteV1(
-  world: Readonly<WorldState>,
-): number | undefined {
-  let next = Number.POSITIVE_INFINITY;
-  for (const agent of Object.values(world.agents)) {
-    if (!agent.life.alive) continue;
-    const cadence = agent.agencyCadence;
-    if (!cadence) return world.calendar.elapsedWorldMinutes;
-    next = Math.min(next, cadence.nextReviewWorldMinute);
-  }
-  return Number.isFinite(next) ? next : undefined;
-}
-
-export function agencyIntentV1(
-  agent: Readonly<AgentState>,
-): AgentActionKind | undefined {
-  return agent.agencyCadence?.compressedCatchUp
-    ? undefined
-    : agent.agencyCadence?.currentIntent;
-}
-
-
-export interface ResidentIntentPreviewV1 {
-  action: AgentActionKind;
-  dominantAction: AgentActionKind;
-  consideredActionCount: number;
-  openness: number;
+): {
+  interval: number;
+  index: number;
+  reviewWorldMinute: number;
+  nextWorldMinute: number;
+} {
+  const interval = agencyReviewIntervalV1(world, agent);
+  const offset = Math.floor(
+    stableUnit(`${world.id}:${agent.id}:agency-offset`) * interval,
+  );
+  const now = Math.max(0, world.calendar.elapsedWorldMinutes);
+  const index = Math.max(0, Math.floor((now + offset) / interval));
+  const reviewWorldMinute = Math.max(0, index * interval - offset);
+  const nextWorldMinute = Math.max(
+    reviewWorldMinute + 1,
+    (index + 1) * interval - offset,
+  );
+  return { interval, index, reviewWorldMinute, nextWorldMinute };
 }
 
 /**
- * Cheap, side-effect-free human-scale intention preview. It deliberately does
- * not consume the world's RNG and does not mutate plans, relationships,
- * resources or knowledge. Heavy world execution later remains authoritative.
+ * Side-effect-free current intention. It does not consume world RNG and never
+ * writes plans, relationships, resources, knowledge or memories.
  */
 export function previewResidentIntentV1(
   world: Readonly<WorldState>,
@@ -218,6 +105,7 @@ export function previewResidentIntentV1(
   const signals = body?.bodyCore
     ? bodySignalsV1(agent, body, body.bodyCore)
     : undefined;
+
   const recover =
     (1 - agent.energy) * 0.72 +
     agent.stress * 0.28 +
@@ -254,23 +142,57 @@ export function previewResidentIntentV1(
       item.score = Number.NEGATIVE_INFINITY;
       continue;
     }
-    const noise =
-      stableUnit(`${world.id}:${agent.id}:intent:${reviewCount}:${item.action}`) *
-        0.1 -
-      0.05;
-    item.score += noise;
-    if (agent.agencyCadence?.currentIntent === item.action) item.score += 0.08;
+    item.score +=
+      stableUnit(
+        `${world.id}:${agent.id}:intent:${reviewCount}:${item.action}`,
+      ) * 0.1 - 0.05;
   }
+
   const viable = scores
     .filter((item) => Number.isFinite(item.score))
     .sort((a, b) => b.score - a.score || a.action.localeCompare(b.action));
   const selected = viable[0] ?? { action: 'rest' as const, score: 0 };
   const second = viable[1]?.score ?? selected.score;
   const margin = Math.max(0, selected.score - second);
+
   return {
     action: selected.action,
     dominantAction: selected.action,
     consideredActionCount: viable.length,
     openness: clamp01(1 - margin / 0.6),
   };
+}
+
+/**
+ * Pure snapshot projection. Same world state + same world minute always yields
+ * the same current intention regardless of x1/x10 speed or advance partition.
+ */
+export function projectResidentAgencyCadenceV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): ResidentAgencyCadenceV1 {
+  const schedule = agencyScheduleV1(world, agent);
+  const decision = previewResidentIntentV1(world, agent, schedule.index);
+  const reflection = residentDecisionReflection(agent, decision);
+  return {
+    currentIntent: decision.action,
+    dominantIntent: decision.dominantAction,
+    consideredActionCount: decision.consideredActionCount,
+    openness: decision.openness,
+    innerThought: reflection.innerThought,
+    deliberationWorldMinutes: reflection.deliberationWorldMinutes,
+    intentSinceWorldMinute: schedule.reviewWorldMinute,
+    decisionWorldMinute: schedule.reviewWorldMinute,
+    lastReviewWorldMinute: schedule.reviewWorldMinute,
+    nextReviewWorldMinute: schedule.nextWorldMinute,
+    reviewCount: schedule.index,
+  };
+}
+
+export function agencyIntentAtWorldTimeV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): AgentActionKind | undefined {
+  if (!agent.life.alive) return undefined;
+  return projectResidentAgencyCadenceV1(world, agent).currentIntent;
 }
