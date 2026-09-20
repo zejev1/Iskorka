@@ -5381,6 +5381,30 @@ export class WorldEngine {
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
         if (!sleeping) this.applyPassiveNeeds(agent, effectiveEnvironment);
+        const body = this.state.v21?.bodiesByAgentId[agent.id];
+        const pendingPhysiology = body?.bodyCore
+          ? Math.max(
+              0,
+              this.state.calendar.elapsedWorldMinutes -
+                body.bodyCore.lastAdvancedWorldMinute,
+            )
+          : 0;
+        if (body && pendingPhysiology > 0) {
+          const bodySignals = advanceBodyPhysiologyV1(
+            this.state,
+            agent,
+            pendingPhysiology,
+          );
+          if (!sleeping && bodySignals) {
+            applyBodyMindFeedbackV1(
+              agent,
+              body,
+              bodySignals,
+              pendingPhysiology,
+            );
+            resolveBodyEliminationV1(this.state, agent);
+          }
+        }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
@@ -6719,6 +6743,12 @@ export class WorldEngine {
    * one analytic review at the segment end, so fast-forward never replays
    * thousands of private thoughts just to reach the next world-services batch.
    */
+  /**
+   * Human-scale cognition clock. Small/real-time advances review intentions on
+   * minutes/hours. Large acceleration compresses missed private reviews into
+   * one observation at the segment end, while the heavyweight six-day world
+   * batch keeps its original causal order and performance.
+   */
   private async advanceResidentAgencyReviewsV1(
     atWorldMinute: number,
   ): Promise<void> {
@@ -6737,38 +6767,63 @@ export class WorldEngine {
         1,
         atWorldMinute - cadence.lastReviewWorldMinute,
       );
+      const compressedCatchUp = elapsed > 12 * 60;
       const body = this.state.v21?.bodiesByAgentId[agent.id];
-      const signals = advanceBodyPhysiologyV1(
-        this.state,
-        agent,
-        elapsed,
-      );
-      if (body && signals) {
-        applyBodyMindFeedbackV1(agent, body, signals, elapsed);
-        resolveBodyEliminationV1(this.state, agent);
+
+      if (!compressedCatchUp && body?.bodyCore) {
+        const pendingPhysiology = Math.max(
+          0,
+          atWorldMinute - body.bodyCore.lastAdvancedWorldMinute,
+        );
+        if (pendingPhysiology > 0) {
+          const signals = advanceBodyPhysiologyV1(
+            this.state,
+            agent,
+            pendingPhysiology,
+          );
+          if (signals) {
+            applyBodyMindFeedbackV1(
+              agent,
+              body,
+              signals,
+              pendingPhysiology,
+            );
+            resolveBodyEliminationV1(this.state, agent);
+          }
+        }
       }
 
       if (isBodySleepingV21(this.state, agent.id)) {
         deferResidentAgencyReviewV1(this.state, agent, 60);
+        cadence.compressedCatchUp = compressedCatchUp;
         continue;
       }
       if (!canResidentAct(agent)) {
         deferResidentAgencyReviewV1(this.state, agent, 120);
+        cadence.compressedCatchUp = compressedCatchUp;
         continue;
       }
 
       if (agent.movement) {
-        const pressure = bodyDecisionPressureV1(this.state, agent);
-        if (pressure.recover >= 0.78 || agent.energy <= 0.08) {
-          this.performTravelPause(agent, this.state.now);
-          scheduleNextResidentAgencyReviewV1(this.state, agent, 'rest');
-        } else {
-          scheduleNextResidentAgencyReviewV1(
-            this.state,
-            agent,
-            agent.movement.purpose,
-          );
+        if (!compressedCatchUp) {
+          const pressure = bodyDecisionPressureV1(this.state, agent);
+          if (pressure.recover >= 0.78 || agent.energy <= 0.08) {
+            this.performTravelPause(agent, this.state.now);
+            scheduleNextResidentAgencyReviewV1(
+              this.state,
+              agent,
+              'rest',
+              false,
+            );
+            continue;
+          }
         }
+        scheduleNextResidentAgencyReviewV1(
+          this.state,
+          agent,
+          agent.movement.purpose,
+          compressedCatchUp,
+        );
         continue;
       }
 
@@ -6790,6 +6845,7 @@ export class WorldEngine {
         this.state,
         agent,
         decision.action,
+        compressedCatchUp,
       );
     }
   }
