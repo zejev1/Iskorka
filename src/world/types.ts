@@ -263,6 +263,8 @@ export interface AgentState {
   /** What the latest completed work action physically was. */
   lastWorkKind?: 'ordinary' | 'construction';
   lastDecision?: AgentDecisionState;
+  /** Human-scale intention review schedule; additive on older saves. */
+  agencyCadence?: import('../iskorka/ResidentAgencyCadenceV1').ResidentAgencyCadenceV1;
   plan?: AgentPlanState;
   privateDivineCalling?: AgentDivineCallingState;
 }
