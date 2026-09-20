@@ -236,19 +236,15 @@ export function advanceBodyPhysiologyV1(
     h.autonomicArousal * 0.12 +
     core.phenotype.sweatSensitivity * 0.08,
   );
-  const hasProvisionProxy =
-    agent.resources > 0.018 ||
-    (agent.locationId === agent.homeId && satiety > 0.42);
   const fluidLoss =
     0.0045 +
     sweatDrive * 0.018 +
     load * 0.008 +
     h.inflammation * 0.004;
-  const fluidReplacement = hasProvisionProxy
-    ? 0.012 + (sleeping ? 0.002 : 0)
-    : 0;
+  // Drinking is a concrete body action handled by BodyActionsV1. Merely
+  // possessing resources no longer hydrates a resident automatically.
   h.hydration = clamp01(
-    h.hydration + (fluidReplacement - fluidLoss) * dose,
+    h.hydration - fluidLoss * dose,
   );
   h.electrolyteDeviation = clampSigned(
     approachBodyValueV1(
@@ -277,13 +273,11 @@ export function advanceBodyPhysiologyV1(
 
   h.bladderFill = clamp01(
     h.bladderFill +
-    dose * (0.025 + h.hydration * 0.035 + (hasProvisionProxy ? 0.018 : 0)),
+    dose * (0.018 + h.hydration * 0.03),
   );
-  if (h.bladderFill >= 0.94) h.bladderFill = 0.16;
   h.bowelLoad = clamp01(
-    h.bowelLoad + dose * (0.016 + h.stomachFill * 0.024),
+    h.bowelLoad + dose * (0.012 + h.stomachFill * 0.022),
   );
-  if (h.bowelLoad >= 0.97) h.bowelLoad = 0.24;
 
   const circulatoryHealth = clamp01(body.systems.circulatory);
   const respiratoryHealth = clamp01(body.systems.respiratory);
