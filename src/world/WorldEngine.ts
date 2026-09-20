@@ -18,11 +18,8 @@ import {
   resolveBodyEliminationV1,
 } from '../iskorka/BodyActionsV1';
 import {
-  agencyIntentV1,
-  deferResidentAgencyReviewV1,
-  ensureResidentAgencyCadenceV1,
-  previewResidentIntentV1,
-  scheduleNextResidentAgencyReviewV1,
+  agencyIntentAtWorldTimeV1,
+  projectResidentAgencyCadenceV1,
 } from '../iskorka/ResidentAgencyCadenceV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
@@ -5003,7 +5000,18 @@ export class WorldEngine {
   snapshot(): WorldState {
     // Never expose an operation's uncommitted working copy. Sensors and other
     // readers see only the last atomically committed world projection.
-    return structuredClone(this.committedState);
+    const snapshot = structuredClone(this.committedState);
+    // Human-scale current intention is a pure observation projection. It is
+    // deliberately not persisted as causal state, so save/reload and x1/x10
+    // time partitioning cannot invent different history.
+    for (const agent of Object.values(snapshot.agents)) {
+      if (agent.life.alive) {
+        agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
+      } else {
+        delete agent.agencyCadence;
+      }
+    }
+    return snapshot;
   }
 
   /**
@@ -5278,9 +5286,6 @@ export class WorldEngine {
     const clock = this.v15World().simulationClock;
     const quantum = clock.quantumWorldMinutes;
     let remainingWorldMinutes = addedWorldMinutes;
-    for (const agent of Object.values(this.state.agents)) {
-      if (agent.life.alive) ensureResidentAgencyCadenceV1(this.state, agent);
-    }
 
     // Physical travel consumes the exact canonical minutes supplied by the
     // external clock. The loop partitions only at semantic boundaries, so a
@@ -5312,9 +5317,6 @@ export class WorldEngine {
       this.state.calendar.elapsedWorldMinutes =
         clock.simulatedWorldMinutes + clock.pendingWorldMinutes;
       wakeDueSleepingBodiesV21(this.state, this.state.calendar.elapsedWorldMinutes);
-      await this.advanceResidentAgencyReviewsV1(
-        this.state.calendar.elapsedWorldMinutes,
-      );
 
       if (clock.pendingWorldMinutes + PHYSICAL_TIME_EPSILON < quantum) {
         continue;
@@ -6731,100 +6733,6 @@ export class WorldEngine {
     }
   }
 
-  /**
-   * Human-scale cognition clock. This reviews intention and body state on
-   * minutes/hours, while expensive ecology/economy/history services keep their
-   * coarse six-day batch. A review is a real autonomous decision, not a full
-   * duplicate of the batched world action.
-   */
-  /**
-   * Human-scale cognition clock. Small/real-time advances review intentions on
-   * minutes/hours. Large acceleration compresses missed routine reviews into
-   * one analytic review at the segment end, so fast-forward never replays
-   * thousands of private thoughts just to reach the next world-services batch.
-   */
-  /**
-   * Human-scale cognition clock. Small/real-time advances review intentions on
-   * minutes/hours. Large acceleration compresses missed private reviews into
-   * one observation at the segment end, while the heavyweight six-day world
-   * batch keeps its original causal order and performance.
-   */
-  private async advanceResidentAgencyReviewsV1(
-    atWorldMinute: number,
-  ): Promise<void> {
-    const due = Object.values(this.state.agents)
-      .filter((agent) =>
-        agent.life.alive &&
-        ensureResidentAgencyCadenceV1(this.state, agent)
-          .nextReviewWorldMinute <= atWorldMinute + PHYSICAL_TIME_EPSILON,
-      )
-      .sort((a, b) => a.id.localeCompare(b.id));
-    if (due.length === 0) return;
-
-    for (const agent of due) {
-      const cadence = ensureResidentAgencyCadenceV1(this.state, agent);
-      const elapsed = Math.max(
-        1,
-        atWorldMinute - cadence.lastReviewWorldMinute,
-      );
-      const compressedCatchUp = elapsed > 12 * 60;
-      // Intention review is deliberately observational. Body/homeostasis
-      // mutation stays on its analytic physiology clock so slicing wall-time
-      // differently cannot change stress, hydration or other causal state.
-      if (isBodySleepingV21(this.state, agent.id)) {
-        deferResidentAgencyReviewV1(this.state, agent, 60);
-        cadence.compressedCatchUp = compressedCatchUp;
-        continue;
-      }
-      if (!canResidentAct(agent)) {
-        deferResidentAgencyReviewV1(this.state, agent, 120);
-        cadence.compressedCatchUp = compressedCatchUp;
-        continue;
-      }
-
-      if (agent.movement) {
-        if (!compressedCatchUp) {
-          const pressure = bodyDecisionPressureV1(this.state, agent);
-          if (pressure.recover >= 0.78 || agent.energy <= 0.08) {
-            this.performTravelPause(agent, this.state.now);
-            scheduleNextResidentAgencyReviewV1(
-              this.state,
-              agent,
-              'rest',
-              false,
-            );
-            continue;
-          }
-        }
-        scheduleNextResidentAgencyReviewV1(
-          this.state,
-          agent,
-          agent.movement.purpose,
-          compressedCatchUp,
-        );
-        continue;
-      }
-
-      const decision = previewResidentIntentV1(
-        this.state,
-        agent,
-        cadence.reviewCount,
-      );
-      const reflection = residentDecisionReflection(agent, decision);
-      cadence.dominantIntent = decision.dominantAction;
-      cadence.consideredActionCount = decision.consideredActionCount;
-      cadence.openness = decision.openness;
-      cadence.innerThought = reflection.innerThought;
-      cadence.deliberationWorldMinutes = reflection.deliberationWorldMinutes;
-      cadence.decisionWorldMinute = atWorldMinute;
-      scheduleNextResidentAgencyReviewV1(
-        this.state,
-        agent,
-        decision.action,
-        compressedCatchUp,
-      );
-    }
-  }
 
   private stepAgent(
     agent: AgentState,
@@ -6909,19 +6817,6 @@ export class WorldEngine {
       chosenAt: now,
       ...reflection,
     };
-    const executedCadence = scheduleNextResidentAgencyReviewV1(
-      this.state,
-      agent,
-      decision.action,
-    );
-    executedCadence.intentSinceWorldMinute =
-      this.state.calendar.elapsedWorldMinutes;
-    executedCadence.dominantIntent = decision.dominantAction;
-    executedCadence.consideredActionCount = decision.consideredActionCount;
-    executedCadence.openness = decision.openness;
-    executedCadence.innerThought = reflection.innerThought;
-    executedCadence.deliberationWorldMinutes = reflection.deliberationWorldMinutes;
-    executedCadence.decisionWorldMinute = this.state.calendar.elapsedWorldMinutes;
     const action = decision.action;
     beginLearningAttempt(this.state, agent, action);
     switch (action) {
@@ -7653,7 +7548,7 @@ export class WorldEngine {
       },
     ];
 
-    const recentIntent = agencyIntentV1(agent);
+    const recentIntent = agencyIntentAtWorldTimeV1(this.state, agent);
     if (recentIntent && allowedActions.has(recentIntent)) {
       const intended = scores.find((item) => item.action === recentIntent);
       if (intended && Number.isFinite(intended.score)) {
