@@ -6768,31 +6768,9 @@ export class WorldEngine {
         atWorldMinute - cadence.lastReviewWorldMinute,
       );
       const compressedCatchUp = elapsed > 12 * 60;
-      const body = this.state.v21?.bodiesByAgentId[agent.id];
-
-      if (!compressedCatchUp && body?.bodyCore) {
-        const pendingPhysiology = Math.max(
-          0,
-          atWorldMinute - body.bodyCore.lastAdvancedWorldMinute,
-        );
-        if (pendingPhysiology > 0) {
-          const signals = advanceBodyPhysiologyV1(
-            this.state,
-            agent,
-            pendingPhysiology,
-          );
-          if (signals) {
-            applyBodyMindFeedbackV1(
-              agent,
-              body,
-              signals,
-              pendingPhysiology,
-            );
-            resolveBodyEliminationV1(this.state, agent);
-          }
-        }
-      }
-
+      // Intention review is deliberately observational. Body/homeostasis
+      // mutation stays on its analytic physiology clock so slicing wall-time
+      // differently cannot change stress, hydration or other causal state.
       if (isBodySleepingV21(this.state, agent.id)) {
         deferResidentAgencyReviewV1(this.state, agent, 60);
         cadence.compressedCatchUp = compressedCatchUp;
