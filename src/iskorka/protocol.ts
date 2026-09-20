@@ -1,6 +1,7 @@
 import type { WorldState } from '../world/types';
 
 export const MINUTES_PER_SECOND = {
+  realtime: 1 / 60,
   slow: 1440 / 60,
   normal: 525600 / 60,
   fast: 525600 * 10 / 60,
