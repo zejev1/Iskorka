@@ -21,6 +21,7 @@ export class IskorkaRuntime {
   get elapsedMinutes(): number { return this.world.runtimeStateView().calendar.elapsedWorldMinutes; }
   get quantumMinutes(): number { return this.world.runtimeStateView().v15!.simulationClock.quantumWorldMinutes; }
   snapshot(): WorldState { return this.world.snapshot(); }
+  presentationSnapshot(): WorldState { return this.world.presentationSnapshot(); }
 
   async advanceTo(minutes: number, execution?: WorldTimeExecution): Promise<void> {
     if (!Number.isFinite(minutes) || minutes < this.elapsedMinutes) throw new Error('Некорректная цель времени.');

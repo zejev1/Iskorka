@@ -17,6 +17,10 @@ import {
   recordSocialTouchBodyResponseV1,
   resolveBodyEliminationV1,
 } from '../iskorka/BodyActionsV1';
+import {
+  agencyIntentAtWorldTimeV1,
+  projectResidentAgencyCadenceV1,
+} from '../iskorka/ResidentAgencyCadenceV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -4994,9 +4998,23 @@ export class WorldEngine {
   }
 
   snapshot(): WorldState {
-    // Never expose an operation's uncommitted working copy. Sensors and other
-    // readers see only the last atomically committed world projection.
+    // Durable causal projection only. This remains byte-comparable with the
+    // atomically committed store across save/reload and failed commits.
     return structuredClone(this.committedState);
+  }
+
+  presentationSnapshot(): WorldState {
+    const snapshot = this.snapshot();
+    // Human-scale current intention is a pure observation projection. It is
+    // deliberately not persisted as causal history.
+    for (const agent of Object.values(snapshot.agents)) {
+      if (agent.life.alive) {
+        agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
+      } else {
+        delete agent.agencyCadence;
+      }
+    }
+    return snapshot;
   }
 
   /**
@@ -5368,22 +5386,29 @@ export class WorldEngine {
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
         if (!sleeping) this.applyPassiveNeeds(agent, effectiveEnvironment);
-        const bodySignals = advanceBodyPhysiologyV1(
-          this.state,
-          agent,
-          elapsedWorldMinutes,
-        );
-        if (!sleeping && bodySignals) {
-          const body = this.state.v21?.bodiesByAgentId[agent.id];
-          if (body) {
+        const body = this.state.v21?.bodiesByAgentId[agent.id];
+        const pendingPhysiology = body?.bodyCore
+          ? Math.max(
+              0,
+              this.state.calendar.elapsedWorldMinutes -
+                body.bodyCore.lastAdvancedWorldMinute,
+            )
+          : 0;
+        if (body && pendingPhysiology > 0) {
+          const bodySignals = advanceBodyPhysiologyV1(
+            this.state,
+            agent,
+            pendingPhysiology,
+          );
+          if (!sleeping && bodySignals) {
             applyBodyMindFeedbackV1(
               agent,
               body,
               bodySignals,
-              elapsedWorldMinutes,
+              pendingPhysiology,
             );
+            resolveBodyEliminationV1(this.state, agent);
           }
-          resolveBodyEliminationV1(this.state, agent);
         }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
@@ -6711,6 +6736,7 @@ export class WorldEngine {
     }
   }
 
+
   private stepAgent(
     agent: AgentState,
     allAgents: AgentState[],
@@ -7524,6 +7550,17 @@ export class WorldEngine {
           goalBoost('seek_truth'),
       },
     ];
+
+    const recentIntent = agencyIntentAtWorldTimeV1(this.state, agent);
+    if (recentIntent && allowedActions.has(recentIntent)) {
+      const intended = scores.find((item) => item.action === recentIntent);
+      if (intended && Number.isFinite(intended.score)) {
+        // Human-scale reviews form intentions. The coarse world-services
+        // quantum later executes a compatible intention instead of inventing
+        // a completely unrelated six-day action.
+        intended.score += 0.34;
+      }
+    }
 
     // Weather changes the real cost and perceived risk of outdoor choices.
     // Knowledge improves judgement; it never overwrites the selected action.
