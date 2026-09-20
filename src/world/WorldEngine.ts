@@ -1,5 +1,6 @@
 import { ISKORKA_FOUNDER_NAMES, ISKORKA_PROFILE, initializeIskorkaWorld, isIskorkaWorld, assertIskorkaProfile } from '../iskorka/Profile';
 import {
+  bodySignalsV1,
   completeBodyCorePregnancyV1,
   setBodyCorePregnancyV1,
 } from '../iskorka/BodyCoreV1';
@@ -9,6 +10,13 @@ import {
   bodyDecisionPressureV1,
   recordAdultIntimacyBodyResponseV1,
 } from '../iskorka/BodyPhysiologyV1';
+import {
+  recordBodyDrinkV1,
+  recordBodyMealV1,
+  recordBodyMovementV1,
+  recordSocialTouchBodyResponseV1,
+  resolveBodyEliminationV1,
+} from '../iskorka/BodyActionsV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -5375,6 +5383,7 @@ export class WorldEngine {
               elapsedWorldMinutes,
             );
           }
+          resolveBodyEliminationV1(this.state, agent);
         }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
@@ -6973,6 +6982,29 @@ export class WorldEngine {
     const sheltered = placeKind !== undefined &&
       ['home', 'workshop', 'village', 'city'].includes(placeKind);
     const weatherDiscomfort = (1 - weather.comfort) * (sheltered ? 0.18 : 1);
+
+    // Drinking is now a concrete body action. Water is available from a
+    // reachable fresh-water place, settlement/home access, or carried
+    // provisions. Possessing resources alone no longer hydrates BodyCore.
+    const body = this.state.v21?.bodiesByAgentId[agent.id];
+    const core = body?.bodyCore;
+    if (body && core) {
+      const signals = bodySignalsV1(agent, body, core);
+      if (signals.thirst >= 0.24) {
+        const freshWaterHere = placeKind === 'river' || placeKind === 'lake';
+        const settlementWater = this.canAccessHomeSettlementStores(agent);
+        const carriedWater = !freshWaterHere && !settlementWater && agent.resources >= 0.006;
+        if (freshWaterHere || settlementWater || carriedWater) {
+          if (carriedWater) agent.resources = clamp01(agent.resources - 0.006);
+          recordBodyDrinkV1(
+            this.state,
+            agent,
+            signals.thirst >= 0.62 ? 0.34 : 0.22,
+          );
+        }
+      }
+    }
+
     agent.energy = clamp01(
       agent.energy -
         (0.016 + (1 - agent.life.physiology.endurance) * 0.014) *
@@ -7023,10 +7055,12 @@ export class WorldEngine {
         localResources.fertility = consumed.fertility;
         if (economy) economy.stocks.food -= sharedMealCost;
         recordMealV18(this.state, agent, 0.22);
+        recordBodyMealV1(this.state, agent, 0.22);
         this.refreshV15StoredResourceProjection();
       } else if (agent.resources >= 0.012) {
         agent.resources = clamp01(agent.resources - 0.012);
         recordMealV18(this.state, agent, 0.17);
+        recordBodyMealV1(this.state, agent, 0.17);
       }
     }
     agent.resources = clamp01(agent.resources - 0.001);
@@ -14987,6 +15021,16 @@ export class WorldEngine {
       ),
       updatedAt: now,
     };
+    if (accepted) {
+      recordSocialTouchBodyResponseV1(
+        this.state,
+        a,
+        b,
+        this.state.relationships[key],
+        'hug',
+        true,
+      );
+    }
 
     // A successful in-person bond can establish a remembered rendezvous for
     // another meeting. This is deliberately NOT consent to intimacy and NOT a
@@ -15495,6 +15539,20 @@ export class WorldEngine {
     };
 
     this.state.relationships[key] = next;
+    if (
+      sentiment > 0.42 &&
+      next.trust > 0.45 &&
+      next.affinity > 0.42
+    ) {
+      recordSocialTouchBodyResponseV1(
+        this.state,
+        a,
+        b,
+        next,
+        'touch',
+        true,
+      );
+    }
     if (sentiment > 0.18 && next.trust > 0.25) {
       sharePlaceKnowledgeV20(this.state, a, b);
       sharePlaceKnowledgeV20(this.state, b, a);
@@ -15917,6 +15975,18 @@ export class WorldEngine {
       mobilityScale *
       Math.max(0, elapsedWorldMinutes);
     let remaining = movementBudget;
+    const movementMinutesUsed = (): number =>
+      (movementBudget - remaining) /
+      Math.max(
+        PHYSICAL_TIME_EPSILON,
+        RESIDENT_WALK_MAP_UNITS_PER_WORLD_MINUTE * mobilityScale,
+      );
+    const movementIntensity =
+      movement.purpose === 'hunt' || movement.purpose === 'explore'
+        ? 0.72
+        : movement.purpose === 'work' || movement.purpose === 'gather'
+          ? 0.62
+          : 0.5;
     while (remaining > 0 && agent.movement) {
       const target = movement.waypoints[movement.nextWaypointIndex];
       if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
@@ -15936,6 +16006,12 @@ export class WorldEngine {
           const place = this.state.places[movement.targetPlaceId];
           const arrivalMinute = startMinute + (movementBudget - remaining) / (RESIDENT_WALK_MAP_UNITS_PER_WORLD_MINUTE * mobilityScale);
           if (place && isSecretLibrary(place.id) && !hasLibraryAdmission(this.state, agent, place.id, arrivalMinute)) {
+            recordBodyMovementV1(
+              this.state,
+              agent,
+              movementMinutesUsed(),
+              movementIntensity,
+            );
             enforceLibraryBoundary(this.state, agent, arrivalMinute);
             return true;
           }
@@ -15966,6 +16042,12 @@ export class WorldEngine {
       agent.position.y += (dy / distance) * remaining * groundScale;
       remaining = 0;
     }
+    recordBodyMovementV1(
+      this.state,
+      agent,
+      movementMinutesUsed(),
+      movementIntensity,
+    );
     return true;
   }
 
