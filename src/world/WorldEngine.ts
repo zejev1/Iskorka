@@ -6811,14 +6811,12 @@ export class WorldEngine {
         cadence.reviewCount,
       );
       const reflection = residentDecisionReflection(agent, decision);
-      agent.lastDecision = {
-        action: decision.action,
-        dominantAction: decision.dominantAction,
-        consideredActionCount: decision.consideredActionCount,
-        openness: decision.openness,
-        chosenAt: this.state.now,
-        ...reflection,
-      };
+      cadence.dominantIntent = decision.dominantAction;
+      cadence.consideredActionCount = decision.consideredActionCount;
+      cadence.openness = decision.openness;
+      cadence.innerThought = reflection.innerThought;
+      cadence.deliberationWorldMinutes = reflection.deliberationWorldMinutes;
+      cadence.decisionWorldMinute = atWorldMinute;
       scheduleNextResidentAgencyReviewV1(
         this.state,
         agent,
@@ -6911,7 +6909,17 @@ export class WorldEngine {
       chosenAt: now,
       ...reflection,
     };
-    scheduleNextResidentAgencyReviewV1(this.state, agent, decision.action);
+    const executedCadence = scheduleNextResidentAgencyReviewV1(
+      this.state,
+      agent,
+      decision.action,
+    );
+    executedCadence.dominantIntent = decision.dominantAction;
+    executedCadence.consideredActionCount = decision.consideredActionCount;
+    executedCadence.openness = decision.openness;
+    executedCadence.innerThought = reflection.innerThought;
+    executedCadence.deliberationWorldMinutes = reflection.deliberationWorldMinutes;
+    executedCadence.decisionWorldMinute = this.state.calendar.elapsedWorldMinutes;
     const action = decision.action;
     beginLearningAttempt(this.state, agent, action);
     switch (action) {
