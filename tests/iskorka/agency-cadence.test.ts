@@ -14,7 +14,7 @@ test('human-scale agency projection changes before the legacy six-day world batc
     'agency-human-scale',
     'agency-human-scale-world',
   );
-  const before = runtime.snapshot();
+  const before = runtime.presentationSnapshot();
   assert.equal(before.v15!.simulationClock.quantumIndex, 0);
   assert.ok(Object.values(before.agents).every(agent => !agent.lastDecision));
   assert.ok(Object.values(before.agents).every(agent => agent.agencyCadence?.currentIntent));
@@ -27,7 +27,7 @@ test('human-scale agency projection changes before the legacy six-day world batc
   );
 
   await runtime.advanceTo(12 * 60);
-  const after = runtime.snapshot();
+  const after = runtime.presentationSnapshot();
 
   assert.equal(after.v15!.simulationClock.quantumIndex, 0);
   assert.equal(after.v15!.simulationClock.pendingWorldMinutes, 12 * 60);
@@ -47,7 +47,7 @@ test('ordinary intention cadence uses human hours, not six-day intervals', async
     'agency-cadence-bounds',
     'agency-cadence-bounds-world',
   );
-  const world = runtime.snapshot();
+  const world = runtime.presentationSnapshot();
   const agent = world.agents.agent_1;
   const cadence = projectResidentAgencyCadenceV1(world, agent);
   const interval = agencyReviewIntervalV1(world, agent);
@@ -65,7 +65,7 @@ test('strong body urgency changes the current projected intention without mutati
     'agency-urgent-body',
     'agency-urgent-body-world',
   );
-  const world = runtime.snapshot();
+  const world = runtime.presentationSnapshot();
   const agent = world.agents.agent_1;
   const body = world.v21!.bodiesByAgentId[agent.id];
   const core = body.bodyCore!;
