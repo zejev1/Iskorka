@@ -170,7 +170,9 @@ export function nextResidentAgencyReviewWorldMinuteV1(
 export function agencyIntentV1(
   agent: Readonly<AgentState>,
 ): AgentActionKind | undefined {
-  return agent.agencyCadence?.currentIntent;
+  return agent.agencyCadence?.compressedCatchUp
+    ? undefined
+    : agent.agencyCadence?.currentIntent;
 }
 
 
