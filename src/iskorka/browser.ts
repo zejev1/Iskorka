@@ -136,6 +136,8 @@ function activity(a:AgentState,w:WorldState):string {
   if(a.movement)return 'В пути';
   const body=w.v21?.bodiesByAgentId[a.id];
   if(body && 'sleep' in body && (body.sleep as { status?: string } | undefined)?.status === 'sleeping')return 'Спит';
+  const intent=a.agencyCadence?.currentIntent;
+  if(intent)return 'Решил: '+(action[intent]??'действовать');
   return a.lastAction ? (action[a.lastAction]??'Действует') : 'Осваивается';
 }
 function selectAgent(id:string):void {selected={type:'agent',id};mode='people';renderPanel();requestRender();}
