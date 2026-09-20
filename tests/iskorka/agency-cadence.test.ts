@@ -17,6 +17,7 @@ test('human-scale agency reviews happen before the legacy six-day world batch', 
   const before = runtime.snapshot();
   assert.equal(before.v15!.simulationClock.quantumIndex, 0);
   assert.ok(Object.values(before.agents).every(agent => !agent.lastDecision));
+  assert.ok(Object.values(before.agents).every(agent => !agent.agencyCadence));
 
   await runtime.advanceTo(12 * 60);
   const after = runtime.snapshot();
@@ -27,7 +28,10 @@ test('human-scale agency reviews happen before the legacy six-day world batch', 
     agent => (agent.agencyCadence?.reviewCount ?? 0) > 0,
   );
   assert.equal(reviewed.length, 10);
-  assert.ok(reviewed.every(agent => agent.lastDecision));
+  assert.ok(reviewed.every(agent => agent.agencyCadence?.currentIntent));
+  assert.ok(reviewed.every(agent => agent.agencyCadence?.innerThought));
+  // A preview is an intention, not a completed world action.
+  assert.ok(reviewed.every(agent => !agent.lastDecision));
   assert.ok(reviewed.every(agent =>
     (agent.agencyCadence?.nextReviewWorldMinute ?? 0) >
     after.calendar.elapsedWorldMinutes,
