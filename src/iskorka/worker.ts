@@ -25,7 +25,7 @@ function fail(error: unknown): void {
 function frame(force = false): void {
   if (!runtime || (!force && performance.now() - lastFrame < 450)) return;
   lastFrame = performance.now();
-  scope.postMessage({ type: 'frame', world: runtime.snapshot(), paused, speed, saved: true,
+  scope.postMessage({ type: 'frame', world: runtime.presentationSnapshot(), paused, speed, saved: true,
     wallMs: previousWall, simulatedMinutes: previousMinutes });
 }
 function enqueue(work: () => Promise<void>): void {
