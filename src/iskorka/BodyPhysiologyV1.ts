@@ -99,10 +99,9 @@ export function advanceBodyPhysiologyV1(
     0,
     world.calendar.elapsedWorldMinutes - core.lastAdvancedWorldMinute,
   );
-  const effectiveElapsedWorldMinutes = Math.min(
-    elapsedWorldMinutes,
-    pendingWorldMinutes,
-  );
+  const effectiveElapsedWorldMinutes = pendingWorldMinutes > 0
+    ? Math.min(elapsedWorldMinutes, pendingWorldMinutes)
+    : elapsedWorldMinutes;
   if (!(effectiveElapsedWorldMinutes > 0)) {
     return bodySignalsV1(agent, body, core);
   }
