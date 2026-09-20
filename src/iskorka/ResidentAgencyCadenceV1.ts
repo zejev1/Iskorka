@@ -72,10 +72,10 @@ export function agencyReviewIntervalV1(
   const urgency = bodyUrgency(world, agent);
   // Strong body signals can interrupt an intention quickly, but ordinary
   // residents do not invent a new major life decision every simulated minute.
-  if (urgency >= 0.62) {
+  if (urgency >= 0.38) {
     return 15 + Math.round(stableUnit(`${agent.id}:urgent:${reviewCount}`) * 15);
   }
-  if (urgency >= 0.46) {
+  if (urgency >= 0.26) {
     return 30 + Math.round(stableUnit(`${agent.id}:body:${reviewCount}`) * 30);
   }
 
@@ -134,9 +134,20 @@ export function scheduleNextResidentAgencyReviewV1(
     cadence.currentIntent = action;
     cadence.intentSinceWorldMinute = now;
   }
+  cadence.compressedCatchUp = compressedCatchUp;
+  if (compressedCatchUp) {
+    // High acceleration reconstructs only the latest private intention. Keep
+    // this projection absolute-time based so 1×120 days and 120×1 day produce
+    // byte-equivalent persisted state.
+    const interval = 12 * HOUR;
+    const index = Math.max(1, Math.floor(now / interval));
+    cadence.reviewCount = index;
+    cadence.lastReviewWorldMinute = index * interval;
+    cadence.nextReviewWorldMinute = (index + 1) * interval;
+    return cadence;
+  }
   cadence.lastReviewWorldMinute = now;
   cadence.reviewCount += 1;
-  cadence.compressedCatchUp = compressedCatchUp;
   cadence.nextReviewWorldMinute =
     now + agencyReviewIntervalV1(world, agent, action, cadence.reviewCount);
   return cadence;
