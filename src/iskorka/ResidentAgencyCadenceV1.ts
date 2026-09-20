@@ -21,6 +21,12 @@ export interface ResidentAgencyCadenceV1 {
   lastReviewWorldMinute: number;
   nextReviewWorldMinute: number;
   reviewCount: number;
+  /**
+   * True when acceleration skipped many private reviews and only the latest
+   * intention was reconstructed. Compressed intentions are informational and
+   * do not bias the next heavyweight world action.
+   */
+  compressedCatchUp?: boolean;
 }
 
 function stableUnit(value: string): number {
@@ -66,10 +72,10 @@ export function agencyReviewIntervalV1(
   const urgency = bodyUrgency(world, agent);
   // Strong body signals can interrupt an intention quickly, but ordinary
   // residents do not invent a new major life decision every simulated minute.
-  if (urgency >= 0.78) {
+  if (urgency >= 0.62) {
     return 15 + Math.round(stableUnit(`${agent.id}:urgent:${reviewCount}`) * 15);
   }
-  if (urgency >= 0.58) {
+  if (urgency >= 0.46) {
     return 30 + Math.round(stableUnit(`${agent.id}:body:${reviewCount}`) * 30);
   }
 
@@ -120,6 +126,7 @@ export function scheduleNextResidentAgencyReviewV1(
   world: Readonly<WorldState>,
   agent: AgentState,
   action: AgentActionKind,
+  compressedCatchUp = false,
 ): ResidentAgencyCadenceV1 {
   const cadence = ensureResidentAgencyCadenceV1(world, agent);
   const now = world.calendar.elapsedWorldMinutes;
@@ -129,6 +136,7 @@ export function scheduleNextResidentAgencyReviewV1(
   }
   cadence.lastReviewWorldMinute = now;
   cadence.reviewCount += 1;
+  cadence.compressedCatchUp = compressedCatchUp;
   cadence.nextReviewWorldMinute =
     now + agencyReviewIntervalV1(world, agent, action, cadence.reviewCount);
   return cadence;
