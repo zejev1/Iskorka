@@ -6914,6 +6914,8 @@ export class WorldEngine {
       agent,
       decision.action,
     );
+    executedCadence.intentSinceWorldMinute =
+      this.state.calendar.elapsedWorldMinutes;
     executedCadence.dominantIntent = decision.dominantAction;
     executedCadence.consideredActionCount = decision.consideredActionCount;
     executedCadence.openness = decision.openness;
