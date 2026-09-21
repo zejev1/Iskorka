@@ -21,6 +21,11 @@ import {
   agencyIntentAtWorldTimeV1,
   projectResidentAgencyCadenceV1,
 } from '../iskorka/ResidentAgencyCadenceV1';
+import { perceptBatchForAgentV1 } from '../iskorka/PerceptionAdapterV1';
+import {
+  acceptPersonalPerceptBatchV1,
+  shareKnownDeathReportV1,
+} from '../iskorka/PersonalPerceptionV1';
 import {
   assertWorldBrainRegistryV1,
   brainForLiveOwnerV1,
@@ -6900,6 +6905,19 @@ export class WorldEngine {
       this.advanceMonsterEncounter(agent, environment, now);
       if (!agent.life.alive) return;
     }
+
+    if ((agent.race ?? 'human') === 'human') {
+      const brain =
+        brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+        ensureBrainForAgentV1(this.state, agent);
+      if (brain) {
+        acceptPersonalPerceptBatchV1(
+          brain,
+          perceptBatchForAgentV1(this.state, agent.id),
+        );
+      }
+    }
+
     const giftBefore = giftLearningSnapshotV20(this.state, agent);
     const ageAllowedActions = allowedActionsForResidentV1(agent);
     if (
@@ -15822,6 +15840,12 @@ export class WorldEngine {
       audibilityRoll: this.rng.next(),
       placeOccupancy: this.agentsAtLocation(a.locationId).length,
     });
+    shareKnownDeathReportV1(
+      this.state,
+      a,
+      b,
+      `${conversation.id}:death-report`,
+    );
     if (
       conversation.observerAudible ||
       (conversation.topic === 'learning' &&
