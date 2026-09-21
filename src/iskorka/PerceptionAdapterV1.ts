@@ -283,6 +283,35 @@ function localObservationsV1(
     }
   }
 
+  // Founding caregivers are immediate nearby people during childhood. Keep
+  // them ahead of distant map labels so a busy settlement cannot hide them.
+  if (result.length < MAX_LOCAL_OBSERVATIONS) {
+    for (const mentor of mentorActorsVisibleV1(world)) {
+      if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+      const distance = Math.hypot(
+        mentor.position.x - agent.position.x,
+        mentor.position.y - agent.position.y,
+      );
+      if (distance > Math.max(8, vision.reach)) continue;
+      const assessment = visualAssessmentV1(
+        noise,
+        mentor.id,
+        distance,
+        vision.capacity,
+        Math.max(8, vision.reach),
+      );
+      if (!assessment.recognized) continue;
+      result.push({
+        objectId: mentor.id,
+        kind: 'person',
+        relation: mentor.locationId === agent.locationId ? 'co_located' : 'connected_visible',
+        channel: 'vision',
+        confidence: assessment.confidence,
+      });
+    }
+  }
+
+
   for (const id of current.connectedPlaceIds) {
     if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
     const place = world.places[id];
@@ -340,32 +369,6 @@ function localObservationsV1(
         channel: 'vision',
         confidence: assessment.confidence,
         ...(observedAction ? { observedAction } : {}),
-      });
-    }
-  }
-
-  if (result.length < MAX_LOCAL_OBSERVATIONS) {
-    for (const mentor of mentorActorsVisibleV1(world)) {
-      if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
-      const distance = Math.hypot(
-        mentor.position.x - agent.position.x,
-        mentor.position.y - agent.position.y,
-      );
-      if (distance > Math.max(8, vision.reach)) continue;
-      const assessment = visualAssessmentV1(
-        noise,
-        mentor.id,
-        distance,
-        vision.capacity,
-        Math.max(8, vision.reach),
-      );
-      if (!assessment.recognized) continue;
-      result.push({
-        objectId: mentor.id,
-        kind: 'person',
-        relation: mentor.locationId === agent.locationId ? 'co_located' : 'connected_visible',
-        channel: 'vision',
-        confidence: assessment.confidence,
       });
     }
   }
