@@ -51,6 +51,7 @@ import {
   assignedFoundingMentorV1,
   foundingMentorStudentsV1,
   ensureFoundingMentorWorldV1,
+  isFoundingCohortStudentV1,
   isMentoredMinorV1,
   mentorTeachingPlaceV1,
   updateMentorTeachingPositionsV1,
@@ -5275,12 +5276,15 @@ export class WorldEngine {
     // Human-scale current intention is a pure observation projection. It is
     // deliberately not persisted as causal history.
     for (const agent of Object.values(snapshot.agents)) {
-      if (agent.life.alive && !isMentoredMinorV1(snapshot, agent)) {
+      if (
+        agent.life.alive &&
+        !isFoundingCohortStudentV1(snapshot, agent.id)
+      ) {
         agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
       } else {
-        // Founding children are living through mentor care/lessons, not the
-        // old adult intention projector. Their observable state comes from
-        // body, perception and mentor activity until adulthood.
+        // Founding Sparks never receive the inherited Ainkrad intention
+        // projector, including after their guardians leave at 18. Their future
+        // autonomy must come from the native finite-brain stage only.
         delete agent.agencyCadence;
       }
     }
@@ -5673,7 +5677,8 @@ export class WorldEngine {
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
         const mentoredMinor = isMentoredMinorV1(this.state, agent);
-        if (!sleeping && !mentoredMinor) {
+        const foundingSpark = isFoundingCohortStudentV1(this.state, agent.id);
+        if (!sleeping && !foundingSpark) {
           this.applyPassiveNeeds(agent, effectiveEnvironment);
         }
         const body = this.state.v21?.bodiesByAgentId[agent.id];
@@ -5704,7 +5709,9 @@ export class WorldEngine {
       }
       const agents = this.shuffled(livingAgents);
       this.beginSecretLibraryYearV18(
-        livingAgents.filter((agent) => !isMentoredMinorV1(this.state, agent)),
+        livingAgents.filter(
+          (agent) => !isFoundingCohortStudentV1(this.state, agent.id),
+        ),
         now,
       );
       const residentsStudyingInLibrary = this.advanceSecretLibraryVisitorsV18(now);
@@ -5718,19 +5725,31 @@ export class WorldEngine {
           recordResidentActionEvidenceV16(this.state, agent);
           continue;
         }
-        if (isMentoredMinorV1(this.state, agent)) {
-          // Child itself receives no task script. Perception is refreshed so
-          // lived caregiver actions can become personal experience.
+        if (isFoundingCohortStudentV1(this.state, agent.id)) {
+          // No inherited resident task loop at any age. During childhood the
+          // guardian acts; after 18 the old Ainkrad adult script still stays
+          // off. The next project stage must produce actions from the Spark's
+          // own finite brain, learned skills, perception and memory.
           delete agent.lastAction;
           delete agent.lastDecision;
           delete agent.plan;
+          delete agent.agencyCadence;
           this.refreshSparkPerception(agent);
         } else {
           this.stepAgent(agent, agents, effectiveEnvironment, now);
         }
         recordResidentActionEvidenceV16(this.state, agent);
       }
-      this.advanceBirths(now, elapsedWorldMinutes);
+      // Legacy Ainkrad reproduction would manufacture adult/family choices
+      // after age 18. Keep it disabled for the Iskorka founding experiment
+      // until voluntary reproduction is driven by the native finite brain.
+      if (
+        !livingAgents.some((agent) =>
+          isFoundingCohortStudentV1(this.state, agent.id),
+        )
+      ) {
+        this.advanceBirths(now, elapsedWorldMinutes);
+      }
       this.advanceSettlementsV18(now);
       this.advanceVoluntaryResettlement(now);
       // No other sapient populations are generated.
