@@ -122,6 +122,7 @@ export function mentorTeachingPlaceV1(
   if (studentAgeYears >= 5) {
     add('resource_field');
     add('workshop');
+    add('foundation_lake');
     add('shore');
   }
   if (studentAgeYears >= 8) {
@@ -158,7 +159,8 @@ function mentorDomainAtCurrentPlaceV1(
     placeId === 'meadow' ||
     placeId === 'shore' ||
     placeId === 'river' ||
-    placeId === 'lake'
+    placeId === 'lake' ||
+    placeId === 'foundation_lake'
   ) return 'survival';
   if (placeId === 'commons') {
     return mentor.role === 'care_language' ? 'language' : 'household';
