@@ -14,6 +14,7 @@ import {
   type HumanBodySignalKindV1,
   type LocalObservationV1,
   type PerceptBatchV1,
+  type ReceivedMessageV1,
   type SubjectiveSignalV1,
 } from './PortableHumanCoreV1';
 
@@ -178,6 +179,7 @@ function recognizedVisuallyV1(
 function localObservationsV1(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
+  localAgents?: readonly Readonly<AgentState>[],
 ): LocalObservationV1[] {
   const result: LocalObservationV1[] = [];
   const current = world.places[agent.locationId];
@@ -230,7 +232,7 @@ function localObservationsV1(
   }
 
   if (result.length < MAX_LOCAL_OBSERVATIONS) {
-    const people = Object.values(world.agents)
+    const people = (localAgents ?? Object.values(world.agents))
       .filter(
         (other) =>
           other.id !== agent.id &&
@@ -296,58 +298,57 @@ function localObservationsV1(
   return result;
 }
 
-function receivedMessagesV1(
-  world: Readonly<WorldState>,
-  agent: Readonly<AgentState>,
-): PerceptBatchV1['receivedMessages'] {
-  const now = world.calendar.elapsedWorldMinutes;
-  const records = world.v18?.recentConversations ?? [];
-  const messages: Array<PerceptBatchV1['receivedMessages'][number]> = [];
+function appendIndexedMessageV1(
+  index: Map<string, ReceivedMessageV1[]>,
+  agentId: string,
+  message: ReceivedMessageV1,
+): void {
+  const messages = index.get(agentId) ?? [];
+  const prior = messages.findIndex((item) => item.messageId === message.messageId);
+  if (prior >= 0) messages.splice(prior, 1);
+  messages.push(message);
+  if (messages.length > MAX_RECEIVED_MESSAGES) {
+    messages.splice(0, messages.length - MAX_RECEIVED_MESSAGES);
+  }
+  index.set(agentId, messages);
+}
 
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    if (messages.length >= MAX_RECEIVED_MESSAGES) break;
-    const record = records[index];
+/**
+ * Only direct participants can be reconstructed safely from persisted
+ * conversation evidence. A historical "observerAudible" flag does not tell us
+ * which third party was physically present, so it is never replayed to someone
+ * who may have arrived later.
+ */
+export function buildReceivedMessageIndexV1(
+  world: Readonly<WorldState>,
+): Map<string, ReceivedMessageV1[]> {
+  const now = world.calendar.elapsedWorldMinutes;
+  const index = new Map<string, ReceivedMessageV1[]>();
+  for (const record of world.v18?.recentConversations ?? []) {
     if (record.worldMinute > now || now - record.worldMinute > MESSAGE_WINDOW_WORLD_MINUTES) {
       continue;
     }
-
-    if (record.listenerId === agent.id) {
-      messages.push({
-        messageId: `${record.id}:utterance`,
-        senderObjectId: record.speakerId,
-        symbols: [record.utterance],
-        channel: 'hearing',
-        confidence: 1,
-      });
-      continue;
-    }
-    if (record.speakerId === agent.id) {
-      messages.push({
-        messageId: `${record.id}:reply`,
-        senderObjectId: record.listenerId,
-        symbols: [record.reply],
-        channel: 'hearing',
-        confidence: 1,
-      });
-      continue;
-    }
-    if (
-      record.observerAudible &&
-      record.placeId === agent.locationId &&
-      record.speakerId !== agent.id &&
-      record.listenerId !== agent.id
-    ) {
-      messages.push({
-        messageId: `${record.id}:overheard`,
-        senderObjectId: record.speakerId,
-        symbols: [record.utterance],
-        channel: 'hearing',
-        confidence: clamp01(record.audibility),
-      });
-    }
+    appendIndexedMessageV1(index, record.listenerId, {
+      messageId: `${record.id}:utterance`,
+      senderObjectId: record.speakerId,
+      symbols: [record.utterance],
+      channel: 'hearing',
+      confidence: 1,
+    });
+    appendIndexedMessageV1(index, record.speakerId, {
+      messageId: `${record.id}:reply`,
+      senderObjectId: record.listenerId,
+      symbols: [record.reply],
+      channel: 'hearing',
+      confidence: 1,
+    });
   }
+  return index;
+}
 
-  return messages.reverse();
+export interface PerceptionAdapterOptionsV1 {
+  localAgents?: readonly Readonly<AgentState>[];
+  receivedMessages?: readonly ReceivedMessageV1[];
 }
 
 /**
@@ -358,6 +359,7 @@ function receivedMessagesV1(
 export function perceptBatchForAgentV1(
   world: Readonly<WorldState>,
   agentId: string,
+  options: Readonly<PerceptionAdapterOptionsV1> = {},
 ): PerceptBatchV1 {
   const agent = world.agents[agentId];
   if (!agent?.life.alive) {
@@ -368,7 +370,14 @@ export function perceptBatchForAgentV1(
     ownerAgentId: agent.id,
     worldMinute: world.calendar.elapsedWorldMinutes,
     body: humanBodyPerceptV1(world, agent),
-    localObservations: localObservationsV1(world, agent),
-    receivedMessages: receivedMessagesV1(world, agent),
+    localObservations: localObservationsV1(
+      world,
+      agent,
+      options.localAgents,
+    ),
+    receivedMessages:
+      options.receivedMessages ??
+      buildReceivedMessageIndexV1(world).get(agent.id) ??
+      [],
   };
 }
