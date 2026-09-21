@@ -1133,6 +1133,8 @@ export interface WorldV21State {
 export interface WorldState {
   /** Independent human laboratory; never inferred from an old Ainkrad save. */
   simulationProfile?: 'iskorka-human-lab-v1';
+  /** Finite personal brain packets; absent only in saves predating BrainState v1 migration. */
+  iskorkaBrainV1?: import('../iskorka/BrainStateAdapterV1').WorldBrainRegistryV1;
   bootstrapSeed?: string;
   cartography?: import('./ResidentCartography').WorldCartography;
   terrain?: TerrainFoundation;

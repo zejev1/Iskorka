@@ -1,7 +1,7 @@
 import { pruneWorldTimeOperations, WORLD_TIME_RETENTION_INTERVAL, WORLD_TIME_OPERATION_RETENTION } from './WorldOperationRetention';
 import { readWorldCommitHead } from './IndexedDbCommitHead';
 import { validateWorldSave, missingWorldRecord } from './WorldSaveSafety';
-import { checkpointWorld, putWorldIdentity, RECOVERY_STORE, IDENTITY_STORE, type WorldIdentity } from './IndexedDbRecovery';
+import { checkpointWorld, putWorldIdentity, RECOVERY_STORE, IDENTITY_STORE, type WorldIdentity, type WorldRecovery } from './IndexedDbRecovery';
 import { stableJsonStringify } from '../core/stableJson';
 import type { WorldEvent } from '../world/events';
 import type { MemoryRecord, WorldState } from '../world/types';
@@ -379,6 +379,21 @@ export class IndexedDbWorldStore implements WorldStore {
       throw new Error('World commit nextState belongs to a different world.');
     }
 
+    const retiredBrainOwnerIds = batch.retiredBrainOwnerIds ?? [];
+    const retiredBrainOwners = new Set<string>();
+    for (const agentId of retiredBrainOwnerIds) {
+      if (!agentId.trim()) throw new Error('Retired brain owner ID must not be empty.');
+      if (retiredBrainOwners.has(agentId)) {
+        throw new Error(`Retired brain owner ${agentId} was listed twice.`);
+      }
+      retiredBrainOwners.add(agentId);
+    }
+    const personalMemoryOwnersToPurge = new Set<string>(retiredBrainOwners);
+    for (const agentId of batch.purgedPersonalMemoryOwnerIds ?? []) {
+      if (!agentId.trim()) throw new Error('Purged personal memory owner ID must not be empty.');
+      personalMemoryOwnersToPurge.add(agentId);
+    }
+
     const eventKeys = new Set<string>();
     for (const event of batch.events) {
       if (event.worldId !== batch.worldId) {
@@ -404,14 +419,24 @@ export class IndexedDbWorldStore implements WorldStore {
           `World operation ${batch.operationId} produced duplicate memory ID ${memory.memoryId}.`,
         );
       }
+      if (personalMemoryOwnersToPurge.has(memory.agentId)) {
+        throw new Error('World commit cannot append private memory for an owner being purged.');
+      }
       memoryKeys.add(key);
     }
 
     const database = await this.database;
-    const transaction = database.transaction(
-      [STORES.worlds, STORES.operations, STORES.events, STORES.memories, IDENTITY_STORE],
-      'readwrite',
-    );
+    const transactionStores: string[] = [
+      STORES.worlds,
+      STORES.operations,
+      STORES.events,
+      STORES.memories,
+      IDENTITY_STORE,
+    ];
+    if (retiredBrainOwners.size > 0) {
+      transactionStores.push(RECOVERY_STORE, STORES.streamHeads);
+    }
+    const transaction = database.transaction(transactionStores, 'readwrite');
     const completion = transactionComplete(transaction);
     const worlds = transaction.objectStore(STORES.worlds);
     const operations = transaction.objectStore(STORES.operations);
@@ -420,25 +445,54 @@ export class IndexedDbWorldStore implements WorldStore {
     const opKey = operationKey(batch.worldId, batch.operationId);
 
     try {
-      const [prior, head, existingEvents, existingMemories] =
-        await Promise.all([
-          requestResult(operations.get(opKey)) as Promise<
-            StoredOperation | undefined
-          >,
-          readWorldCommitHead(transaction, batch.worldId),
-          Promise.all(
-            batch.events.map((event) =>
-              requestResult(events.getKey(eventKey(event.worldId, event.eventId))),
-            ),
-          ),
-          Promise.all(
-            batch.memories.map((memory) =>
-              requestResult(
-                memories.getKey(memoryKey(memory.worldId, memory.memoryId)),
+      const retiredMemoryKeyPromises = [...personalMemoryOwnersToPurge].map((agentId) =>
+        requestResult(
+          memories
+            .index(INDEXES.memoryAgentTime)
+            .getAllKeys(
+              IDBKeyRange.bound(
+                [batch.worldId, agentId, Number.MIN_SAFE_INTEGER],
+                [batch.worldId, agentId, Number.MAX_SAFE_INTEGER],
               ),
             ),
+        ),
+      );
+      const recoveryKeysPromise: Promise<IDBValidKey[]> =
+        retiredBrainOwners.size > 0
+          ? requestResult(transaction.objectStore(RECOVERY_STORE).getAllKeys())
+          : Promise.resolve([]);
+      const streamHeadsPromise: Promise<StoredStreamHead[]> =
+        retiredBrainOwners.size > 0
+          ? requestResult(transaction.objectStore(STORES.streamHeads).getAll()) as Promise<StoredStreamHead[]>
+          : Promise.resolve([]);
+
+      const [
+        prior,
+        head,
+        existingEvents,
+        existingMemories,
+        retiredMemoryKeysByOwner,
+        recoveryKeys,
+        streamHeads,
+      ] = await Promise.all([
+        requestResult(operations.get(opKey)) as Promise<StoredOperation | undefined>,
+        readWorldCommitHead(transaction, batch.worldId),
+        Promise.all(
+          batch.events.map((event) =>
+            requestResult(events.getKey(eventKey(event.worldId, event.eventId))),
           ),
-        ]);
+        ),
+        Promise.all(
+          batch.memories.map((memory) =>
+            requestResult(
+              memories.getKey(memoryKey(memory.worldId, memory.memoryId)),
+            ),
+          ),
+        ),
+        Promise.all(retiredMemoryKeyPromises),
+        recoveryKeysPromise,
+        streamHeadsPromise,
+      ]);
 
       const { current, identity } = head;
       if (prior) {
@@ -492,6 +546,9 @@ export class IndexedDbWorldStore implements WorldStore {
       for (const event of batch.events) {
         events.add(toStoredEvent(event));
       }
+      for (const ownerKeys of retiredMemoryKeysByOwner) {
+        for (const key of ownerKeys) memories.delete(key);
+      }
       for (const memory of batch.memories) {
         memories.add(toStoredMemory(memory));
       }
@@ -506,7 +563,30 @@ export class IndexedDbWorldStore implements WorldStore {
 
       validateWorldSave(nextState, batch.worldId);
       worlds.put(nextState);
-      putWorldIdentity(transaction, nextState, identity);
+      if (retiredBrainOwners.size > 0) {
+        const recovery = transaction.objectStore(RECOVERY_STORE);
+        const prefix = `${batch.worldId}:slot:`;
+        for (const key of recoveryKeys) {
+          if (typeof key === 'string' && key.startsWith(prefix)) recovery.delete(key);
+        }
+        recovery.put({
+          key: `${batch.worldId}:slot:0`,
+          worldId: batch.worldId,
+          reason: 'post-brain-retirement',
+          state: nextState,
+          streamHeads,
+        } satisfies WorldRecovery);
+        const recoveryIdentity: WorldIdentity = {
+          id: batch.worldId,
+          epoch: nextState.epoch ?? 1,
+          revision: nextState.revision,
+          nextBackup: 1,
+          lastBackupRevision: nextState.revision,
+        };
+        putWorldIdentity(transaction, nextState, recoveryIdentity);
+      } else {
+        putWorldIdentity(transaction, nextState, identity);
+      }
       operations.add({ ...operation, key: opKey } satisfies StoredOperation);
       await completion;
 

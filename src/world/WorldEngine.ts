@@ -21,6 +21,20 @@ import {
   agencyIntentAtWorldTimeV1,
   projectResidentAgencyCadenceV1,
 } from '../iskorka/ResidentAgencyCadenceV1';
+import {
+  assertWorldBrainRegistryV1,
+  brainForLiveOwnerV1,
+  ensureBrainForAgentV1,
+  ensureWorldBrainRegistryV1,
+  importLegacyPersistentMemoriesV1,
+  retireBrainOwnerV1,
+  synchronizeLegacyOwnedStateV1,
+} from '../iskorka/BrainStateAdapterV1';
+import { tryStoreBrainDatumV1 } from '../iskorka/BrainStateV1';
+import {
+  applyHumanMotorActionEnvelopeV1,
+  humanMotorMobilityScaleV1,
+} from '../iskorka/HumanMotorDevelopmentV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -370,6 +384,16 @@ const WILDLIFE_VIABLE_RESERVE_SHARE = 0.25;
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clampSigned = (value: number) => Math.max(-1, Math.min(1, value));
+
+function allowedActionsForResidentV1(agent: Readonly<AgentState>): ReadonlySet<AgentActionKind> {
+  const base = allowedActionsForAgeV16(
+    agent.race ?? 'human',
+    agent.life.ageYears,
+  );
+  return (agent.race ?? 'human') === 'human'
+    ? applyHumanMotorActionEnvelopeV1(agent.life.ageYears, base)
+    : base;
+}
 const ROUTINE_EVENT_SAMPLE_INTERVAL = 1800;
 const SAPIENT_RACES = SAPIENT_RACES_V16;
 
@@ -4645,6 +4669,7 @@ export class WorldEngine {
   private operationTail: Promise<void> = Promise.resolve();
   private stagedEvents: WorldEvent[] | undefined;
   private stagedMemories: MemoryRecord[] | undefined;
+  private stagedRetiredBrainOwnerIds: Set<string> | undefined;
   private committedSignalCache: WorldEvent[] | undefined;
   private routePathCache:
     | Map<string, Map<string, string[]>>
@@ -4932,6 +4957,8 @@ export class WorldEngine {
 
     initializeIskorkaWorld(state, options.seed);
     for (const resident of Object.values(state.agents)) observeLocalPlacesV20(state, resident);
+    ensureWorldBrainRegistryV1(state);
+    assertWorldBrainRegistryV1(state);
     assertWorldState(state);
     await options.store.initializeWorld(state);
     return new WorldEngine(options.store, state);
@@ -5014,6 +5041,84 @@ export class WorldEngine {
       }
     }
 
+    // Stage 2: migrate every currently stored private brain field and the
+    // old owner-scoped MemoryRecord stream into one finite personal packet.
+    // The old rows are purged in the same commit so they cannot act as hidden
+    // memory outside BrainState.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const repaired = structuredClone(state);
+      const before = stableJsonStringify(repaired);
+      const legacyBrainMigration = repaired.iskorkaBrainV1 === undefined;
+      ensureWorldBrainRegistryV1(repaired);
+      const ownersToPurge: string[] = [];
+
+      // The old per-owner memory stream exists only before the BrainState
+      // migration. Avoid an O(population) IndexedDB probe on every later open.
+      if (legacyBrainMigration) {
+        for (const agent of Object.values(repaired.agents)) {
+          if ((agent.race ?? 'human') !== 'human') continue;
+          const oldMemories = await options.store.historyForAgent(state.id, agent.id);
+          if (oldMemories.length === 0) continue;
+          ownersToPurge.push(agent.id);
+          if (!agent.life.alive) continue;
+          const brain = repaired.iskorkaBrainV1?.brainsByAgentId[agent.id];
+          if (!brain) throw new Error(`Missing BrainState while migrating ${agent.id}.`);
+          importLegacyPersistentMemoriesV1(brain, oldMemories);
+        }
+      }
+
+      assertWorldBrainRegistryV1(repaired);
+      if (stableJsonStringify(repaired) === before && ownersToPurge.length === 0) break;
+
+      await options.store.checkpointWorld?.(
+        state.id,
+        state.revision,
+        'before-brain-state-v1-additive-repair',
+      );
+      repaired.revision = state.revision + 1;
+      const operationId =
+        `migration:${state.id}:brain-state-v1:revision:${state.revision}`;
+      const operationFingerprint = stableJsonStringify({
+        kind: 'world_migration',
+        mode: 'iskorka_brain_state_v1_additive_repair',
+        worldId: state.id,
+        fromRevision: state.revision,
+      });
+      try {
+        const result = await options.store.commit({
+          operationId,
+          operationFingerprint,
+          worldId: state.id,
+          expectedRevision: state.revision,
+          nextState: repaired,
+          events: [{
+            eventId: `${operationId}:event`,
+            worldId: state.id,
+            kind: 'world.migrated',
+            source: 'system',
+            occurredAt: state.now,
+            occurredWorldMinutes: state.calendar.elapsedWorldMinutes,
+            payload: {
+              migrationMode: 'iskorka_brain_state_v1_additive_repair',
+              preservedWorldMinutes: state.calendar.elapsedWorldMinutes,
+              migratedLivingBrains: Object.values(repaired.iskorkaBrainV1?.brainsByAgentId ?? {}).length,
+              purgedLegacyMemoryOwners: ownersToPurge.length,
+            },
+          }],
+          memories: [],
+          purgedPersonalMemoryOwnerIds: ownersToPurge,
+        });
+        state = result.state;
+        break;
+      } catch (error) {
+        if (!(error instanceof WorldRevisionConflictError)) throw error;
+        const concurrent = await options.store.loadWorld(options.worldId);
+        if (!concurrent) throw error;
+        state = concurrent;
+      }
+    }
+
+    assertWorldBrainRegistryV1(state);
     assertWorldState(state);
     return new WorldEngine(options.store, state);
   }
@@ -5161,6 +5266,7 @@ export class WorldEngine {
         this.state.wildlife = {};
         this.state.agents = agents;
         this.state.relationships = {};
+        this.state.iskorkaBrainV1 = undefined;
         this.state.centuryHumpback = undefined;
         this.state.v15 = createWorldV15State(
           this.state.id,
@@ -5198,6 +5304,11 @@ export class WorldEngine {
           repairCompactSettlementLayout(this.state);
         }
         initializeIskorkaWorld(this.state, seed);
+        for (const resident of Object.values(this.state.agents)) {
+          observeLocalPlacesV20(this.state, resident);
+        }
+        ensureWorldBrainRegistryV1(this.state);
+        assertWorldBrainRegistryV1(this.state);
         this.state.determinism.eventSequence = priorSequence;
         this.rng.restore(rng.snapshot());
 
@@ -5758,12 +5869,24 @@ export class WorldEngine {
       this.rng.restore(before.determinism.rngState);
       this.stagedEvents = [];
       this.stagedMemories = [];
+      this.stagedRetiredBrainOwnerIds = new Set();
       this.committedSignalCache = undefined;
       this.routePathCache = new Map();
 
       try {
         await apply();
         this.syncDeterminismState();
+        if (isIskorkaWorld(this.state)) {
+          for (const agent of Object.values(this.state.agents)) {
+            if (!agent.life.alive || (agent.race ?? 'human') !== 'human') continue;
+            const brain =
+              this.state.iskorkaBrainV1?.brainsByAgentId[agent.id] ??
+              ensureBrainForAgentV1(this.state, agent);
+            if (!brain) throw new Error(`Living human ${agent.id} has no BrainState.`);
+            synchronizeLegacyOwnedStateV1(this.state, agent, brain);
+          }
+          assertWorldBrainRegistryV1(this.state);
+        }
         this.state.revision = before.revision + 1;
         assertWorldState(this.state);
 
@@ -5775,6 +5898,7 @@ export class WorldEngine {
           nextState: this.state,
           events: this.stagedEvents,
           memories: this.stagedMemories,
+          retiredBrainOwnerIds: [...this.stagedRetiredBrainOwnerIds],
         });
 
         this.adopt(result.state, result.committed && result.state === this.state);
@@ -5792,6 +5916,7 @@ export class WorldEngine {
         this.workingState = undefined;
         this.stagedEvents = undefined;
         this.stagedMemories = undefined;
+        this.stagedRetiredBrainOwnerIds = undefined;
         this.committedSignalCache = undefined;
         this.routePathCache = undefined;
         this.residentsByLocation = undefined;
@@ -6776,10 +6901,7 @@ export class WorldEngine {
       if (!agent.life.alive) return;
     }
     const giftBefore = giftLearningSnapshotV20(this.state, agent);
-    const ageAllowedActions = allowedActionsForAgeV16(
-      agent.race ?? 'human',
-      agent.life.ageYears,
-    );
+    const ageAllowedActions = allowedActionsForResidentV1(agent);
     if (
       agent.movement &&
       !ageAllowedActions.has(agent.movement.purpose)
@@ -7222,10 +7344,7 @@ export class WorldEngine {
     consideredActionCount: number;
     openness: number;
   } {
-    const allowedActions = allowedActionsForAgeV16(
-      agent.race ?? 'human',
-      agent.life.ageYears,
-    );
+    const allowedActions = allowedActionsForResidentV1(agent);
     // Helping and bonding use a two-stage resident choice. Cheap local
     // awareness keeps them in the action ballot; the exact relationship-aware
     // recipient is resolved only if the resident actually chooses that action.
@@ -13082,6 +13201,10 @@ export class WorldEngine {
     agent.lastDecision = undefined;
     agent.plan = undefined;
     this.state.population.deaths += 1;
+    if (isIskorkaWorld(this.state) && (agent.race ?? 'human') === 'human') {
+      retireBrainOwnerV1(this.state, agent, worldMinutes);
+      this.stagedRetiredBrainOwnerIds?.add(agent.id);
+    }
     stopDeceasedActions(this.state, agent);
     if (this.state.v21) {
       delete this.state.v21.bodiesByAgentId[agent.id];
@@ -13109,48 +13232,54 @@ export class WorldEngine {
       },
     });
 
-    const relatives = new Set([
-      ...agent.life.parentIds,
-      ...agent.life.childIds,
-    ]);
-    for (const relationship of Object.values(this.state.relationships)) {
-      const otherId =
-        relationship.agentA === agent.id
-          ? relationship.agentB
-          : relationship.agentB === agent.id
-            ? relationship.agentA
-            : undefined;
-      if (!otherId) continue;
-      const bondStrength =
-        relationship.trust +
-        relationship.affinity +
-        relationship.respect -
-        relationship.conflict;
-      if (bondStrength >= 1.45) relatives.add(otherId);
-    }
-    for (const relativeId of relatives) {
-      const relative = this.state.agents[relativeId];
-      if (!relative?.life.alive) continue;
-      relative.mind.emotions.grief = clamp01(
-        relative.mind.emotions.grief + 0.46,
-      );
-      relative.mind.emotions.joy = clamp01(
-        relative.mind.emotions.joy - 0.24,
-      );
-      relative.mind.beliefs.afterlife = clamp01(
-        relative.mind.beliefs.afterlife + 0.035,
-      );
-      this.stageMemory({
-        memoryId: this.nextId('memory'),
-        worldId: this.state.id,
-        agentId: relative.id,
-        createdAt: now,
-        kind: 'death',
-        summary: `${relative.name} lost ${agent.name}.`,
-        importance: 0.96,
-        valence: -0.92,
-        relatedAgentIds: [agent.id],
-      });
+    // Stage 2 removes the legacy omniscient death channel from Iskorka.
+    // Living people may keep memories they already own, but new knowledge of a
+    // death must later arrive through perception, discovery or communication.
+    if (!isIskorkaWorld(this.state)) {
+      const relatives = new Set([
+        ...agent.life.parentIds,
+        ...agent.life.childIds,
+      ]);
+      for (const relationship of Object.values(this.state.relationships)) {
+        const otherId =
+          relationship.agentA === agent.id
+            ? relationship.agentB
+            : relationship.agentB === agent.id
+              ? relationship.agentA
+              : undefined;
+        if (!otherId) continue;
+        const bondStrength =
+          relationship.trust +
+          relationship.affinity +
+          relationship.respect -
+          relationship.conflict;
+        if (bondStrength >= 1.45) relatives.add(otherId);
+      }
+      for (const relativeId of relatives) {
+        const relative = this.state.agents[relativeId];
+        if (!relative?.life.alive) continue;
+        relative.mind.emotions.grief = clamp01(
+          relative.mind.emotions.grief + 0.46,
+        );
+        relative.mind.emotions.joy = clamp01(
+          relative.mind.emotions.joy - 0.24,
+        );
+        relative.mind.beliefs.afterlife = clamp01(
+          relative.mind.beliefs.afterlife + 0.035,
+        );
+        this.stageMemory({
+          memoryId: this.nextId('memory'),
+          worldId: this.state.id,
+          agentId: relative.id,
+          createdAt: now,
+          kind: 'death',
+          summary: `${relative.name} lost ${agent.name}.`,
+          importance: 0.96,
+          valence: -0.92,
+          relatedAgentIds: [agent.id],
+        });
+      }
+  
     }
   }
 
@@ -14200,9 +14329,11 @@ export class WorldEngine {
     ensureRussianKnowledgeV18(this.state, child);
     ensureLivelihoodV18(this.state, child);
     ensureLifeRhythmV18(this.state, child);
-    // A newborn receives its body and applied-knowledge record in the same
-    // atomic birth operation. Reopening must never be the moment a body appears.
+    // A newborn receives its body and blank acquired BrainState in the same
+    // atomic birth operation. Legacy scaffolding may exist in parallel, but it
+    // is not imported into the newborn's personal brain.
     ensureAgentEmbodiedWorldV21(this.state, childId);
+    ensureBrainForAgentV1(this.state, child, { importLegacy: false });
     this.v15World().familyAgencyByAgentId[childId] = {
       ...blueprint.protectedFamilyPersonality,
     };
@@ -16022,8 +16153,13 @@ export class WorldEngine {
       currentSettlementId && currentSettlementId === targetSettlementId
         ? 0.84 + weatherWalkingScale * 0.16
         : weatherWalkingScale;
+    const developmentalMobility =
+      (agent.race ?? 'human') === 'human'
+        ? humanMotorMobilityScaleV1(agent.life.ageYears)
+        : 1;
     const mobilityScale =
       (0.8 + agent.life.physiology.mobility * 0.4) *
+      developmentalMobility *
       bodyMobilityScaleV21(this.state, agent.id) *
       bodyFatigueMobilityScaleV21(agent) *
       exposedWeatherScale *
@@ -16424,6 +16560,36 @@ export class WorldEngine {
     if (!this.stagedMemories) {
       throw new Error('World memory was produced outside a logical operation.');
     }
+    const owner = this.state.agents[memory.agentId];
+    if (
+      isIskorkaWorld(this.state) &&
+      owner &&
+      (owner.race ?? 'human') === 'human'
+    ) {
+      const brain =
+        brainForLiveOwnerV1(this.state, owner.id, owner.life.generation) ??
+        ensureBrainForAgentV1(this.state, owner);
+      if (!brain) return;
+      // Until the later perception/episodic-memory stage replaces these legacy
+      // producers, keep their actual content inside the finite brain and mark
+      // provenance as unknown instead of pretending system prose was lived.
+      tryStoreBrainDatumV1(brain, {
+        id: `legacy-memory:${memory.memoryId}`,
+        section: memory.importance >= 0.78 ? 'significant' : 'recent',
+        kind: `legacy_memory:${memory.kind}`,
+        source: 'unknown_legacy',
+        encoded: stableJsonStringify({
+          createdAt: memory.createdAt,
+          kind: memory.kind,
+          summary: memory.summary,
+          importance: memory.importance,
+          valence: memory.valence,
+          relatedAgentIds: [...memory.relatedAgentIds],
+        }),
+      });
+      return;
+    }
+
     const stored: MemoryRecord = {
       ...memory,
       relatedAgentIds: [...memory.relatedAgentIds],
