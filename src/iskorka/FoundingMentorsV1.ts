@@ -538,7 +538,14 @@ export function applyFoundingMentorCareV1(
 
   const resources = world.v15?.renewableResources;
   let resourcesChanged = false;
-  if (resources && resources.storedResources < 0.35) {
+  if (
+    resources &&
+    resources.storedResources < 0.35 &&
+    mentor.locationId === 'resource_field'
+  ) {
+    // Provisioning is a real mentor action at the field. Caregivers no longer
+    // harvest magically from the nursery or make children provide for
+    // themselves.
     const harvested = harvestRenewably(
       resources,
       {
@@ -547,7 +554,7 @@ export function applyFoundingMentorCareV1(
         diligence: 0.95,
       },
       {
-        eventId: `mentor-harvest:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
+        eventId: `mentor-harvest:${mentor.id}:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
         worldMinutes: world.calendar.elapsedWorldMinutes,
         effort: 0.48,
       },
@@ -581,8 +588,8 @@ export function applyFoundingMentorCareV1(
 
   student.energy = Math.max(student.energy, age < 3 ? 0.78 : 0.7);
   student.stress = clamp01(student.stress - (age < 5 ? 0.045 : 0.025));
-  student.resources = Math.max(student.resources, 0.12);
-  student.needs.belonging = Math.max(student.needs.belonging, age < 8 ? 0.76 : 0.62);
+  // Do not grant a child carried provisions, a profession motive or any
+  // scripted mental need. Food/water/care come from the guardian's actions.
 
   // Scripted caregivers can clean/tend injuries and support ordinary recovery,
   // but they do not erase wounds or diseases instantly.
