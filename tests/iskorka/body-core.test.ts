@@ -355,14 +355,17 @@ test('BodyCore uses realistic infant mass growth instead of freezing near newbor
 });
 
 
-test('existing BodyCore save repairs missing interoception sensitivity deterministically', async () => {
-  const { world } = await create('interoception-repair-seed', 'interoception-repair-world');
+test('existing BodyCore save repairs missing perception sensitivities deterministically', async () => {
+  const { world } = await create('perception-repair-seed', 'perception-repair-world');
   const legacy = structuredClone(world);
   for (const body of Object.values(legacy.v21!.bodiesByAgentId)) {
     if (!body.bodyCore) continue;
-    delete (body.bodyCore.phenotype as typeof body.bodyCore.phenotype & {
+    const phenotype = body.bodyCore.phenotype as typeof body.bodyCore.phenotype & {
       interoceptionSensitivity?: number;
-    }).interoceptionSensitivity;
+      visualAcuityBaseline?: number;
+    };
+    delete phenotype.interoceptionSensitivity;
+    delete phenotype.visualAcuityBaseline;
   }
 
   const store = new InMemoryWorldStore();
@@ -377,5 +380,8 @@ test('existing BodyCore save repairs missing interoception sensitivity determini
     assert.equal(typeof body.bodyCore!.phenotype.interoceptionSensitivity, 'number');
     assert.ok(body.bodyCore!.phenotype.interoceptionSensitivity >= 0.52);
     assert.ok(body.bodyCore!.phenotype.interoceptionSensitivity <= 0.96);
+    assert.equal(typeof body.bodyCore!.phenotype.visualAcuityBaseline, 'number');
+    assert.ok(body.bodyCore!.phenotype.visualAcuityBaseline >= 0.82);
+    assert.ok(body.bodyCore!.phenotype.visualAcuityBaseline <= 1);
   }
 });
