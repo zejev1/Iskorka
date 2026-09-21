@@ -5879,7 +5879,9 @@ export class WorldEngine {
         if (isIskorkaWorld(this.state)) {
           for (const agent of Object.values(this.state.agents)) {
             if (!agent.life.alive || (agent.race ?? 'human') !== 'human') continue;
-            const brain = ensureBrainForAgentV1(this.state, agent);
+            const brain =
+              this.state.iskorkaBrainV1?.brainsByAgentId[agent.id] ??
+              ensureBrainForAgentV1(this.state, agent);
             if (!brain) throw new Error(`Living human ${agent.id} has no BrainState.`);
             synchronizeLegacyOwnedStateV1(this.state, agent, brain);
           }
