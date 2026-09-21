@@ -14306,9 +14306,11 @@ export class WorldEngine {
     ensureRussianKnowledgeV18(this.state, child);
     ensureLivelihoodV18(this.state, child);
     ensureLifeRhythmV18(this.state, child);
-    // A newborn receives its body and applied-knowledge record in the same
-    // atomic birth operation. Reopening must never be the moment a body appears.
+    // A newborn receives its body and blank acquired BrainState in the same
+    // atomic birth operation. Legacy scaffolding may exist in parallel, but it
+    // is not imported into the newborn's personal brain.
     ensureAgentEmbodiedWorldV21(this.state, childId);
+    ensureBrainForAgentV1(this.state, child, { importLegacy: false });
     this.v15World().familyAgencyByAgentId[childId] = {
       ...blueprint.protectedFamilyPersonality,
     };
