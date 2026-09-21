@@ -7214,8 +7214,13 @@ export class WorldEngine {
 
     for (const mentor of Object.values(mentorWorld.mentorsById)) {
       if (mentor.status !== 'caregiving') continue;
-      const students = foundingMentorStudentsV1(this.state, mentor.id)
-        .filter((child) => child.life.ageYears < mentorWorld.releaseAgeYears);
+      const students: AgentState[] = foundingMentorStudentsV1(
+        this.state,
+        mentor.id,
+      ).filter(
+        (child: AgentState) =>
+          child.life.ageYears < mentorWorld.releaseAgeYears,
+      );
       if (students.length === 0) continue;
 
       const currentPlaceId = students[0]?.locationId;
