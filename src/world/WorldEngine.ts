@@ -8275,7 +8275,9 @@ export class WorldEngine {
   private youngChildMayTravelTo(
     child: Readonly<AgentState>,
     destinationId: string,
+    mentorGuided = false,
   ): boolean {
+    if (mentorGuided && isMentoredMinorV1(this.state, child)) return true;
     return youngChildMayTravelToV21(this.state, child, destinationId);
   }
 
@@ -8505,8 +8507,15 @@ export class WorldEngine {
     now: number,
     travelAction: AgentActionKind = 'walk',
   ): boolean {
-    if (!mayKnowPlaceV20(agent, destinationId, this.state)) return true;
-    if (!this.youngChildMayTravelTo(agent, destinationId)) {
+    const mentor = isMentoredMinorV1(this.state, agent)
+      ? assignedFoundingMentorV1(this.state, agent.id)
+      : undefined;
+    const mentorGuided =
+      mentor !== undefined &&
+      mentor.status === 'caregiving' &&
+      destinationId === mentorTeachingPlaceV1(this.state, mentor, agent.life.ageYears);
+    if (!mentorGuided && !mayKnowPlaceV20(agent, destinationId, this.state)) return true;
+    if (!this.youngChildMayTravelTo(agent, destinationId, mentorGuided)) {
       recordDeferredChildTripV21(this.state, agent);
       agent.energy = clamp01(agent.energy - 0.003);
       agent.needs.purpose = clamp01(agent.needs.purpose + 0.003);
