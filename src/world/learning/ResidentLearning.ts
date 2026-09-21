@@ -2,6 +2,7 @@ import type { AgentActionKind, AgentState } from '../types';
 import type { ResidentLearningContext, LifeProblem, ResidentLearningState, AttemptResult } from './types';
 import { MAX_LEARNED_METHODS, MAX_RECENT_ATTEMPTS } from './types';
 import { PROBLEM_LABELS, noticeLifeProblem, observeOwnLife, observedEffect } from './LifeObservation';
+import { brainDevelopmentProfileV1 } from '../../iskorka/BrainLifecycleV1';
 import { recalled, predictedEffect, relevantKnowledge } from './MethodMemory';
 const PROBLEMS = Object.keys(PROBLEM_LABELS) as LifeProblem[];
 const clamp = (n: number, low = 0, high = 1) => Math.max(low, Math.min(high, n));
@@ -99,7 +100,15 @@ export function finishLearningAttempt(context: Readonly<ResidentLearningContext>
   method.trials++;
   if(outcome==='helped')method.successes++;else method.failures++;
   // Recency weighting allows evidence to overturn an old habit when conditions change.
-  const learningRate=method.trials===1?1:0.28;
+  const development=brainDevelopmentProfileV1(agent.life.ageYears);
+  const baseLearningRate=method.trials===1?1:0.28;
+  // Development changes how quickly a lived attempt is consolidated. Existing
+  // methods are not erased merely because the resident becomes old.
+  const learningRate=clamp(
+    baseLearningRate*(0.25+development.proceduralLearning*0.75),
+    0,
+    1,
+  );
   method.expectedGain=clamp(method.expectedGain*(1-learningRate)+gain*learningRate,-1,1);
   for(const problem of PROBLEMS) {
     method.observedEffects[problem]=clamp(method.observedEffects[problem]*(1-learningRate)+

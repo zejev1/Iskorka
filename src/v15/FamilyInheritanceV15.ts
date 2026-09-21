@@ -174,14 +174,14 @@ function validateParent(parent: ParentForInheritanceV15): void {
  * preserved WorldEngine and layers v15 protected family/personhood traits on
  * top without coupling intimacy to child desire.
  *
- * Exact preserved pieces:
+ * Preserved physical/temperament pieces:
  * - personality parent mean ±0.08;
  * - socialDrive parent mean ±0.05;
- * - values parent mean ±0.04;
- * - beliefs parent mean ±0.035;
- * - skills parent mean ±0.03, then child multipliers:
- *   gathering .18, hunting .12, craft .18, social .24, exploration .20;
  * - generation = max(parent generations)+1;
+ *
+ * Iskorka-specific correction:
+ * - acquired values, beliefs and skills are NOT inherited by a newborn;
+ * - their legacy structural fields start at zero and must be formed by life;
  * - home = parent with greater/equal resources (left wins ties);
  * - race inherited from the left/a parent;
  * - sex from next()<.5;
@@ -238,47 +238,31 @@ export function deriveChildContinuityBlueprintV15(
     ),
   };
 
+  // Iskorka correction: a newborn receives temperament and physical lineage,
+  // never acquired values, beliefs or practiced skills from either parent.
+  // These legacy fields remain structurally present until the finite BrainCore
+  // replaces them, but their newborn content starts blank.
   const values: InheritableValuesV15 = {
-    care: blend(a.values.care, b.values.care, 0.04, source),
-    freedom: blend(a.values.freedom, b.values.freedom, 0.04, source),
-    knowledge: blend(a.values.knowledge, b.values.knowledge, 0.04, source),
-    tradition: blend(a.values.tradition, b.values.tradition, 0.04, source),
-    ambition: blend(a.values.ambition, b.values.ambition, 0.04, source),
+    care: 0,
+    freedom: 0,
+    knowledge: 0,
+    tradition: 0,
+    ambition: 0,
   };
 
   const beliefs: InheritableBeliefsV15 = {
-    worldTrust: blend(
-      a.beliefs.worldTrust,
-      b.beliefs.worldTrust,
-      0.035,
-      source,
-    ),
-    divinePresence: blend(
-      a.beliefs.divinePresence,
-      b.beliefs.divinePresence,
-      0.035,
-      source,
-    ),
-    fate: blend(a.beliefs.fate, b.beliefs.fate, 0.035, source),
-    afterlife: blend(
-      a.beliefs.afterlife,
-      b.beliefs.afterlife,
-      0.035,
-      source,
-    ),
+    worldTrust: 0,
+    divinePresence: 0,
+    fate: 0,
+    afterlife: 0,
   };
 
   const skills: InheritableSkillsV15 = {
-    gathering:
-      blend(a.skills.gathering, b.skills.gathering, 0.03, source) * 0.18,
-    hunting:
-      blend(a.skills.hunting, b.skills.hunting, 0.03, source) * 0.12,
-    craft:
-      blend(a.skills.craft, b.skills.craft, 0.03, source) * 0.18,
-    social:
-      blend(a.skills.social, b.skills.social, 0.03, source) * 0.24,
-    exploration:
-      blend(a.skills.exploration, b.skills.exploration, 0.03, source) * 0.2,
+    gathering: 0,
+    hunting: 0,
+    craft: 0,
+    social: 0,
+    exploration: 0,
   };
 
   /**

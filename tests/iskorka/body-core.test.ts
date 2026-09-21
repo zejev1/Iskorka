@@ -334,3 +334,22 @@ test('physiology no longer hydrates or eliminates without concrete body actions'
   assert.ok(core.homeostasis.bladderFill < 0.2);
   assert.ok(core.homeostasis.bowelLoad < 0.3);
 });
+
+
+test('BodyCore uses realistic infant mass growth instead of freezing near newborn mass', async () => {
+  const { world } = await create('infant-growth-seed', 'infant-growth-world');
+  const infant = world.agents.agent_1;
+  const body = world.v21!.bodiesByAgentId[infant.id];
+  const adultMass = body.bodyCore!.phenotype.massKg;
+  const adultHeight = body.bodyCore!.phenotype.heightM;
+
+  infant.life.ageYears = 0.75;
+  infant.life.stage = 'child';
+  const core = ensureBodyCoreV1(world, infant, body)!;
+
+  const massRatio = core.phenotype.massKg / adultMass;
+  const heightRatio = core.phenotype.heightM / adultHeight;
+  assert.ok(massRatio >= 0.11 && massRatio <= 0.13);
+  assert.ok(heightRatio >= 0.40 && heightRatio <= 0.42);
+  assert.equal(core.homeostasis.sexualArousal, undefined);
+});
