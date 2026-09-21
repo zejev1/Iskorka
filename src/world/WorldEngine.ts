@@ -53,6 +53,7 @@ import {
   assertFoundationWellsV1,
   ensureFoundationWellsV1,
   refillHomeWaterFromWellV1,
+  synchronizeFoundationWellWaterV1,
 } from '../iskorka/FoundationWaterV1';
 import {
   FOUNDING_SPARK_START_AGE_YEARS_V1,
@@ -7239,6 +7240,7 @@ export class WorldEngine {
             homeId,
             currentPlaceId,
             18,
+            worldMinute,
           );
           if (fetchedLitres > 0) {
             this.stageEvent({
@@ -16734,6 +16736,9 @@ export class WorldEngine {
       wakeDueSleepingBodiesV21(this.state, minute);
       this.finishSecretLibraryAdmissions(minute, this.state.now);
     }
+    // Water volume is a deterministic projection of canonical elapsed time
+    // and cumulative withdrawals, never of how the caller partitioned frames.
+    synchronizeFoundationWellWaterV1(this.state, end);
   }
 
   private advanceAgentMovement(
