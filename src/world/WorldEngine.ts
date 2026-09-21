@@ -520,6 +520,7 @@ const PLACE_KINDS: readonly WorldPlaceKind[] = [
   'library',
   'resource_field',
   'workshop',
+  'well',
   'quiet_space',
   'outskirts',
   'meadow',
