@@ -353,3 +353,29 @@ test('BodyCore uses realistic infant mass growth instead of freezing near newbor
   assert.ok(heightRatio >= 0.40 && heightRatio <= 0.42);
   assert.equal(core.homeostasis.sexualArousal, undefined);
 });
+
+
+test('existing BodyCore save repairs missing interoception sensitivity deterministically', async () => {
+  const { world } = await create('interoception-repair-seed', 'interoception-repair-world');
+  const legacy = structuredClone(world);
+  for (const body of Object.values(legacy.v21!.bodiesByAgentId)) {
+    if (!body.bodyCore) continue;
+    delete (body.bodyCore.phenotype as typeof body.bodyCore.phenotype & {
+      interoceptionSensitivity?: number;
+    }).interoceptionSensitivity;
+  }
+
+  const store = new InMemoryWorldStore();
+  await store.initializeWorld(legacy);
+  const reopened = await IskorkaRuntime.openOrCreate(
+    store,
+    'ignored',
+    legacy.id,
+  );
+  for (const body of Object.values(reopened.snapshot().v21!.bodiesByAgentId)) {
+    assert.ok(body.bodyCore);
+    assert.equal(typeof body.bodyCore!.phenotype.interoceptionSensitivity, 'number');
+    assert.ok(body.bodyCore!.phenotype.interoceptionSensitivity >= 0.52);
+    assert.ok(body.bodyCore!.phenotype.interoceptionSensitivity <= 0.96);
+  }
+});
