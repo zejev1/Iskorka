@@ -1,4 +1,5 @@
 import type { AgentState, WorldState } from '../world/types';
+import type { BodyCoreV1 } from './BodyCoreV1';
 import { bodySignalsV1, type BodySignalsV1 } from './BodyCoreV1';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 import {
@@ -45,11 +46,46 @@ function unavailableInteroception(): Record<HumanBodySignalKindV1, SubjectiveSig
   ) as Record<HumanBodySignalKindV1, SubjectiveSignalV1>;
 }
 
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+function stableUnit(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+function subjectiveSignalV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  core: Readonly<BodyCoreV1>,
+  key: HumanBodySignalKindV1,
+  raw: number,
+): SubjectiveSignalV1 {
+  const sensitivity = core.phenotype.interoceptionSensitivity;
+  const stableBias =
+    (stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:${key}:interoception`) - 0.5) *
+    (1 - sensitivity) *
+    0.22;
+  const gain = 0.72 + sensitivity * 0.32;
+  const threshold = (1 - sensitivity) * 0.06;
+  const perceived = clamp01(raw * gain + stableBias);
+  return availableSignalV1(perceived < threshold ? 0 : perceived);
+}
+
 function interoceptionFromSignals(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  core: Readonly<BodyCoreV1>,
   signals: Readonly<BodySignalsV1>,
 ): Record<HumanBodySignalKindV1, SubjectiveSignalV1> {
   return Object.fromEntries(
-    BODY_SIGNAL_KEYS.map((key) => [key, availableSignalV1(signals[key])]),
+    BODY_SIGNAL_KEYS.map((key) => [
+      key,
+      subjectiveSignalV1(world, agent, core, key, signals[key]),
+    ]),
   ) as Record<HumanBodySignalKindV1, SubjectiveSignalV1>;
 }
 
@@ -72,7 +108,12 @@ export function humanBodyPerceptV1(
     brainLifePhase: development.phase,
     interoception:
       body && core
-        ? interoceptionFromSignals(bodySignalsV1(agent, body, core))
+        ? interoceptionFromSignals(
+            world,
+            agent,
+            core,
+            bodySignalsV1(agent, body, core),
+          )
         : unavailableInteroception(),
   };
 }
@@ -88,7 +129,6 @@ function localObservationsV1(
       objectId: current.id,
       kind: 'place',
       relation: 'here',
-      observedLabel: current.name,
     });
     for (const id of current.connectedPlaceIds) {
       if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
@@ -104,7 +144,6 @@ function localObservationsV1(
         objectId: place.id,
         kind: 'place',
         relation: 'connected_visible',
-        observedLabel: place.name,
       });
     }
   }
@@ -125,7 +164,6 @@ function localObservationsV1(
         objectId: other.id,
         kind: 'person',
         relation: 'co_located',
-        observedLabel: other.name,
       });
     }
   }
