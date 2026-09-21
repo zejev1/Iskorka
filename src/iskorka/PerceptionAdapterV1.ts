@@ -61,73 +61,73 @@ function stableUnit(value: string): number {
   return (hash >>> 0) / 0xffffffff;
 }
 
+interface AgentPerceptionNoiseV1 {
+  seedKey: string;
+  interoceptionUnitBySignal: Partial<Record<HumanBodySignalKindV1, number>>;
+  visionNoiseByObjectId: Map<string, { biasUnit: number; thresholdUnit: number }>;
+}
+
 interface PerceptionNoiseCacheV1 {
-  interoceptionUnitByKey: Map<string, number>;
-  visionNoiseByKey: Map<string, { biasUnit: number; thresholdUnit: number }>;
+  byAgentId: Map<string, AgentPerceptionNoiseV1>;
 }
 
 const perceptionNoiseByWorldV1 = new WeakMap<object, PerceptionNoiseCacheV1>();
 
-function noiseCacheV1(world: Readonly<WorldState>): PerceptionNoiseCacheV1 {
-  let cache = perceptionNoiseByWorldV1.get(world as object);
-  if (!cache) {
-    cache = {
-      interoceptionUnitByKey: new Map(),
-      visionNoiseByKey: new Map(),
-    };
-    perceptionNoiseByWorldV1.set(world as object, cache);
-  }
-  return cache;
-}
-
-function perceptionEpochKeyV1(
+function agentNoiseV1(
   world: Readonly<WorldState>,
   agentId: string,
-): string {
-  return `${world.bootstrapSeed ?? world.id}:${world.epoch ?? 1}:${agentId}`;
+): AgentPerceptionNoiseV1 {
+  let worldCache = perceptionNoiseByWorldV1.get(world as object);
+  if (!worldCache) {
+    worldCache = { byAgentId: new Map() };
+    perceptionNoiseByWorldV1.set(world as object, worldCache);
+  }
+  let noise = worldCache.byAgentId.get(agentId);
+  if (!noise) {
+    noise = {
+      seedKey: `${world.bootstrapSeed ?? world.id}:${world.epoch ?? 1}:${agentId}`,
+      interoceptionUnitBySignal: {},
+      visionNoiseByObjectId: new Map(),
+    };
+    worldCache.byAgentId.set(agentId, noise);
+  }
+  return noise;
 }
 
 function cachedInteroceptionUnitV1(
-  world: Readonly<WorldState>,
-  agentId: string,
-  signal: string,
+  noise: AgentPerceptionNoiseV1,
+  signal: HumanBodySignalKindV1,
 ): number {
-  const cache = noiseCacheV1(world).interoceptionUnitByKey;
-  const key = `${perceptionEpochKeyV1(world, agentId)}:${signal}`;
-  const prior = cache.get(key);
+  const prior = noise.interoceptionUnitBySignal[signal];
   if (prior !== undefined) return prior;
-  const value = stableUnit(`${key}:interoception`);
-  cache.set(key, value);
+  const value = stableUnit(`${noise.seedKey}:${signal}:interoception`);
+  noise.interoceptionUnitBySignal[signal] = value;
   return value;
 }
 
 function cachedVisionNoiseV1(
-  world: Readonly<WorldState>,
-  agentId: string,
+  noise: AgentPerceptionNoiseV1,
   objectId: string,
 ): { biasUnit: number; thresholdUnit: number } {
-  const cache = noiseCacheV1(world).visionNoiseByKey;
-  const key = `${perceptionEpochKeyV1(world, agentId)}:${objectId}`;
-  const prior = cache.get(key);
+  const prior = noise.visionNoiseByObjectId.get(objectId);
   if (prior) return prior;
   const value = {
-    biasUnit: stableUnit(`${key}:vision`),
-    thresholdUnit: stableUnit(`${key}:recognition`),
+    biasUnit: stableUnit(`${noise.seedKey}:${objectId}:vision`),
+    thresholdUnit: stableUnit(`${noise.seedKey}:${objectId}:recognition`),
   };
-  cache.set(key, value);
+  noise.visionNoiseByObjectId.set(objectId, value);
   return value;
 }
 
 function subjectiveSignalV1(
-  world: Readonly<WorldState>,
-  agent: Readonly<AgentState>,
+  noise: AgentPerceptionNoiseV1,
   core: Readonly<BodyCoreV1>,
   key: HumanBodySignalKindV1,
   raw: number,
 ): SubjectiveSignalV1 {
   const sensitivity = core.phenotype.interoceptionSensitivity;
   const stableBias =
-    (cachedInteroceptionUnitV1(world, agent.id, key) - 0.5) *
+    (cachedInteroceptionUnitV1(noise, key) - 0.5) *
     (1 - sensitivity) *
     0.22;
   const gain = 0.72 + sensitivity * 0.32;
@@ -137,17 +137,15 @@ function subjectiveSignalV1(
 }
 
 function interoceptionFromSignals(
-  world: Readonly<WorldState>,
-  agent: Readonly<AgentState>,
+  noise: AgentPerceptionNoiseV1,
   core: Readonly<BodyCoreV1>,
   signals: Readonly<BodySignalsV1>,
 ): Record<HumanBodySignalKindV1, SubjectiveSignalV1> {
-  return Object.fromEntries(
-    BODY_SIGNAL_KEYS.map((key) => [
-      key,
-      subjectiveSignalV1(world, agent, core, key, signals[key]),
-    ]),
-  ) as Record<HumanBodySignalKindV1, SubjectiveSignalV1>;
+  const result = {} as Record<HumanBodySignalKindV1, SubjectiveSignalV1>;
+  for (const key of BODY_SIGNAL_KEYS) {
+    result[key] = subjectiveSignalV1(noise, core, key, signals[key]);
+  }
+  return result;
 }
 
 /**
@@ -170,8 +168,7 @@ export function humanBodyPerceptV1(
     interoception:
       body && core
         ? interoceptionFromSignals(
-            world,
-            agent,
+            agentNoiseV1(world, agent.id),
             core,
             bodySignalsV1(agent, body, core),
           )
@@ -204,32 +201,24 @@ function visionCapacityV1(
   };
 }
 
-function visualConfidenceV1(
-  world: Readonly<WorldState>,
-  agent: Readonly<AgentState>,
+function visualAssessmentV1(
+  noise: AgentPerceptionNoiseV1,
   objectId: string,
   distance: number,
   capacity: number,
   reach: number,
-): number {
-  if (!(capacity > 0) || !(reach > 0)) return 0;
+): { confidence: number; recognized: boolean } {
+  if (!(capacity > 0) || !(reach > 0)) {
+    return { confidence: 0, recognized: false };
+  }
+  const deterministic = cachedVisionNoiseV1(noise, objectId);
   const distanceFactor = clamp01(1 - distance / Math.max(1, reach));
-  const stableBias =
-    (cachedVisionNoiseV1(world, agent.id, objectId).biasUnit - 0.5) *
-    0.16;
-  return clamp01(capacity * 0.64 + distanceFactor * 0.3 + stableBias);
-}
-
-function recognizedVisuallyV1(
-  world: Readonly<WorldState>,
-  agent: Readonly<AgentState>,
-  objectId: string,
-  confidence: number,
-): boolean {
-  const threshold =
-    0.22 +
-    cachedVisionNoiseV1(world, agent.id, objectId).thresholdUnit * 0.22;
-  return confidence >= threshold;
+  const stableBias = (deterministic.biasUnit - 0.5) * 0.16;
+  const confidence = clamp01(
+    capacity * 0.64 + distanceFactor * 0.3 + stableBias,
+  );
+  const threshold = 0.22 + deterministic.thresholdUnit * 0.22;
+  return { confidence, recognized: confidence >= threshold };
 }
 
 function localObservationsV1(
@@ -240,23 +229,23 @@ function localObservationsV1(
   const result: LocalObservationV1[] = [];
   const current = world.places[agent.locationId];
   const vision = visionCapacityV1(world, agent);
+  const noise = agentNoiseV1(world, agent.id);
   if (!current || vision.capacity <= 0) return result;
 
-  const hereConfidence = visualConfidenceV1(
-    world,
-    agent,
+  const here = visualAssessmentV1(
+    noise,
     current.id,
     0,
     vision.capacity,
     vision.reach,
   );
-  if (recognizedVisuallyV1(world, agent, current.id, hereConfidence)) {
+  if (here.recognized) {
     result.push({
       objectId: current.id,
       kind: 'place',
       relation: 'here',
       channel: 'vision',
-      confidence: hereConfidence,
+      confidence: here.confidence,
     });
   }
 
@@ -269,21 +258,20 @@ function localObservationsV1(
       place.mapY - agent.position.y,
     );
     if (distance > vision.reach) continue;
-    const confidence = visualConfidenceV1(
-      world,
-      agent,
+    const assessment = visualAssessmentV1(
+      noise,
       place.id,
       distance,
       vision.capacity,
       vision.reach,
     );
-    if (!recognizedVisuallyV1(world, agent, place.id, confidence)) continue;
+    if (!assessment.recognized) continue;
     result.push({
       objectId: place.id,
       kind: 'place',
       relation: 'connected_visible',
       channel: 'vision',
-      confidence,
+      confidence: assessment.confidence,
     });
   }
 
@@ -300,15 +288,14 @@ function localObservationsV1(
         other.position.x - agent.position.x,
         other.position.y - agent.position.y,
       );
-      const confidence = visualConfidenceV1(
-        world,
-        agent,
+      const assessment = visualAssessmentV1(
+        noise,
         other.id,
         distance,
         vision.capacity,
         Math.max(8, vision.reach),
       );
-      if (!recognizedVisuallyV1(world, agent, other.id, confidence)) continue;
+      if (!assessment.recognized) continue;
       const observedAction =
         other.movement?.purpose ??
         (other.lastMeaningfulEventAt === world.now ? other.lastAction : undefined);
@@ -317,7 +304,7 @@ function localObservationsV1(
         kind: 'person',
         relation: 'co_located',
         channel: 'vision',
-        confidence,
+        confidence: assessment.confidence,
         ...(observedAction ? { observedAction } : {}),
       });
     }
@@ -329,21 +316,20 @@ function localObservationsV1(
       .sort((a, b) => a.id.localeCompare(b.id));
     for (const entry of remains) {
       if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
-      const confidence = visualConfidenceV1(
-        world,
-        agent,
+      const assessment = visualAssessmentV1(
+        noise,
         entry.id,
         0,
         vision.capacity,
         Math.max(8, vision.reach),
       );
-      if (!recognizedVisuallyV1(world, agent, entry.id, confidence)) continue;
+      if (!assessment.recognized) continue;
       result.push({
         objectId: entry.id,
         kind: 'remains',
         relation: 'co_located',
         channel: 'vision',
-        confidence,
+        confidence: assessment.confidence,
         subjectObjectId: entry.agentId,
         eventKind: 'apparent_death',
       });
