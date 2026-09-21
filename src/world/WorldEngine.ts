@@ -28,6 +28,7 @@ import {
   ensureWorldBrainRegistryV1,
   importLegacyPersistentMemoriesV1,
   retireBrainOwnerV1,
+  synchronizeLegacyOwnedStateV1,
 } from '../iskorka/BrainStateAdapterV1';
 import { tryStoreBrainDatumV1 } from '../iskorka/BrainStateV1';
 import {
@@ -5875,8 +5876,16 @@ export class WorldEngine {
       try {
         await apply();
         this.syncDeterminismState();
+        if (isIskorkaWorld(this.state)) {
+          for (const agent of Object.values(this.state.agents)) {
+            if (!agent.life.alive || (agent.race ?? 'human') !== 'human') continue;
+            const brain = ensureBrainForAgentV1(this.state, agent);
+            if (!brain) throw new Error(`Living human ${agent.id} has no BrainState.`);
+            synchronizeLegacyOwnedStateV1(this.state, agent, brain);
+          }
+          assertWorldBrainRegistryV1(this.state);
+        }
         this.state.revision = before.revision + 1;
-        if (isIskorkaWorld(this.state)) assertWorldBrainRegistryV1(this.state);
         assertWorldState(this.state);
 
         const result = await this.store.commit({
