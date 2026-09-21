@@ -275,7 +275,10 @@ function mentorDomainAtCurrentPlaceV1(
   placeId: string,
   studentAgeYears: number,
 ): GenesisDomain | 'language' {
-  if (studentAgeYears < 3) return 'language';
+  // Before the existing knowledge-transfer system's minimum learning age,
+  // mentors still talk, demonstrate and let children observe, but no adult
+  // agriculture/construction/household/survival lesson is written.
+  if (studentAgeYears < 5) return 'language';
   if (placeId === 'resource_field') return 'agriculture';
   if (placeId === 'workshop') return 'construction';
   if (
