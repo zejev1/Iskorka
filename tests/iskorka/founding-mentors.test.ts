@@ -234,10 +234,18 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
   assert.ok(Object.values(world.agents).some((agent) => agent.lastDecision !== undefined));
 });
 
-test('mentors are visible/hearable to Sparks while active, not hidden data injectors', async () => {
+test('mentors become visible/hearable through the same perception boundary, not hidden data injection', async () => {
   const { world } = await create('mentor-perception', 'mentor-perception-world');
   const spark = world.agents.agent_1;
+  // At six months the visual system is intentionally immature. By toddler age
+  // a nearby caregiver is expected to be represented as a distinct person.
+  spark.life.ageYears = 2;
+  spark.life.stage = 'child';
+  updateMentorTeachingPositionsV1(world);
   const mentor = assignedFoundingMentorV1(world, spark.id)!;
+  spark.locationId = mentor.locationId;
+  spark.position = { x: mentor.position.x, y: mentor.position.y, layerId: 'surface' };
+
   const first = perceptBatchForAgentV1(world, spark.id);
   assert.ok(first.localObservations.some((observation) => observation.objectId === mentor.id));
 
