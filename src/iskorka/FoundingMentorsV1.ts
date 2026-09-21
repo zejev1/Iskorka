@@ -81,7 +81,7 @@ export interface FoundingMentorWorldStateV1 {
   totalCareActions: number;
 }
 
-const MENTOR_SPECS: readonly Array<{
+const MENTOR_SPECS: ReadonlyArray<{
   id: string;
   name: string;
   role: FoundingMentorRoleV1;
