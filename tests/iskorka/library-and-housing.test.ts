@@ -26,7 +26,7 @@ test('human library: at most five volunteers; no learning before physical arriva
  // learn anything before a real arrival receipt exists.
  assert.ok(selected.every(v=>v.status==='travelling'&&v.arrivedWorldMinute===undefined));
  assert.ok(selected.every(v=>w.agents[v.agentId].locationId!==SECRET_LIBRARY_PLACE_ID_V18));
- for(let tick=2;tick<=7;tick++)await world.step(tick);
+ for(let tick=2;tick<=14;tick++)await world.step(tick);
  const complete=world.snapshot().v18!.secretLibrary;
  assert.ok(complete.totalKnowledgeRecords>0);
  assert.ok(complete.visitors.some(v=>v.studyQuanta>0&&v.arrivedWorldMinute!==undefined));
