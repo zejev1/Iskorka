@@ -3,6 +3,7 @@ import type { AgentState, MemoryRecord, WorldState } from '../world/types';
 import {
   assertBrainStateV1,
   createBrainStateV1,
+  invalidateBrainLogicalByteCacheV1,
   logicalBrainBytesV1,
   tryStoreBrainDatumV1,
   type BrainBudgetSectionV1,
@@ -112,6 +113,7 @@ function importLegacyOwnedStateV1(
   brain.migration.importedAtWorldMinute = world.calendar.elapsedWorldMinutes;
   brain.migration.sourceWorldRevision = world.revision;
   brain.migration.importedDatumIds = brain.data.map((datum) => datum.id);
+  invalidateBrainLogicalByteCacheV1(brain);
   assertBrainStateV1(brain);
 }
 
@@ -157,6 +159,7 @@ export function synchronizeLegacyOwnedStateV1(
   agent: Readonly<AgentState>,
   brain: BrainStateV1,
 ): void {
+  invalidateBrainLogicalByteCacheV1(brain);
   const retained = brain.data.filter(
     (datum) => !SYNCHRONIZED_LEGACY_DATUM_IDS_V1.has(datum.id),
   );
@@ -220,7 +223,7 @@ export function synchronizeLegacyOwnedStateV1(
       ...next.map((datum) => datum.id),
     ]),
   ];
-  assertBrainStateV1(brain);
+  invalidateBrainLogicalByteCacheV1(brain);
 }
 
 export function importLegacyPersistentMemoriesV1(
@@ -251,6 +254,7 @@ export function importLegacyPersistentMemoriesV1(
   if (!brain.migration.importedDatumIds.includes(datumId)) {
     brain.migration.importedDatumIds.push(datumId);
   }
+  invalidateBrainLogicalByteCacheV1(brain);
   assertBrainStateV1(brain);
 }
 
