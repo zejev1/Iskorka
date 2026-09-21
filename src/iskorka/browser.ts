@@ -235,6 +235,30 @@ function storagePanelHtml():string {
   const usage=storageStatus.usageBytes===undefined?'—':bytes(storageStatus.usageBytes);
   return `<section class="storage-card ${risk?'storage-risk':''}"><div><span class="eyebrow">ЛОКАЛЬНОЕ ХРАНИЛИЩЕ</span><strong>${escape(storageSummary())}</strong><p>${risk?'IndexedDB работает и мир сохраняется, но браузер не дал дополнительную защиту от автоматической очистки. Это не ошибка симуляции.':'Мир хранится локально в IndexedDB на постоянном origin.'}</p></div><div class="storage-mini"><span>Использовано ${escape(usage)}</span><span>Квота ${escape(quota)}</span></div>${risk||storageStatus.durability==='unknown'?'<button id="retry-storage" type="button">Повторить запрос защиты</button>':''}</section>`;
 }
+async function refreshStorageStatusV1(requestProtection=false):Promise<void>{
+  if(requestProtection)await requestDurableBrowserStorage(navigator.storage);
+  storageStatus=await browserStorageStatusV1(navigator.storage);
+}
+async function retryStorageProtection(button:HTMLButtonElement):Promise<void>{
+  button.disabled=true;
+  button.textContent='Проверяю…';
+  await refreshStorageStatusV1(true);
+  if(storageStatus.durability==='durable')notice('Хранилище защищено браузером.',3500);
+  renderPanel();
+  if(latest)updateSaveState(latest.world);
+}
+function updateSaveState(w:WorldState):void {
+  const el=$('save-state');
+  const suffix=storageStatus.durability==='durable'?' · ✓':
+    storageStatus.durability==='best_effort'?' · ⚠':'';
+  el.textContent='Сохранено · '+number(w.revision)+suffix;
+  el.classList.toggle('storage-risk',storageStatus.durability==='best_effort');
+  el.title=storageStatus.durability==='best_effort'
+    ? 'IndexedDB работает, но браузер не гарантировал защиту от автоматической очистки.'
+    : storageStatus.durability==='durable'
+      ? 'Браузер подтвердил защищённое постоянное хранилище.'
+      : 'Мир сохранён в IndexedDB.';
+}
 function renderAgentAnalytics(a:AgentState,w:WorldState):string {
   const snapshot=buildAgentAnalyticsV1(w,a.id);
   const body=snapshot.body;
@@ -322,7 +346,7 @@ function display(frame:WorldFrame):void {
   $('pause').textContent=frame.paused?'▶ Запустить':'Ⅱ Пауза';
   ($('speed') as HTMLSelectElement).value=frame.speed;
   ($('step') as HTMLButtonElement).disabled=!ready||!frame.paused;
-  $('save-state').textContent='Сохранено · '+number(w.revision);
+  updateSaveState(w);
   $('pace').textContent=frame.paused?'На паузе':
     frame.speed==='realtime'?'1 мин мира = 1 мин реального времени':
     `Цель: ${frame.speed==='fast'?'10 лет':frame.speed==='slow'?'день':'год'} / мин`;
@@ -342,10 +366,8 @@ $('reset-dialog').addEventListener('close',()=>{
 
 async function launch():Promise<void>{
   if(!('Worker' in window)||!('indexedDB' in window))throw new Error('Браузер не поддерживает Worker или IndexedDB.');
-  const durable = await requestDurableBrowserStorage(navigator.storage);
-  if (durable === false) {
-    notice('Браузер не дал постоянное хранилище. Не очищайте данные сайта, иначе локальный мир будет удалён.');
-  }
+  await requestDurableBrowserStorage(navigator.storage);
+  storageStatus=await browserStorageStatusV1(navigator.storage);
   let settings:{paused:boolean;speed:Speed}={paused:false,speed:'normal'};
   try{const saved=JSON.parse(localStorage.getItem('iskorka-view-settings')??'null');if(saved&&typeof saved.paused==='boolean'&&Object.hasOwn(MINUTES_PER_SECOND,saved.speed))settings=saved;}catch{}
   worker=new Worker(new URL('./worker.js',import.meta.url),{type:'module',name:'iskorka-world'});
