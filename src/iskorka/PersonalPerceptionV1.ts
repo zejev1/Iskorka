@@ -1,5 +1,6 @@
 import type { AgentState, WorldState } from '../world/types';
 import {
+  BRAIN_BODY_SIGNAL_ORDER_V1,
   BRAIN_LOGICAL_BUDGET_BYTES_V1,
   invalidateBrainPerceptionByteCacheV1,
   logicalBrainBytesV1,
@@ -106,19 +107,11 @@ function ensureReferenceV1(
   return reference;
 }
 
-function bodySignalsFromBatchV1(batch: Readonly<PerceptBatchV1>) {
-  return Object.entries(batch.body.interoception).map(([kind, signal]) =>
-    signal.availability === 'available'
-      ? {
-          kind,
-          availability: 'available' as const,
-          intensity: signal.intensity,
-        }
-      : {
-          kind,
-          availability: 'unavailable' as const,
-        },
-  );
+function bodySignalsFromBatchV1(batch: Readonly<PerceptBatchV1>): number[] {
+  return BRAIN_BODY_SIGNAL_ORDER_V1.map((kind) => {
+    const signal = batch.body.interoception[kind];
+    return signal.availability === 'available' ? signal.intensity : -1;
+  });
 }
 
 function observationForBrainV1(
