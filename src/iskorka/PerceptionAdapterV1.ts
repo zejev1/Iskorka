@@ -2,10 +2,7 @@ import type { AgentState, WorldState } from '../world/types';
 import type { BodyCoreV1 } from './BodyCoreV1';
 import { bodySignalsV1, type BodySignalsV1 } from './BodyCoreV1';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
-import {
-  humanVisualCapacityV1,
-  humanVisionDevelopmentV1,
-} from './HumanVisionDevelopmentV1';
+import { humanVisionDevelopmentV1 } from './HumanVisionDevelopmentV1';
 import {
   PORTABLE_HUMAN_CONTRACT_VERSION_V1,
   availableSignalV1,
@@ -190,10 +187,13 @@ function visionCapacityV1(
   const core = body?.bodyCore;
   if (!body || !core) return { capacity: 0, reach: 0 };
   const development = humanVisionDevelopmentV1(agent.life.ageYears);
-  const capacity = humanVisualCapacityV1(
-    agent.life.ageYears,
-    core.phenotype.visualAcuityBaseline,
-    body.systems.nervous,
+  const capacity = clamp01(
+    development.acuityScale * 0.42 +
+    development.contrastScale * 0.18 +
+    development.motionScale * 0.12 +
+    development.recognitionReachScale * 0.18 +
+    core.phenotype.visualAcuityBaseline * 0.07 +
+    body.systems.nervous * 0.03,
   );
   return {
     capacity,
