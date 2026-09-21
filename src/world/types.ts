@@ -1135,6 +1135,8 @@ export interface WorldState {
   simulationProfile?: 'iskorka-human-lab-v1';
   /** Finite personal brain packets; absent only in saves predating BrainState v1 migration. */
   iskorkaBrainV1?: import('../iskorka/BrainStateAdapterV1').WorldBrainRegistryV1;
+  /** Five scripted founding caregivers/teachers; never ordinary Spark population. */
+  iskorkaMentorsV1?: import('../iskorka/FoundingMentorsV1').FoundingMentorWorldStateV1;
   bootstrapSeed?: string;
   cartography?: import('./ResidentCartography').WorldCartography;
   terrain?: TerrainFoundation;
