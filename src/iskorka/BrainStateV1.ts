@@ -1,5 +1,3 @@
-import { stableJsonStringify } from '../core/stableJson';
-
 export const BRAIN_STATE_VERSION_V1 = 1 as const;
 export const BRAIN_LOGICAL_BUDGET_BYTES_V1 = 256 * 1024;
 
@@ -70,8 +68,41 @@ export interface BrainStateV1 {
 const encoder = new TextEncoder();
 const logicalByteCache = new WeakMap<object, number>();
 
-function encodedBytesV1(value: unknown): number {
-  return encoder.encode(stableJsonStringify(value)).byteLength;
+const BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 = 192;
+const BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 = 24;
+const BRAIN_WORKING_STEP_FIXED_LOGICAL_BYTES_V1 = 32;
+const BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 = 4;
+
+const utf8BytesV1 = (value: string): number => encoder.encode(value).byteLength;
+
+/**
+ * Logical brain bytes are an explicit allocator, not JSON file size or JS heap
+ * size. Every acquired payload byte is charged once, together with bounded
+ * metadata/index overhead. This keeps the 256 KiB ceiling exact and cheap even
+ * when the persistent representation later changes.
+ */
+export function brainDatumLogicalBytesV1(datum: Readonly<BrainDatumV1>): number {
+  return (
+    BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 +
+    utf8BytesV1(datum.id) +
+    utf8BytesV1(datum.section) +
+    utf8BytesV1(datum.kind) +
+    utf8BytesV1(datum.source) +
+    utf8BytesV1(datum.encoded)
+  );
+}
+
+function workingStepLogicalBytesV1(
+  step: Readonly<BrainWorkingStepV1> | undefined,
+): number {
+  if (!step) return 0;
+  return (
+    BRAIN_WORKING_STEP_FIXED_LOGICAL_BYTES_V1 +
+    utf8BytesV1(step.stepId) +
+    utf8BytesV1(step.phase) +
+    utf8BytesV1(step.action ?? '') +
+    utf8BytesV1(step.targetObjectId ?? '')
+  );
 }
 
 export function invalidateBrainLogicalByteCacheV1(brain: Readonly<BrainStateV1>): void {
@@ -81,7 +112,19 @@ export function invalidateBrainLogicalByteCacheV1(brain: Readonly<BrainStateV1>)
 export function logicalBrainBytesV1(brain: Readonly<BrainStateV1>): number {
   const cached = logicalByteCache.get(brain as object);
   if (cached !== undefined) return cached;
-  const bytes = encodedBytesV1(brain);
+  const bytes =
+    BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 +
+    utf8BytesV1(brain.ownerAgentId) +
+    workingStepLogicalBytesV1(brain.workingStep) +
+    brain.data.reduce(
+      (sum, datum) => sum + brainDatumLogicalBytesV1(datum),
+      0,
+    ) +
+    brain.migration.importedDatumIds.reduce(
+      (sum, id) =>
+        sum + BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 + utf8BytesV1(id),
+      0,
+    );
   logicalByteCache.set(brain as object, bytes);
   return bytes;
 }
@@ -156,14 +199,18 @@ export function tryStoreBrainDatumV1(
 ): boolean {
   const existing = brain.data.find((item) => item.id === datum.id);
   if (existing) {
-    if (stableJsonStringify(existing) !== stableJsonStringify(datum)) {
+    if (
+      existing.section !== datum.section ||
+      existing.kind !== datum.kind ||
+      existing.source !== datum.source ||
+      existing.encoded !== datum.encoded
+    ) {
       throw new Error(`Brain datum ID ${datum.id} was reused with different content.`);
     }
     return true;
   }
   const beforeBytes = logicalBrainBytesV1(brain);
-  const deltaBytes =
-    encodedBytesV1(datum) + (brain.data.length > 0 ? 1 : 0);
+  const deltaBytes = brainDatumLogicalBytesV1(datum);
   if (beforeBytes + deltaBytes > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
     return false;
   }
