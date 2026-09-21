@@ -4,6 +4,10 @@ import { bodySignalsV1, type BodySignalsV1 } from './BodyCoreV1';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 import { humanVisionDevelopmentV1 } from './HumanVisionDevelopmentV1';
 import {
+  mentorActorsVisibleV1,
+  recentFoundingMentorMessagesV1,
+} from './FoundingMentorsV1';
+import {
   PORTABLE_HUMAN_CONTRACT_VERSION_V1,
   availableSignalV1,
   unavailableSignalV1,
@@ -311,6 +315,32 @@ function localObservationsV1(
   }
 
   if (result.length < MAX_LOCAL_OBSERVATIONS) {
+    for (const mentor of mentorActorsVisibleV1(world)) {
+      if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+      const distance = Math.hypot(
+        mentor.position.x - agent.position.x,
+        mentor.position.y - agent.position.y,
+      );
+      if (distance > Math.max(8, vision.reach)) continue;
+      const assessment = visualAssessmentV1(
+        noise,
+        mentor.id,
+        distance,
+        vision.capacity,
+        Math.max(8, vision.reach),
+      );
+      if (!assessment.recognized) continue;
+      result.push({
+        objectId: mentor.id,
+        kind: 'person',
+        relation: mentor.locationId === agent.locationId ? 'co_located' : 'connected_visible',
+        channel: 'vision',
+        confidence: assessment.confidence,
+      });
+    }
+  }
+
+  if (result.length < MAX_LOCAL_OBSERVATIONS) {
     const remainsById = world.v16?.remainsById;
     if (remainsById) {
       for (const entryId in remainsById) {
@@ -385,6 +415,17 @@ export function buildReceivedMessageIndexV1(
       confidence: 1,
     });
   }
+  for (const studentId of world.iskorkaMentorsV1?.cohortStudentIds ?? []) {
+    for (const message of recentFoundingMentorMessagesV1(world, studentId)) {
+      appendIndexedMessageV1(index, studentId, {
+        messageId: message.id,
+        senderObjectId: message.mentorId,
+        symbols: [...message.symbols],
+        channel: 'hearing',
+        confidence: 1,
+      });
+    }
+  }
   return index;
 }
 
@@ -422,7 +463,14 @@ function directReceivedMessagesForAgentV1(
       });
     }
   }
-  return messages.reverse();
+  const mentorMessages = recentFoundingMentorMessagesV1(world, agentId).map((message) => ({
+    messageId: message.id,
+    senderObjectId: message.mentorId,
+    symbols: [...message.symbols],
+    channel: 'hearing' as const,
+    confidence: 1,
+  }));
+  return [...messages.reverse(), ...mentorMessages].slice(-MAX_RECEIVED_MESSAGES);
 }
 
 
