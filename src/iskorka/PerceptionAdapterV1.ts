@@ -300,13 +300,16 @@ function localObservationsV1(
         vision.capacity,
         Math.max(8, vision.reach),
       );
-      if (!assessment.recognized) continue;
+      const veryCloseCaregiver = mentor.locationId === agent.locationId && distance <= 1.5;
+      if (!assessment.recognized && !veryCloseCaregiver) continue;
       result.push({
         objectId: mentor.id,
         kind: 'person',
         relation: mentor.locationId === agent.locationId ? 'co_located' : 'connected_visible',
         channel: 'vision',
-        confidence: assessment.confidence,
+        confidence: veryCloseCaregiver
+          ? Math.max(assessment.confidence, 0.55)
+          : assessment.confidence,
       });
     }
   }
