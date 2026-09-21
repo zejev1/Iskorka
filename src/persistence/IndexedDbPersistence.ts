@@ -388,6 +388,11 @@ export class IndexedDbWorldStore implements WorldStore {
       }
       retiredBrainOwners.add(agentId);
     }
+    const personalMemoryOwnersToPurge = new Set<string>(retiredBrainOwners);
+    for (const agentId of batch.purgedPersonalMemoryOwnerIds ?? []) {
+      if (!agentId.trim()) throw new Error('Purged personal memory owner ID must not be empty.');
+      personalMemoryOwnersToPurge.add(agentId);
+    }
 
     const eventKeys = new Set<string>();
     for (const event of batch.events) {
@@ -414,8 +419,8 @@ export class IndexedDbWorldStore implements WorldStore {
           `World operation ${batch.operationId} produced duplicate memory ID ${memory.memoryId}.`,
         );
       }
-      if (retiredBrainOwners.has(memory.agentId)) {
-        throw new Error('World commit cannot append private memory for a retired brain owner.');
+      if (personalMemoryOwnersToPurge.has(memory.agentId)) {
+        throw new Error('World commit cannot append private memory for an owner being purged.');
       }
       memoryKeys.add(key);
     }
@@ -440,7 +445,7 @@ export class IndexedDbWorldStore implements WorldStore {
     const opKey = operationKey(batch.worldId, batch.operationId);
 
     try {
-      const retiredMemoryKeyPromises = [...retiredBrainOwners].map((agentId) =>
+      const retiredMemoryKeyPromises = [...personalMemoryOwnersToPurge].map((agentId) =>
         requestResult(
           memories
             .index(INDEXES.memoryAgentTime)
