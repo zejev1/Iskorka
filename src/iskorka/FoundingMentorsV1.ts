@@ -1,0 +1,659 @@
+import type { AgentState, WorldState } from '../world/types';
+import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
+import { ensureBrainForAgentV1 } from './BrainStateAdapterV1';
+import { tryStoreBrainDatumV1 } from './BrainStateV1';
+import { recordBodyDrinkV1, recordBodyMealV1 } from './BodyActionsV1';
+import {
+  applyIndependentPractice,
+  applyOrdinaryLesson,
+  type LearningPerson,
+  type OrdinaryInstructor,
+} from '../v15/KnowledgeTransfer';
+import type { GenesisDomain } from '../v15/GenesisBootstrap';
+import { consumeStoredResources, harvestRenewably } from '../v15/RenewableAgriculture';
+import { ensureRussianKnowledgeV18 } from '../v18/UnderworldFoundationV18';
+import { ensureLifeRhythmV18, recordMealV18 } from '../v18/LivelihoodAndRhythmV18';
+
+export const FOUNDING_SPARK_START_AGE_YEARS_V1 = 0.5;
+export const FOUNDING_MENTOR_RELEASE_AGE_YEARS_V1 = 18;
+export const FOUNDING_MENTOR_VERSION_V1 = 'iskorka-founding-mentors-v1' as const;
+export const FOUNDING_MENTOR_VISIBILITY_RADIUS_V1 = 45;
+const YEAR = 365 * 24 * 60;
+const SEMANTIC_QUANTUM = YEAR / 60;
+const MAX_STUDENT_MESSAGES = 8;
+
+export type FoundingMentorRoleV1 =
+  | 'care_language'
+  | 'agriculture_nature'
+  | 'construction_craft'
+  | 'household_health'
+  | 'survival_navigation';
+
+export type FoundingMentorStatusV1 =
+  | 'caregiving'
+  | 'farewell'
+  | 'departing'
+  | 'inactive';
+
+export interface FoundingMentorMessageV1 {
+  id: string;
+  mentorId: string;
+  studentId: string;
+  worldMinute: number;
+  symbols: string[];
+  kind: 'care' | 'lesson' | 'farewell';
+}
+
+export interface FoundingMentorStateV1 {
+  id: string;
+  name: string;
+  role: FoundingMentorRoleV1;
+  status: FoundingMentorStatusV1;
+  locationId: string;
+  position: { x: number; y: number };
+  fullKnowledge: Record<GenesisDomain, number>;
+  languageMastery: number;
+  careMastery: number;
+  lessonCount: number;
+  feedingCount: number;
+  careCount: number;
+  lastLessonWorldMinute?: number;
+  lastCareWorldMinute?: number;
+  farewellWorldMinute?: number;
+  departureWorldMinute?: number;
+  inactiveWorldMinute?: number;
+}
+
+export interface FoundingMentorWorldStateV1 {
+  version: typeof FOUNDING_MENTOR_VERSION_V1;
+  cohortStudentIds: string[];
+  mentorsById: Record<string, FoundingMentorStateV1>;
+  messagesByStudentId: Record<string, FoundingMentorMessageV1[]>;
+  createdWorldMinute: number;
+  releaseAgeYears: number;
+  active: boolean;
+  farewellStartedWorldMinute?: number;
+  departureStartedWorldMinute?: number;
+  deactivatedWorldMinute?: number;
+  totalMeals: number;
+  totalDrinks: number;
+  totalLessons: number;
+  totalCareActions: number;
+}
+
+const MENTOR_SPECS: readonly Array<{
+  id: string;
+  name: string;
+  role: FoundingMentorRoleV1;
+}> = [
+  { id: 'mentor_elena', name: 'Елена', role: 'care_language' },
+  { id: 'mentor_alexey', name: 'Алексей', role: 'agriculture_nature' },
+  { id: 'mentor_mikhail', name: 'Михаил', role: 'construction_craft' },
+  { id: 'mentor_natalia', name: 'Наталья', role: 'household_health' },
+  { id: 'mentor_sergey', name: 'Сергей', role: 'survival_navigation' },
+] as const;
+
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+function roleDomain(role: FoundingMentorRoleV1): GenesisDomain | undefined {
+  switch (role) {
+    case 'agriculture_nature': return 'agriculture';
+    case 'construction_craft': return 'construction';
+    case 'household_health': return 'household';
+    case 'survival_navigation': return 'survival';
+    default: return undefined;
+  }
+}
+
+export function mentorTeachingPlaceV1(
+  world: Readonly<WorldState>,
+  mentor: Readonly<FoundingMentorStateV1>,
+  studentAgeYears: number,
+): string {
+  if (studentAgeYears < 5) return 'commons';
+  switch (mentor.role) {
+    case 'agriculture_nature':
+      return world.places.resource_field ? 'resource_field' : 'commons';
+    case 'construction_craft':
+      return world.places.workshop ? 'workshop' : 'commons';
+    case 'household_health':
+      return 'commons';
+    case 'survival_navigation':
+      return studentAgeYears >= 12 && world.places.outskirts ? 'outskirts' : 'quiet_space';
+    case 'care_language':
+    default:
+      return world.places.quiet_space ? 'quiet_space' : 'commons';
+  }
+}
+
+function placePosition(world: Readonly<WorldState>, placeId: string, index: number): { x: number; y: number } {
+  const place = world.places[placeId] ?? world.places.commons;
+  const angle = (Math.PI * 2 * index) / MENTOR_SPECS.length;
+  return {
+    x: place.mapX + Math.cos(angle) * 0.6,
+    y: place.mapY + Math.sin(angle) * 0.6,
+  };
+}
+
+export function createFoundingMentorWorldV1(
+  world: Readonly<WorldState>,
+  studentIds: readonly string[],
+): FoundingMentorWorldStateV1 {
+  const mentorsById: Record<string, FoundingMentorStateV1> = {};
+  MENTOR_SPECS.forEach((spec, index) => {
+    mentorsById[spec.id] = {
+      ...spec,
+      status: 'caregiving',
+      locationId: 'commons',
+      position: placePosition(world, 'commons', index),
+      fullKnowledge: {
+        agriculture: 0.96,
+        construction: 0.96,
+        household: 0.96,
+        survival: 0.96,
+      },
+      languageMastery: 1,
+      careMastery: 1,
+      lessonCount: 0,
+      feedingCount: 0,
+      careCount: 0,
+    };
+  });
+  return {
+    version: FOUNDING_MENTOR_VERSION_V1,
+    cohortStudentIds: [...studentIds],
+    mentorsById,
+    messagesByStudentId: {},
+    createdWorldMinute: world.calendar.elapsedWorldMinutes,
+    releaseAgeYears: FOUNDING_MENTOR_RELEASE_AGE_YEARS_V1,
+    active: true,
+    totalMeals: 0,
+    totalDrinks: 0,
+    totalLessons: 0,
+    totalCareActions: 0,
+  };
+}
+
+export function ensureFoundingMentorWorldV1(world: WorldState): FoundingMentorWorldStateV1 {
+  const existing = world.iskorkaMentorsV1;
+  if (existing) return existing;
+  const students = Object.values(world.agents)
+    .filter((agent) => agent.life.generation === 0)
+    .map((agent) => agent.id)
+    .sort();
+  const created = createFoundingMentorWorldV1(world, students);
+  world.iskorkaMentorsV1 = created;
+  return created;
+}
+
+export function isFoundingMentorIdV1(id: string): boolean {
+  return MENTOR_SPECS.some((mentor) => mentor.id === id);
+}
+
+export function isFoundingCohortStudentV1(
+  world: Readonly<WorldState>,
+  agentId: string,
+): boolean {
+  return world.iskorkaMentorsV1?.cohortStudentIds.includes(agentId) ?? false;
+}
+
+export function isMentoredMinorV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): boolean {
+  const state = world.iskorkaMentorsV1;
+  return Boolean(
+    state?.active &&
+    state.cohortStudentIds.includes(agent.id) &&
+    agent.life.alive &&
+    agent.life.ageYears < state.releaseAgeYears,
+  );
+}
+
+export function assignedFoundingMentorV1(
+  world: Readonly<WorldState>,
+  agentId: string,
+): FoundingMentorStateV1 | undefined {
+  const state = world.iskorkaMentorsV1;
+  if (!state?.active) return undefined;
+  const studentIndex = state.cohortStudentIds.indexOf(agentId);
+  if (studentIndex < 0) return undefined;
+  const agent = world.agents[agentId];
+  const yearRotation = Math.max(0, Math.floor((agent?.life.ageYears ?? 0) - FOUNDING_SPARK_START_AGE_YEARS_V1));
+  const mentorIndex = (studentIndex + yearRotation) % MENTOR_SPECS.length;
+  return state.mentorsById[MENTOR_SPECS[mentorIndex].id];
+}
+
+function pushStudentMessage(
+  state: FoundingMentorWorldStateV1,
+  message: FoundingMentorMessageV1,
+): void {
+  const list = state.messagesByStudentId[message.studentId] ?? [];
+  list.push(message);
+  while (list.length > MAX_STUDENT_MESSAGES) list.shift();
+  state.messagesByStudentId[message.studentId] = list;
+}
+
+export function recentFoundingMentorMessagesV1(
+  world: Readonly<WorldState>,
+  studentId: string,
+  maxAgeWorldMinutes = SEMANTIC_QUANTUM * 2,
+): FoundingMentorMessageV1[] {
+  const now = world.calendar.elapsedWorldMinutes;
+  return (world.iskorkaMentorsV1?.messagesByStudentId[studentId] ?? [])
+    .filter((message) => now >= message.worldMinute && now - message.worldMinute <= maxAgeWorldMinutes)
+    .map((message) => ({ ...message, symbols: [...message.symbols] }));
+}
+
+function mentorLearningPerson(world: WorldState, student: AgentState): LearningPerson | undefined {
+  const profile = world.v15?.knowledgeByAgentId[student.id];
+  if (!profile) return undefined;
+  return {
+    id: student.id,
+    generation: student.life.generation,
+    ageYears: student.life.ageYears,
+    aptitude: profile.aptitude,
+    knowledge: profile,
+  };
+}
+
+function mentorInstructor(mentor: Readonly<FoundingMentorStateV1>): OrdinaryInstructor {
+  return {
+    id: mentor.id,
+    generation: -1,
+    ageYears: 42,
+    ordinaryResident: true,
+    aptitude: {
+      agriculture: 1,
+      construction: 1,
+      household: 1,
+      survival: 1,
+    },
+    knowledge: { ...mentor.fullKnowledge },
+  };
+}
+
+function teachLanguageV1(
+  world: WorldState,
+  student: AgentState,
+  mentor: FoundingMentorStateV1,
+): number {
+  const language = ensureRussianKnowledgeV18(world, student);
+  const development = brainDevelopmentProfileV1(student.life.ageYears);
+  const before =
+    language.spokenComprehension +
+    language.spokenExpression +
+    language.vocabulary +
+    language.cyrillicLiteracy;
+  const age = student.life.ageYears;
+
+  language.spokenComprehension = Math.min(
+    development.receptiveLanguage,
+    language.spokenComprehension + 0.0016 + development.receptiveLanguage * 0.0034,
+  );
+  language.spokenExpression = Math.min(
+    development.expressiveLanguage,
+    language.spokenExpression + (age >= 0.75 ? 0.001 + development.expressiveLanguage * 0.003 : 0),
+  );
+  language.vocabulary = Math.min(
+    Math.max(development.receptiveLanguage, development.expressiveLanguage),
+    language.vocabulary + (age >= 0.75 ? 0.0012 + development.semanticLearning * 0.0025 : 0.0004),
+  );
+  if (age >= 5) {
+    language.cyrillicLiteracy = Math.min(
+      development.symbolicReasoning,
+      language.cyrillicLiteracy + 0.001 + development.symbolicReasoning * 0.0022,
+    );
+  }
+  language.teachingCount += 1;
+
+  const after =
+    language.spokenComprehension +
+    language.spokenExpression +
+    language.vocabulary +
+    language.cyrillicLiteracy;
+  return Math.max(0, after - before);
+}
+
+function rememberMentorSourceV1(
+  world: WorldState,
+  student: AgentState,
+  mentor: Readonly<FoundingMentorStateV1>,
+  sourceKey: string,
+): void {
+  const brain = ensureBrainForAgentV1(world, student);
+  if (!brain) return;
+  const id = `mentor-source:${mentor.id}:${sourceKey}`;
+  if (brain.data.some((datum) => datum.id === id)) return;
+  tryStoreBrainDatumV1(brain, {
+    id,
+    section: 'knowledge',
+    kind: 'mentor_source',
+    source: 'message',
+    encoded: JSON.stringify({
+      mentorId: mentor.id,
+      mentorName: mentor.name,
+      sourceKey,
+      firstLearnedWorldMinute: world.calendar.elapsedWorldMinutes,
+    }),
+  });
+}
+
+function skillPracticeFromDomain(
+  student: AgentState,
+  domain: GenesisDomain,
+  gained: number,
+): void {
+  const practice = Math.min(0.006, gained * 0.45 + 0.0003);
+  if (domain === 'agriculture') {
+    student.skills.gathering = clamp01(student.skills.gathering + practice);
+  } else if (domain === 'construction') {
+    student.skills.craft = clamp01(student.skills.craft + practice);
+  } else if (domain === 'household') {
+    student.skills.social = clamp01(student.skills.social + practice);
+  } else if (domain === 'survival') {
+    student.skills.exploration = clamp01(student.skills.exploration + practice);
+    if (student.life.ageYears >= 12) {
+      student.skills.hunting = clamp01(student.skills.hunting + practice * 0.35);
+    }
+  }
+}
+
+export interface FoundingMentorLessonResultV1 {
+  taught: boolean;
+  mentorId?: string;
+  domain?: GenesisDomain | 'language';
+  gained: number;
+}
+
+export function applyFoundingMentorLessonV1(
+  world: WorldState,
+  student: AgentState,
+  mentor: FoundingMentorStateV1,
+): FoundingMentorLessonResultV1 {
+  if (!student.life.alive || student.life.ageYears >= FOUNDING_MENTOR_RELEASE_AGE_YEARS_V1) {
+    return { taught: false, gained: 0 };
+  }
+  if (mentor.status !== 'caregiving') return { taught: false, gained: 0 };
+  if (mentor.locationId !== student.locationId) return { taught: false, gained: 0 };
+
+  const now = world.calendar.elapsedWorldMinutes;
+  let gained = 0;
+  let domain: GenesisDomain | 'language' = 'language';
+  const primaryDomain = roleDomain(mentor.role);
+
+  if (mentor.role === 'care_language' || student.life.ageYears < 5) {
+    gained = teachLanguageV1(world, student, mentor);
+    domain = 'language';
+    rememberMentorSourceV1(world, student, mentor, 'language');
+  } else if (primaryDomain) {
+    const learner = mentorLearningPerson(world, student);
+    if (learner) {
+      const lesson = applyOrdinaryLesson(
+        mentorInstructor(mentor),
+        learner,
+        {
+          lessonId: `mentor-lesson:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
+          domain: primaryDomain,
+          instructorId: mentor.id,
+          learnerId: student.id,
+          worldMinutes: now,
+          durationWorldMinutes: 180,
+          activityVerified: true,
+        },
+      );
+      const practice = applyIndependentPractice(
+        learner,
+        {
+          practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
+          personId: student.id,
+          domain: primaryDomain,
+          worldMinutes: now,
+          durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 60,
+          activityVerified: true,
+          challenge: student.life.ageYears >= 12 ? 0.52 : 0.28,
+        },
+      );
+      gained = lesson.gained + practice.gained;
+      domain = primaryDomain;
+      skillPracticeFromDomain(student, primaryDomain, gained);
+      rememberMentorSourceV1(world, student, mentor, primaryDomain);
+    }
+    gained += teachLanguageV1(world, student, mentor) * 0.25;
+  }
+
+  mentor.lessonCount += 1;
+  mentor.lastLessonWorldMinute = now;
+  const state = ensureFoundingMentorWorldV1(world);
+  state.totalLessons += 1;
+  pushStudentMessage(state, {
+    id: `mentor-message:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
+    mentorId: mentor.id,
+    studentId: student.id,
+    worldMinute: now,
+    symbols: domain === 'language'
+      ? [`${mentor.name}: слушай, смотри, повторяй и спрашивай, если не понял.`]
+      : [`${mentor.name}: сегодня учимся через пример и собственную попытку — ${domain}.`],
+    kind: 'lesson',
+  });
+
+  return { taught: true, mentorId: mentor.id, domain, gained };
+}
+
+export interface FoundingMentorCareResultV1 {
+  cared: boolean;
+  resourcesChanged: boolean;
+}
+
+export function applyFoundingMentorCareV1(
+  world: WorldState,
+  student: AgentState,
+): FoundingMentorCareResultV1 {
+  const state = ensureFoundingMentorWorldV1(world);
+  if (!isMentoredMinorV1(world, student)) return { cared: false, resourcesChanged: false };
+  const mentor = assignedFoundingMentorV1(world, student.id);
+  if (!mentor) return { cared: false, resourcesChanged: false };
+  const body = world.v21?.bodiesByAgentId[student.id];
+  const core = body?.bodyCore;
+  if (!body || !core) return { cared: false, resourcesChanged: false };
+
+  const resources = world.v15?.renewableResources;
+  let resourcesChanged = false;
+  if (resources && resources.storedResources < 0.35) {
+    const harvested = harvestRenewably(
+      resources,
+      {
+        id: mentor.id,
+        agricultureKnowledge: mentor.fullKnowledge.agriculture,
+        diligence: 0.95,
+      },
+      {
+        eventId: `mentor-harvest:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
+        worldMinutes: world.calendar.elapsedWorldMinutes,
+        effort: 0.48,
+      },
+    );
+    Object.assign(resources, harvested.next);
+    resourcesChanged = harvested.harvested > 0;
+  }
+
+  const age = student.life.ageYears;
+  const mealPortion = age < 1 ? 0.18 : age < 3 ? 0.22 : age < 8 ? 0.25 : 0.28;
+  const drinkAmount = age < 1 ? 0.16 : age < 5 ? 0.2 : 0.24;
+  const careCost = 0.0007 * (0.72 + Math.min(1, age / 12) * 0.28);
+  if (resources) {
+    Object.assign(resources, consumeStoredResources(resources, Math.min(resources.storedResources, careCost)));
+    resourcesChanged = true;
+  }
+
+  recordBodyMealV1(world, student, mealPortion);
+  recordBodyDrinkV1(world, student, drinkAmount);
+  recordMealV18(world, student, mealPortion);
+  const rhythm = ensureLifeRhythmV18(world, student);
+  rhythm.satiety = Math.max(rhythm.satiety, age < 1 ? 0.72 : 0.66);
+
+  student.energy = Math.max(student.energy, age < 3 ? 0.78 : 0.7);
+  student.stress = clamp01(student.stress - (age < 5 ? 0.045 : 0.025));
+  student.resources = Math.max(student.resources, 0.12);
+  student.needs.belonging = Math.max(student.needs.belonging, age < 8 ? 0.76 : 0.62);
+
+  mentor.feedingCount += 1;
+  mentor.careCount += 1;
+  mentor.lastCareWorldMinute = world.calendar.elapsedWorldMinutes;
+  state.totalMeals += 1;
+  state.totalDrinks += 1;
+  state.totalCareActions += 1;
+
+  if (age < 5) {
+    pushStudentMessage(state, {
+      id: `mentor-care:${mentor.id}:${student.id}:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
+      mentorId: mentor.id,
+      studentId: student.id,
+      worldMinute: world.calendar.elapsedWorldMinutes,
+      symbols: [`${mentor.name}: я рядом. Сначала поедим, потом будем смотреть и учиться.`],
+      kind: 'care',
+    });
+  }
+  return { cared: true, resourcesChanged };
+}
+
+export function updateMentorTeachingPositionsV1(world: WorldState): void {
+  const state = ensureFoundingMentorWorldV1(world);
+  if (!state.active) return;
+  const livingStudents = state.cohortStudentIds
+    .map((id) => world.agents[id])
+    .filter((agent): agent is AgentState => Boolean(agent?.life.alive));
+  if (!livingStudents.length) return;
+  const representativeAge = livingStudents.reduce((sum, agent) => sum + agent.life.ageYears, 0) / livingStudents.length;
+  Object.values(state.mentorsById).forEach((mentor, index) => {
+    if (mentor.status !== 'caregiving') return;
+    const placeId = mentorTeachingPlaceV1(world, mentor, representativeAge);
+    mentor.locationId = placeId;
+    mentor.position = placePosition(world, placeId, index);
+  });
+}
+
+function allFoundersAdult(world: Readonly<WorldState>, state: Readonly<FoundingMentorWorldStateV1>): boolean {
+  const living = state.cohortStudentIds
+    .map((id) => world.agents[id])
+    .filter((agent): agent is AgentState => Boolean(agent?.life.alive));
+  return living.length > 0 && living.every((agent) => agent.life.ageYears >= state.releaseAgeYears);
+}
+
+function sendFarewell(world: WorldState, state: FoundingMentorWorldStateV1, mentor: FoundingMentorStateV1): void {
+  for (const studentId of state.cohortStudentIds) {
+    const student = world.agents[studentId];
+    if (!student?.life.alive) continue;
+    pushStudentMessage(state, {
+      id: `mentor-farewell:${mentor.id}:${student.id}`,
+      mentorId: mentor.id,
+      studentId: student.id,
+      worldMinute: world.calendar.elapsedWorldMinutes,
+      symbols: [`${mentor.name}: ты уже взрослый. Теперь твоя жизнь и твои решения принадлежат тебе. Мы уходим в долгое путешествие. Прощай.`],
+      kind: 'farewell',
+    });
+  }
+}
+
+function mentorVisibleToAnySpark(world: Readonly<WorldState>, mentor: Readonly<FoundingMentorStateV1>): boolean {
+  for (const agent of Object.values(world.agents)) {
+    if (!agent.life.alive) continue;
+    const distance = Math.hypot(agent.position.x - mentor.position.x, agent.position.y - mentor.position.y);
+    if (distance <= FOUNDING_MENTOR_VISIBILITY_RADIUS_V1) return true;
+  }
+  return false;
+}
+
+export function advanceFoundingMentorLifecycleV1(world: WorldState): void {
+  const state = ensureFoundingMentorWorldV1(world);
+  if (!state.active) return;
+  const now = world.calendar.elapsedWorldMinutes;
+
+  if (!state.farewellStartedWorldMinute && allFoundersAdult(world, state)) {
+    state.farewellStartedWorldMinute = now;
+    for (const mentor of Object.values(state.mentorsById)) {
+      mentor.status = 'farewell';
+      mentor.farewellWorldMinute = now;
+      mentor.locationId = 'commons';
+      mentor.position = placePosition(world, 'commons', MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+      sendFarewell(world, state, mentor);
+    }
+    return;
+  }
+
+  if (
+    state.farewellStartedWorldMinute !== undefined &&
+    state.departureStartedWorldMinute === undefined &&
+    now - state.farewellStartedWorldMinute >= SEMANTIC_QUANTUM
+  ) {
+    state.departureStartedWorldMinute = now;
+    for (const mentor of Object.values(state.mentorsById)) {
+      mentor.status = 'departing';
+      mentor.departureWorldMinute = now;
+      mentor.locationId = 'outskirts';
+      mentor.position = placePosition(world, 'outskirts', MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+    }
+  }
+
+  if (state.departureStartedWorldMinute !== undefined) {
+    const commons = world.places.commons;
+    const outskirts = world.places.outskirts;
+    const dx = (outskirts?.mapX ?? commons.mapX + 1) - commons.mapX;
+    const dy = (outskirts?.mapY ?? commons.mapY) - commons.mapY;
+    const length = Math.max(0.001, Math.hypot(dx, dy));
+    const ux = dx / length;
+    const uy = dy / length;
+    const elapsedQuanta = Math.max(1, (now - state.departureStartedWorldMinute) / SEMANTIC_QUANTUM + 1);
+    for (const mentor of Object.values(state.mentorsById)) {
+      if (mentor.status !== 'departing') continue;
+      const start = placePosition(world, 'outskirts', MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+      mentor.position = {
+        x: start.x + ux * elapsedQuanta * 18,
+        y: start.y + uy * elapsedQuanta * 18,
+      };
+    }
+
+    const stillVisible = Object.values(state.mentorsById).some((mentor) =>
+      mentor.status === 'departing' && mentorVisibleToAnySpark(world, mentor),
+    );
+    if (!stillVisible) {
+      state.active = false;
+      state.deactivatedWorldMinute = now;
+      for (const mentor of Object.values(state.mentorsById)) {
+        mentor.status = 'inactive';
+        mentor.inactiveWorldMinute = now;
+      }
+    }
+  }
+}
+
+export function mentorActorsVisibleV1(
+  world: Readonly<WorldState>,
+): FoundingMentorStateV1[] {
+  const state = world.iskorkaMentorsV1;
+  if (!state) return [];
+  return Object.values(state.mentorsById)
+    .filter((mentor) => mentor.status !== 'inactive')
+    .map((mentor) => ({
+      ...mentor,
+      position: { ...mentor.position },
+      fullKnowledge: { ...mentor.fullKnowledge },
+    }));
+}
+
+export function assertFoundingMentorsV1(world: Readonly<WorldState>): void {
+  const state = world.iskorkaMentorsV1;
+  if (!state) throw new Error('Iskorka founding mentor state is missing.');
+  if (state.version !== FOUNDING_MENTOR_VERSION_V1) throw new Error('Unsupported founding mentor version.');
+  if (Object.keys(state.mentorsById).length !== 5) throw new Error('Exactly five founding mentors are required.');
+  if (state.cohortStudentIds.length !== 10) throw new Error('Founding mentor cohort must contain ten Sparks.');
+  for (const spec of MENTOR_SPECS) {
+    const mentor = state.mentorsById[spec.id];
+    if (!mentor || mentor.name !== spec.name || mentor.role !== spec.role) {
+      throw new Error(`Founding mentor ${spec.id} is invalid.`);
+    }
+    if (mentor.status !== 'inactive' && !world.places[mentor.locationId]) {
+      throw new Error(`Founding mentor ${mentor.id} references missing place ${mentor.locationId}.`);
+    }
+  }
+}
