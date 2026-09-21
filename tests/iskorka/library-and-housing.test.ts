@@ -12,6 +12,10 @@ test('human library: at most five volunteers; no learning before physical arriva
  for(const agent of Object.values(prepared.agents)){
   agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
+  // This legacy-library fixture is about admission/arrival/reading, not
+  // wilderness survival. Give volunteers enough carried food/water to survive
+  // the physical trip and study window instead of dying en route.
+  agent.resources=1;agent.energy=1;
   agent.locationId='commons';agent.position={x:prepared.places.commons.mapX,y:prepared.places.commons.mapY,layerId:'surface'};agent.movement=undefined;
   agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),'commons',SECRET_LIBRARY_PLACE_ID_V18])];
   prepared.v18!.languageByAgentId[agent.id].cyrillicLiteracy=1;
