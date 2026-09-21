@@ -153,9 +153,136 @@ function activity(a:AgentState,w:WorldState):string {
 }
 function selectAgent(id:string):void {selected={type:'agent',id};mode='people';renderPanel();requestRender();}
 function cell(label:string,value:unknown):string {return `<div class="metric"><span>${escape(label)}</span><strong>${escape(value)}</strong></div>`;}
+function bytes(n:number|undefined):string {
+  if(n===undefined||!Number.isFinite(n))return '—';
+  if(n<1024)return number(n)+' Б';
+  if(n<1024*1024)return (n/1024).toFixed(n<10*1024?1:0)+' КиБ';
+  return (n/1024/1024).toFixed(1)+' МиБ';
+}
+function precise(n:number|undefined,digits=3):string {
+  if(n===undefined||!Number.isFinite(n))return '—';
+  return new Intl.NumberFormat('ru-RU',{maximumFractionDigits:digits}).format(n);
+}
+function percentOrDash(n:number|undefined):string {return n===undefined||!Number.isFinite(n)?'—':percent(n);}
+function storageSummary():string {
+  return storageStatus.durability==='durable'?'защищено браузером':
+    storageStatus.durability==='best_effort'?'обычное IndexedDB':
+    'статус неизвестен';
+}
+const analyticLabels:Record<string,string>={
+  workingMemory:'Рабочая память',attentionControl:'Контроль внимания',episodicEncoding:'Запись эпизодов',
+  semanticLearning:'Семантическое обучение',proceduralLearning:'Обучение навыкам',receptiveLanguage:'Понимание языка',
+  expressiveLanguage:'Выражение языка',symbolicReasoning:'Символьное мышление',planning:'Планирование',
+  retrievalReliability:'Надёжность извлечения',retrievalSpeed:'Скорость извлечения',learningPlasticity:'Пластичность',
+  consolidatedExperienceIntegrity:'Сохранность опыта',heightM:'Рост',massKg:'Масса',bodyFatFraction:'Доля жира',
+  painSensitivity:'Чувствительность к боли',sweatSensitivity:'Чувствительность потоотделения',
+  motionSicknessSensitivity:'Чувствительность к укачиванию',visualAcuityBaseline:'Базовое зрение',
+  interoceptionSensitivity:'Интероцептивная чувствительность',hydration:'Гидратация',
+  electrolyteDeviation:'Электролитное отклонение',energyReserve:'Энергетический запас',stomachFill:'Наполнение желудка',
+  bladderFill:'Мочевой пузырь',bowelLoad:'Кишечная нагрузка',coreTemperatureC:'Температура тела',
+  skinTemperatureC:'Температура кожи',bloodVolumeFraction:'Объём крови',oxygenDebt:'Кислородный долг',
+  cardiovascularLoad:'Сердечно-сосудистая нагрузка',respiratoryLoad:'Дыхательная нагрузка',
+  exertionDebt:'Долг нагрузки',muscleFatigue:'Мышечная усталость',recoveryDebt:'Долг восстановления',
+  inflammation:'Воспаление',immuneActivation:'Иммунная активация',toxinLoad:'Токсическая нагрузка',
+  nausea:'Тошнота',dizziness:'Головокружение',autonomicArousal:'Вегетативное возбуждение',
+  muscleTension:'Мышечное напряжение',stressHormoneLoad:'Стресс-гормоны',tearDrive:'Позыв к слезам',
+  physicalPleasure:'Физическое удовольствие',sexualArousal:'Физическое возбуждение',reproductiveHealth:'Репродуктивное здоровье',
+  skin:'Кожа',musculoskeletal:'Опорно-двигательная',circulatory:'Кровообращение',respiratory:'Дыхание',
+  digestive:'Пищеварение',nervous:'Нервная система',immune:'Иммунная система',
+  thirst:'Жажда',hunger:'Голод',breathlessness:'Одышка',weakness:'Слабость',coldStress:'Холод',
+  heatStress:'Жара',sweating:'Потливость',tremor:'Дрожь',heartPounding:'Сердцебиение',
+  bladderUrge:'Позыв к мочеиспусканию',bowelUrge:'Позыв кишечника',physicalDiscomfort:'Физический дискомфорт',
+  cryingDrive:'Позыв плакать',tears:'Слёзы',blushing:'Покраснение',goosebumps:'Мурашки',dryMouth:'Сухость во рту',
+  startle:'Испуг',postPleasureRelaxation:'Расслабление после удовольствия',
+  grossMotor:'Крупная моторика',balance:'Баланс',coordination:'Координация',fineMotor:'Мелкая моторика',
+  walkingCapacity:'Способность ходить',enduranceScale:'Возрастная выносливость',
+  acuityScale:'Острота зрения',contrastScale:'Контрастность',motionScale:'Восприятие движения',
+  recognitionReachScale:'Дальность распознавания',joy:'Радость',fear:'Страх',grief:'Горе',awe:'Трепет',hope:'Надежда',
+  care:'Забота',freedom:'Свобода',knowledge:'Знание',tradition:'Традиция',ambition:'Амбиция',
+  worldTrust:'Доверие миру',divinePresence:'Вера в божественное',fate:'Вера в судьбу',afterlife:'Вера в посмертие',
+  belonging:'Принадлежность',purpose:'Смысл',strength:'Сила',endurance:'Выносливость',mobility:'Подвижность',recovery:'Восстановление',
+  gathering:'Собирательство',hunting:'Охота',craft:'Ремесло',social:'Общение',exploration:'Исследование'
+};
+function valueForMetric(key:string,value:unknown):string {
+  if(typeof value==='boolean')return value?'Да':'Нет';
+  if(typeof value==='number'){
+    if(key==='coreTemperatureC'||key==='skinTemperatureC')return precise(value,2)+' °C';
+    if(key==='heightM')return precise(value,3)+' м';
+    if(key==='massKg')return precise(value,2)+' кг';
+    if(key.toLowerCase().includes('minute'))return precise(value,2);
+    if(value>=0&&value<=1)return percent(value);
+    return precise(value,3);
+  }
+  if(value===undefined||value===null)return '—';
+  if(Array.isArray(value))return value.length?value.map(v=>typeof v==='object'?JSON.stringify(v):String(v)).join(' · '):'—';
+  if(typeof value==='object')return JSON.stringify(value);
+  return String(value);
+}
+function objectCells(value:unknown):string {
+  if(!value||typeof value!=='object')return cell('Значение',value);
+  return Object.entries(value as Record<string,unknown>).map(([key,val])=>cell(analyticLabels[key]??key,valueForMetric(key,val))).join('');
+}
+function details(id:string,title:string,body:string,open=false):string {
+  return `<details data-detail="${escape(id)}" ${open?'open':''}><summary>${escape(title)}</summary>${body}</details>`;
+}
+function liveStamp(worldMinute:number):string {
+  const cal=worldCalendarAtMinutes(worldMinute);
+  return `Год ${cal.year} · день ${cal.dayOfYear} · ${String(cal.hour).padStart(2,'0')}:${String(cal.minute).padStart(2,'0')} · минута ${precise(worldMinute,2)}`;
+}
+function storagePanelHtml():string {
+  const risk=storageStatus.durability==='best_effort';
+  const quota=storageStatus.quotaBytes===undefined?'—':bytes(storageStatus.quotaBytes);
+  const usage=storageStatus.usageBytes===undefined?'—':bytes(storageStatus.usageBytes);
+  return `<section class="storage-card ${risk?'storage-risk':''}"><div><span class="eyebrow">ЛОКАЛЬНОЕ ХРАНИЛИЩЕ</span><strong>${escape(storageSummary())}</strong><p>${risk?'IndexedDB работает и мир сохраняется, но браузер не дал дополнительную защиту от автоматической очистки. Это не ошибка симуляции.':'Мир хранится локально в IndexedDB на постоянном origin.'}</p></div><div class="storage-mini"><span>Использовано ${escape(usage)}</span><span>Квота ${escape(quota)}</span></div>${risk||storageStatus.durability==='unknown'?'<button id="retry-storage" type="button">Повторить запрос защиты</button>':''}</section>`;
+}
+function renderAgentAnalytics(a:AgentState,w:WorldState):string {
+  const snapshot=buildAgentAnalyticsV1(w,a.id);
+  const body=snapshot.body;
+  const brain=snapshot.brain;
+  const quick=`${cell('Мозг',brain.present?bytes(brain.usedBytes)+' / '+bytes(brain.budgetBytes):'нет')}${cell('Ссылки восприятия',brain.referenceCount)}${cell('Гидратация',body.homeostasis?percentOrDash(body.homeostasis.hydration):'—')}${cell('Температура',body.homeostasis?precise(body.homeostasis.coreTemperatureC,2)+' °C':'—')}${cell('Жажда',body.signals?percentOrDash(body.signals.thirst):'—')}${cell('Голод',body.signals?percentOrDash(body.signals.hunger):'—')}`;
+  const brainMain=`<div class="metrics">${cell('Фаза',brain.phase)}${cell('Память использована',bytes(brain.usedBytes))}${cell('Осталось',bytes(brain.remainingBytes))}${cell('Загрузка бюджета',percent(brain.usageFraction))}${cell('Записей',brain.dataCount)}${cell('Сообщений',brain.recentMessageCount)}${cell('Последнее восприятие',brain.lastPerceptWorldMinute===undefined?'—':precise(brain.lastPerceptWorldMinute,2))}${cell('Рабочий шаг',brain.workingStep?.phase??'—')}</div>`;
+  const relationHtml=snapshot.relationships.items.length?'<div class="analytics-list">'+snapshot.relationships.items.map(r=>{
+    const other=r.agentA===a.id?r.agentB:r.agentA;const otherName=w.agents[other]?.name??other;
+    return `<div class="analytics-row"><strong>${escape(otherName)}</strong><span>доверие ${escape(percent(r.trust))} · близость ${escape(percent(r.affinity))} · конфликт ${escape(percent(r.conflict))}</span></div>`;
+  }).join('')+'</div>':'<p class="muted">Связи ещё не сформированы.</p>';
+  return `<section class="live-analytics"><div class="live-snapshot"><span class="live-dot"></span><div><strong>Аналитика в реальном времени</strong><small>${escape(liveStamp(snapshot.worldMinute))}${latest?.speed==='realtime'?' · Минута = минута':''}</small></div></div><div class="metrics analytics-quick">${quick}</div>${details('brain','Мозг · развитие, память, восприятие',brainMain+'<h4>Возрастные возможности</h4><div class="traits">'+objectCells(brain.development)+'</div><h4>Типы личных данных</h4><div class="traits">'+objectCells(brain.dataKinds)+'</div><h4>Личные ссылки</h4><div class="traits">'+objectCells(brain.referenceKinds)+'</div>',true)}${details('signals','Тело · субъективные сигналы','<div class="traits">'+objectCells(body.signals??{})+'</div>',true)}${details('homeostasis','Тело · внутренняя физиология','<div class="traits">'+objectCells(body.homeostasis??{})+'</div>')}${details('body-dev','Тело · развитие и индивидуальные параметры','<h4>Фенотип</h4><div class="traits">'+objectCells(body.phenotype??{})+'</div><h4>Моторика</h4><div class="traits">'+objectCells(body.motorDevelopment)+'</div><h4>Зрение</h4><div class="traits">'+objectCells(body.visionDevelopment)+'</div>')}${details('systems','Органы, травмы и болезни','<div class="traits">'+objectCells(body.systems??{})+'</div><div class="metrics">'+cell('Боль',percentOrDash(body.pain))+cell('Подвижность',percentOrDash(body.mobilityScale))+cell('Восстановление',percentOrDash(body.recoveryScale))+cell('Сон',body.sleep?'Спит до '+precise(body.sleep.wakesAtWorldMinute,2):'Бодрствует')+'</div><h4>Раны</h4><pre class="analytics-pre">'+escape(JSON.stringify(body.wounds,null,2))+'</pre><h4>Болезни</h4><pre class="analytics-pre">'+escape(JSON.stringify(body.diseases,null,2))+'</pre>')}${details('mind','Психика, ценности и навыки','<h4>Эмоции</h4><div class="traits">'+objectCells(snapshot.mind.mind.emotions)+'</div><h4>Ценности</h4><div class="traits">'+objectCells(snapshot.mind.mind.values)+'</div><h4>Убеждения</h4><div class="traits">'+objectCells(snapshot.mind.mind.beliefs)+'</div><h4>Темперамент</h4><div class="traits">'+objectCells(snapshot.mind.personality)+'</div><h4>Навыки</h4><div class="traits">'+objectCells(snapshot.mind.skills)+'</div><h4>Текущая цель / решение</h4><pre class="analytics-pre">'+escape(JSON.stringify({goal:snapshot.mind.goal,lastDecision:snapshot.mind.lastDecision,plan:snapshot.mind.plan},null,2))+'</pre>')}${details('knowledge','Обучение и знания','<div class="metrics">'+cell('Знакомых мест',snapshot.knowledge.knownPlaceCount)+cell('Знакомых подземелий',snapshot.knowledge.knownDungeonCount)+'</div><pre class="analytics-pre">'+escape(JSON.stringify({learning:snapshot.mind.learning,v15:snapshot.knowledge.v15,language:snapshot.knowledge.language,livelihood:snapshot.knowledge.livelihood,applied:snapshot.knowledge.applied},null,2))+'</pre>')}${details('relations','Семья и отношения','<div class="metrics">'+cell('Родители',snapshot.life.parentIds.length)+cell('Дети',snapshot.life.childIds.length)+cell('Отношения',snapshot.relationships.count)+cell('Поколение',snapshot.identity.generation)+'</div>'+relationHtml)}${details('technical','Технический срез этой Искры','<pre class="analytics-pre">'+escape(JSON.stringify(snapshot,null,2))+'</pre>')}</section>`;
+}
 function renderPanel():void {
   const w=latest?.world;if(!w)return;
   document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===mode)));
+  const panel=$('panel');
+  const previousScroll=panel.scrollTop;
+  const openDetails=new Set([...panel.querySelectorAll<HTMLDetailsElement>('details[open][data-detail]')].map(d=>d.dataset.detail!));
+  if(mode==='people'){
+    const a=selected.type==='agent'?w.agents[selected.id]:undefined;
+    let html='';
+    if(a){
+      const body=w.v21?.bodiesByAgentId[a.id];const evidence=w.v16?.residentEvidenceByAgentId[a.id];
+      const livelihood=w.v18?.livelihoodByAgentId[a.id];
+      html=`<section class="resident-detail"><div class="detail-heading"><div><span class="eyebrow">${a.sex==='male'?'МУЖЧИНА':'ЖЕНЩИНА'} · ${precise(a.life.ageYears,2)} лет</span><h2>${escape(a.name)}</h2></div><button id="follow" aria-label="Найти жителя на карте">⌖</button></div><p class="activity">${escape(activity(a,w))} · ${escape(w.places[a.locationId]?.name??a.locationId)}</p><span class="job">${escape(jobs[livelihood?.primary??'undecided']??'Развивает своё дело')}</span><div class="metrics">${cell('Здоровье',percent(a.life.health))}${cell('Энергия',percent(a.energy))}${cell('Стресс',percent(a.stress))}${cell('Действий',evidence?.recordedDecisionCount??0)}${cell('Раны / болезни',`${body?.wounds.length??0} / ${body?.diseases.length??0}`)}${cell('Ревизия мира',w.revision)}</div>${renderAgentAnalytics(a,w)}</section>`;
+    } else html='<p class="panel-intro">Нажмите на Искру. Здесь появится живой аналитический срез её мозга, тела, ощущений, памяти, навыков и текущего состояния.</p>';
+    html+='<div class="resident-list">'+Object.values(w.agents).filter(a=>a.life.alive).map(a=>`<button class="resident-card ${selected.type==='agent'&&selected.id===a.id?'active':''}" data-person="${escape(a.id)}"><span class="avatar">${escape(a.name.charAt(0))}</span><span><strong>${escape(a.name)}</strong><small>${number(Math.floor(a.life.ageYears))} лет · ${escape(activity(a,w))}</small></span><span class="arrow">›</span></button>`).join('')+'</div>';
+    panel.innerHTML=html;
+    panel.querySelectorAll<HTMLButtonElement>('[data-person]').forEach(b=>b.onclick=()=>selectAgent(b.dataset.person!));
+    const follow=panel.querySelector<HTMLButtonElement>('#follow');
+    if(follow)follow.onclick=()=>{if(a){camera.x=a.position.x;camera.y=a.position.y;requestRender();}};
+  } else if(mode==='place'){
+    const place=w.places[selected.type==='place'?selected.id:'commons']??w.places.commons;
+    const town=w.settlements[place.settlementId??'settlement_ainkrad'];
+    const people=Object.values(w.agents).filter(a=>a.life.alive&&a.locationId===place.id);
+    const wildlife=Object.values(w.wildlife).filter(a=>a.habitatId===place.id);
+    panel.innerHTML=`<span class="eyebrow">${place.kind==='library'?'БИБЛИОТЕКА':'ФИЗИЧЕСКОЕ МЕСТО'}</span><h2>${escape(place.name)}</h2><p class="panel-intro">${escape(town?.name??'За пределами поселения')}</p><div class="metrics">${cell('Жители здесь',people.length)}${cell('Связанные места',place.connectedPlaceIds.length)}${cell('Плодородие',percent(place.fertility))}${cell('Дома в мире',Object.values(w.places).filter(p=>p.kind==='home').length)}</div><h3>Поселения</h3><div class="town-list">${Object.values(w.settlements).map(t=>`<button data-town="${escape(t.id)}">${escape(t.name)} <span>⌖</span></button>`).join('')}</div><h3>Животный мир</h3><p class="muted">${wildlife.length?wildlife.map(a=>escape(({rabbit:'Кролики',deer:'Олени',bird:'Птицы',fish:'Рыба',boar:'Кабаны',wolf:'Волки'} as Record<string,string>)[a.species]??a.species)+': '+number(a.count)).join(' · '):'В этой локации популяции не зарегистрированы.'}</p><h3>Карта</h3><p class="muted">Масштаб меняет только отображение. Люди продолжают жить за пределами экрана.</p>`;
+    panel.querySelectorAll<HTMLButtonElement>('[data-town]').forEach(b=>b.onclick=()=>{const t=w.settlements[b.dataset.town!];selected={type:'place',id:t.centerPlaceId};camera.x=t.centerX;camera.y=t.centerY;renderPanel();requestRender();});
+  } else {
+    const active=Object.values(w.agents).filter(a=>a.life.alive);
+    panel.innerHTML=`<span class="eyebrow">ЖИВОЙ МИР</span><h2>Состояние сборки</h2><div class="metrics">${cell('Люди',active.length)}${cell('Поселения',Object.keys(w.settlements).length)}${cell('Локации',Object.keys(w.places).length)}${cell('Ревизия',w.revision)}${cell('Дороги',Object.keys(w.routes).length)}${cell('Эпоха',w.epoch??1)}</div><p class="ok-line">Автономный движок · конечный BrainState · BodyCore · личное восприятие</p>${storagePanelHtml()}<h3>Ключ мира</h3><code class="seed-code">${escape(w.bootstrapSeed)}</code><h3>Сохранение</h3><p class="muted">${escape(ISKORKA_DATABASE)}<br>${escape(ISKORKA_WORLD_ID)}<br>Мир хранится в IndexedDB на постоянном адресе. Если браузер не выдаёт режим durable, сохранение всё равно работает, но браузер/ОС теоретически могут очистить данные сайта при нехватке места.</p><h3>Время</h3><p class="muted">При «Минута = минута» аналитический экран показывает последний полученный срез мира с точной мировой минутой. На ускорениях экран остаётся наблюдателем и не влияет на причинность.</p>`;
+    const retry=panel.querySelector<HTMLButtonElement>('#retry-storage');
+    if(retry)retry.onclick=()=>void retryStorageProtection(retry);
+  }
+  panel.querySelectorAll<HTMLDetailsElement>('details[data-detail]').forEach(d=>{if(openDetails.has(d.dataset.detail!))d.open=true;});
+  panel.scrollTop=previousScroll;
+}
+document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===mode)));
   const panel=$('panel');
   const previousScroll=panel.scrollTop; const detailsOpen=!!panel.querySelector('details[open]');
   if(mode==='people'){
