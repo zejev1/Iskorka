@@ -372,23 +372,92 @@ export function purgeLegacyOwnedStateV1(world: WorldState, agentId: string): voi
   neutralizeLegacyAgentMindV1(agent);
 
   if (world.v15) {
-    delete world.v15.knowledgeByAgentId[agentId];
-    delete world.v15.familyAgencyByAgentId[agentId];
-    delete world.v15.smithingByAgentId[agentId];
-    if (world.v15.founderSmithAgentId === agentId) delete world.v15.founderSmithAgentId;
+    const knowledge = world.v15.knowledgeByAgentId[agentId];
+    if (knowledge) {
+      // Aptitudes are innate learning tendencies, not remembered content.
+      knowledge.agriculture = 0;
+      knowledge.construction = 0;
+      knowledge.household = 0;
+      knowledge.survival = 0;
+      knowledge.verifiedLearningSessions = 0;
+      knowledge.verifiedPracticeSessions = 0;
+      delete knowledge.lastLearningWorldMinute;
+    }
+    const family = world.v15.familyAgencyByAgentId[agentId];
+    if (family) {
+      family.physicalIntimacyInclination = 0;
+      family.childDesire = 0;
+      family.autonomy = 0;
+    }
+    const smithing = world.v15.smithingByAgentId[agentId];
+    if (smithing) {
+      smithing.knowledge.stoneToolmaking = 0;
+      smithing.knowledge.primitiveSmithing = 0;
+      smithing.knowledge.weaponcraft = 0;
+      smithing.knowledge.heatWorking = 0;
+      smithing.knowledge.materialKnowledge = 0;
+      smithing.verifiedWorkshopSessions = 0;
+      smithing.failedCraftAttempts = 0;
+      smithing.successfulCraftAttempts = 0;
+      smithing.observedWeaponProblems = 0;
+      delete smithing.lastWorkshopWorldMinute;
+    }
+    // equipmentByAgentId, founderSmithAgentId and world evidence are public/
+    // physical historical links. They do not reconstruct the dead person's brain.
   }
   if (world.v16) {
-    delete world.v16.residentEvidenceByAgentId[agentId];
-    for (const [pairId, lifecycle] of Object.entries(world.v16.familyLifecycleByPairId)) {
-      if (lifecycle.agentAId === agentId || lifecycle.agentBId === agentId) {
-        delete world.v16.familyLifecycleByPairId[pairId];
-      }
-    }
+    // v16 resident evidence and family lifecycle are world-side historical/
+    // causal records required by the current schema. They are intentionally
+    // retained; none of them is a recoverable private mind.
   }
   if (world.v18) {
-    delete world.v18.languageByAgentId[agentId];
-    delete world.v18.livelihoodByAgentId[agentId];
-    delete world.v18.lifeRhythmByAgentId[agentId];
+    const language = world.v18.languageByAgentId[agentId];
+    if (language) {
+      language.spokenComprehension = 0;
+      language.spokenExpression = 0;
+      language.vocabulary = 0;
+      language.cyrillicLiteracy = 0;
+      language.conversationCount = 0;
+      language.teachingCount = 0;
+      language.writtenRecordCount = 0;
+      language.teacherIds = [];
+      delete language.lastConversationWorldMinute;
+      delete language.lastLiteracyPracticeWorldMinute;
+    }
+    const livelihood = world.v18.livelihoodByAgentId[agentId];
+    if (livelihood) {
+      livelihood.primary = 'undecided';
+      livelihood.stage = 'observing';
+      for (const key of Object.keys(livelihood.practiceByKind) as Array<keyof typeof livelihood.practiceByKind>) {
+        livelihood.practiceByKind[key] = 0;
+      }
+      livelihood.totalPractice = 0;
+      livelihood.mentorIds = [];
+      livelihood.changeCount = 0;
+      livelihood.mappedPlaceIds = [];
+      livelihood.longJourneyCount = 0;
+      livelihood.defensePracticeCount = 0;
+      delete livelihood.chosenWorldMinute;
+      delete livelihood.lastPracticedWorldMinute;
+      delete livelihood.lastWorkplaceId;
+      delete livelihood.explorationEvidence;
+    }
+    const rhythm = world.v18.lifeRhythmByAgentId[agentId];
+    if (rhythm) {
+      rhythm.satiety = 0;
+      rhythm.mealsConsumed = 0;
+      rhythm.missedMealQuanta = 0;
+      rhythm.repeatedActionCount = 0;
+      rhythm.productiveActionCount = 0;
+      rhythm.outsideSettlementActionCount = 0;
+      delete rhythm.lastAction;
+      delete rhythm.lastMealWorldMinute;
+      delete rhythm.lastProductiveWorldMinute;
+      delete rhythm.lastOutsideSettlementWorldMinute;
+      delete rhythm.pendingArrivalAction;
+      delete rhythm.pendingArrivalPlaceId;
+      delete rhythm.pendingArrivalWorldMinute;
+    }
     const removedKnowledge = world.v18.secretLibrary.knowledgeByAgentId[agentId]?.length ?? 0;
     delete world.v18.secretLibrary.knowledgeByAgentId[agentId];
     world.v18.secretLibrary.totalKnowledgeRecords = Math.max(
