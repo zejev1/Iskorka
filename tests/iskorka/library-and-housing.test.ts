@@ -33,14 +33,19 @@ test('housing: real material reservation, construction time, occupancy, learning
  const beforeHomes=town.memberPlaceIds.filter(id=>raw.places[id]?.kind==='home');
  for(const id of beforeHomes)raw.places[id].capacity=1;
  const economy=raw.v16!.settlementEconomyById.settlement_ainkrad;
- economy.stocks.wood=0;economy.stocks.stone=0;economy.constructionTools=1;
+ economy.stocks.wood=0.9;economy.stocks.stone=0;economy.constructionTools=1;
  const outskirts=raw.places.outskirts,id='test_local_wood_lot';
  raw.places[id]={...structuredClone(outskirts),id,name:'Известная местная роща',kind:'forest',biome:'forest',mapX:outskirts.mapX+.4,mapY:outskirts.mapY+.4,connectedPlaceIds:[outskirts.id],boundaryPolygon:undefined,waterPolygon:undefined};
  outskirts.connectedPlaceIds.push(id);
  for(const agent of Object.values(raw.agents)){
-  agent.life.stage='adult';agent.life.ageYears=Math.max(24,agent.life.ageYears);agent.life.health=1;agent.energy=1;agent.movement=undefined;agent.plan=undefined;
-  agent.skills.craft=1;agent.personality.diligence=1;agent.personality.curiosity=1;agent.mind.values.care=1;agent.needs.purpose=1;
-  agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),id])];
+  agent.life.stage='adult';agent.life.ageYears=Math.max(24,agent.life.ageYears);agent.life.health=1;
+  agent.life.physiology={strength:1,endurance:1,mobility:1,recovery:1};
+  agent.energy=1;agent.stress=0;agent.resources=0.8;agent.movement=undefined;agent.plan=undefined;agent.lastDecision=undefined;
+  agent.locationId='workshop';agent.position={x:raw.places.workshop.mapX,y:raw.places.workshop.mapY,layerId:'surface'};agent.lastAction='work';
+  agent.skills.craft=1;agent.personality.diligence=1;agent.personality.curiosity=0;agent.personality.generosity=1;agent.personality.sociability=0;agent.personality.riskTolerance=0;
+  agent.mind.values.care=1;agent.mind.values.ambition=1;agent.needs.purpose=0;agent.goal={kind:'contribute',strength:1,since:0};
+  raw.v15!.knowledgeByAgentId[agent.id].construction=0.4;
+  agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),id,'workshop'])];
  }
  const knowledge=Object.fromEntries(Object.entries(raw.v15!.knowledgeByAgentId).map(([id,k])=>[id,k.construction]));
  const store=new InMemoryWorldStore();await store.initializeWorld(raw);const world=await WorldEngine.open({worldId:raw.id,store});
