@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BRAIN_LOGICAL_BUDGET_BYTES_V1,
+  brainBudgetRemainingBytesV1,
+  brainDatumLogicalBytesV1,
   createBrainStateV1,
   logicalBrainBytesV1,
   tryStoreBrainDatumV1,
@@ -190,16 +192,26 @@ test('stage-3 perception never pushes a nearly full brain past 256 KiB', async (
     state.determinism.rngState,
     state.calendar.elapsedWorldMinutes,
   );
+  const fillerTemplate = {
+    id: 'nearly-full',
+    section: 'knowledge' as const,
+    kind: 'synthetic-load',
+    source: 'self_observation' as const,
+    encoded: 'x',
+  };
+  const datumOverhead = brainDatumLogicalBytesV1(fillerTemplate) - 1;
+  const payloadBytes = Math.max(
+    1,
+    brainBudgetRemainingBytesV1(brain) - datumOverhead - 64,
+  );
   assert.equal(
     tryStoreBrainDatumV1(brain, {
-      id: 'nearly-full',
-      section: 'knowledge',
-      kind: 'synthetic-load',
-      source: 'self_observation',
-      encoded: 'x'.repeat(255 * 1024),
+      ...fillerTemplate,
+      encoded: 'x'.repeat(payloadBytes),
     }),
     true,
   );
+  assert.ok(brainBudgetRemainingBytesV1(brain) <= 64);
   const result = acceptPersonalPerceptBatchV1(
     brain,
     perceptBatchForAgentV1(state, agent.id),
