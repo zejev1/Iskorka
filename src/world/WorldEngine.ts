@@ -3103,6 +3103,75 @@ function createPlace(
   };
 }
 
+function addFoundationLakeV1(
+  places: Record<string, WorldPlace>,
+  discoveredAt: number,
+): void {
+  if (places.foundation_lake) return;
+  const commons = places.commons;
+  const outskirts = places.outskirts;
+  if (!commons || !outskirts) return;
+
+  const dx = outskirts.mapX - commons.mapX;
+  const dy = outskirts.mapY - commons.mapY;
+  const length = Math.max(0.001, Math.hypot(dx, dy));
+  const ux = dx / length;
+  const uy = dy / length;
+  const px = -uy;
+  const py = ux;
+
+  // A small natural lake just beyond the settlement edge. The place point is
+  // the dry bank; the water body sits farther outward so the footpath ends at
+  // the shore instead of crossing water.
+  const bank = {
+    x: outskirts.mapX + ux * 5.5 + px * 1.6,
+    y: outskirts.mapY + uy * 5.5 + py * 1.6,
+  };
+  const waterCenter = {
+    x: bank.x + ux * 3.8,
+    y: bank.y + uy * 3.8,
+  };
+  const waterPolygon = Array.from({ length: 20 }, (_, index) => {
+    const angle = (Math.PI * 2 * index) / 20;
+    const along = Math.cos(angle) * 3.0;
+    const across = Math.sin(angle) * 2.2;
+    return {
+      x: waterCenter.x + ux * along + px * across,
+      y: waterCenter.y + uy * along + py * across,
+    };
+  });
+
+  const lake = createPlace(
+    'foundation_lake',
+    'Озеро у Основания',
+    'lake',
+    18,
+    {
+      biome: 'lake',
+      mapX: bank.x,
+      mapY: bank.y,
+      connectedPlaceIds: ['outskirts'],
+      fertility: 0.72,
+      danger: 0.04,
+      surface: 'shore',
+      discoveredAt,
+    },
+  );
+  lake.waterPolygon = waterPolygon;
+  places[lake.id] = lake;
+}
+
+function markFoundationLakeTrailV1(
+  routes: Record<string, WorldRouteState>,
+): void {
+  const trail = routes[routeIdBetween('outskirts', 'foundation_lake')];
+  if (!trail) return;
+  // The user asked for an existing footpath, not a road that magically appears
+  // only after the first traversal.
+  trail.completedTraversals = Math.max(1, trail.completedTraversals ?? 0);
+  trail.widthMetres = 1.5;
+}
+
 function makeConnectionsReciprocal(places: Record<string, WorldPlace>): void {
   for (const place of Object.values(places)) {
     place.connectedPlaceIds = [...new Set(place.connectedPlaceIds)];
@@ -4832,6 +4901,7 @@ export class WorldEngine {
       ),
       ocean_ainkrad: createFoundingOcean(now),
     };
+    addFoundationLakeV1(places, now);
     for (const spec of humanSeedSettlements.slice(1)) {
       addSecondaryHumanSettlementPlaces(places, spec, now, 10);
     }
@@ -4934,6 +5004,7 @@ export class WorldEngine {
     makeConnectionsReciprocal(places);
     const settlements = rebuildSettlementProjection(places, {}, now);
     const routes = rebuildWorldRoutes(places);
+    markFoundationLakeTrailV1(routes);
 
     const state: WorldState = {
       id: options.worldId,
@@ -5268,6 +5339,7 @@ export class WorldEngine {
           outskirts: createPlace('outskirts', 'Окраина Основания', 'outskirts', Math.max(16, names.length * 2), initialPlace('outskirts', 'outskirts')),
           ocean_ainkrad: createFoundingOcean(resetAt),
         };
+        addFoundationLakeV1(places, resetAt);
         for (const spec of humanSeedSettlements.slice(1)) addSecondaryHumanSettlementPlaces(places, spec, resetAt, 10);
         const agents: Record<string, AgentState> = {};
         names.forEach((name, index) => {
@@ -5335,6 +5407,7 @@ export class WorldEngine {
         this.state.cartography = undefined;
         this.state.geography = undefined;
         this.state.routes = rebuildWorldRoutes(places);
+        markFoundationLakeTrailV1(this.state.routes);
         this.state.settlements = rebuildSettlementProjection(places, {}, resetAt);
         this.state.wildlife = {};
         this.state.agents = agents;
