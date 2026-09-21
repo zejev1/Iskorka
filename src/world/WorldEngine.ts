@@ -5286,21 +5286,21 @@ export class WorldEngine {
           };
           const socialDrive = clamp01(personality.sociability * 0.75 + rng.between(0.05, 0.25));
           const needs = { belonging: rng.between(0.55, 0.82), purpose: rng.between(0.48, 0.78) };
-          const ageYears = 21 + ((index * 5) % 24);
+          const ageYears = FOUNDING_SPARK_START_AGE_YEARS_V1;
           const health = clamp01(0.78 + personality.resilience * 0.18);
           const lifespanYears = 76 + personality.resilience * 24 + (index % 4);
           const partial = {
             id, name, origin: 'native' as const, sex: (index % 2 === 0 ? 'male' : 'female') as AgentState['sex'], race: 'human' as const,
-            progression: { level: 1, experience: 0, objectControlAuthority: 0.08, systemControlAuthority: 0.06, combatMastery: 0.05, sacredArts: 0.02 },
-            energy: rng.between(0.68, 0.94), stress: rng.between(0.04, 0.16), resources: rng.between(0.52, 0.78), socialDrive, personality,
+            progression: { level: 1, experience: 0, objectControlAuthority: 0, systemControlAuthority: 0, combatMastery: 0, sacredArts: 0 },
+            energy: rng.between(0.72, 0.9), stress: rng.between(0.02, 0.12), resources: 0, socialDrive, personality,
             life: { bornAt: resetAt - ageYears * WORLD_TICKS_PER_YEAR, ageYears, lifespanYears, stage: lifeStageForAge(ageYears), alive: true, health,
               physiology: physiologyForAge(ageYears, lifespanYears, health), generation: 0, parentIds: [], childIds: [] },
-            mind: createMindState(this.state.id, id, personality, needs), needs,
-            skills: { gathering: rng.between(0.18, 0.5), hunting: rng.between(0.08, 0.38), craft: rng.between(0.18, 0.52), social: rng.between(0.18, 0.52), exploration: rng.between(0.16, 0.48) },
-            homeId, locationId: homeId, position: { x: places[homeId].mapX, y: places[homeId].mapY, layerId: 'surface' as const },
+            mind: createFoundingInfantMindState(this.state.id, id, personality, needs), needs,
+            skills: { gathering: 0, hunting: 0, craft: 0, social: 0, exploration: 0 },
+            homeId, locationId: 'commons', position: { x: places.commons.mapX, y: places.commons.mapY, layerId: 'surface' as const },
             lastMeaningfulEventAt: resetAt,
           } satisfies Omit<AgentState, 'goal'>;
-          agents[id] = { ...partial, goal: goalFromInitialState(partial, resetAt) };
+          agents[id] = { ...partial, goal: { kind: 'connect', strength: 0.25, since: resetAt } };
         });
         makeConnectionsReciprocal(places);
 
@@ -5336,6 +5336,7 @@ export class WorldEngine {
         this.state.agents = agents;
         this.state.relationships = {};
         this.state.iskorkaBrainV1 = undefined;
+        this.state.iskorkaMentorsV1 = undefined;
         this.state.centuryHumpback = undefined;
         this.state.v15 = createWorldV15State(
           this.state.id,
