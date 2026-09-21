@@ -246,8 +246,17 @@ test('mentors become visible/hearable through the same perception boundary, not 
   spark.locationId = mentor.locationId;
   spark.position = { x: mentor.position.x, y: mentor.position.y, layerId: 'surface' };
 
+  const actors = mentorActorsVisibleV1(world);
+  assert.ok(actors.some((actor) => actor.id === mentor.id));
   const first = perceptBatchForAgentV1(world, spark.id);
-  assert.ok(first.localObservations.some((observation) => observation.objectId === mentor.id));
+  assert.ok(
+    first.localObservations.some((observation) => observation.objectId === mentor.id),
+    JSON.stringify({
+      mentor: { id: mentor.id, locationId: mentor.locationId, position: mentor.position },
+      spark: { ageYears: spark.life.ageYears, locationId: spark.locationId, position: spark.position },
+      observations: first.localObservations,
+    }),
+  );
 
   applyFoundingMentorLessonV1(world, spark, mentor);
   const second = perceptBatchForAgentV1(world, spark.id);
