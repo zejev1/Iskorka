@@ -276,7 +276,7 @@ function renderPanel():void {
   document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===mode)));
   const panel=$('panel');
   const previousScroll=panel.scrollTop;
-  const openDetails=new Set([...panel.querySelectorAll<HTMLDetailsElement>('details[open][data-detail]')].map(d=>d.dataset.detail!));
+  const openDetails=new Set(Array.from(panel.querySelectorAll<HTMLDetailsElement>('details[open][data-detail]')).map(d=>d.dataset.detail!));
   if(mode==='people'){
     const a=selected.type==='agent'?w.agents[selected.id]:undefined;
     let html='';
