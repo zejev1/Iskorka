@@ -14,7 +14,10 @@ import {
   type BrowserStorageStatusV1,
 } from './BrowserPersistence';
 import { buildAgentAnalyticsV1 } from './AgentAnalyticsV1';
-import { assignedFoundingMentorV1 } from './FoundingMentorsV1';
+import {
+  assignedFoundingMentorV1,
+  isMentoredMinorV1,
+} from './FoundingMentorsV1';
 import './style.css';
 
 // Host operation IDs only; simulation randomness remains the persisted F2 RNG.
@@ -153,9 +156,14 @@ function drawMap():void {
 }
 function activity(a:AgentState,w:WorldState):string {
   if(!a.life.alive)return 'Умер';
-  if(a.movement)return 'В пути';
   const body=w.v21?.bodiesByAgentId[a.id];
   if(body && 'sleep' in body && (body.sleep as { status?: string } | undefined)?.status === 'sleeping')return 'Спит';
+  if(isMentoredMinorV1(w,a)){
+    const mentor=assignedFoundingMentorV1(w,a.id);
+    if(a.movement)return mentor?'С '+mentor.name+' · идёт под присмотром':'Идёт под присмотром';
+    return mentor?'С '+mentor.name+' · учится и наблюдает':'Под присмотром наставников';
+  }
+  if(a.movement)return 'В пути';
   const intent=a.agencyCadence?.currentIntent;
   if(intent)return 'Решил: '+(action[intent]??'действовать');
   return a.lastAction ? (action[a.lastAction]??'Действует') : 'Осваивается';
