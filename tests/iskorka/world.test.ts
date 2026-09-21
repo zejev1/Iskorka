@@ -8,6 +8,8 @@ import { assertIskorkaProfile, ISKORKA_PROFILE, ISKORKA_FOUNDER_NAMES } from '..
 import { validateCommand } from '../../src/iskorka/protocol';
 import { worldWeatherV21 } from '../../src/v21/WeatherV21';
 import { worldCalendarAtMinutes } from '../../src/world/WorldClock';
+import { routeIdBetween } from '../../src/world/WorldNavigation';
+import { pathCrossesWater } from '../../src/world/WaterNavigation';
 import type { WorldState } from '../../src/world/types';
 
 const YEAR=525600;
@@ -60,6 +62,20 @@ test('founding town retains pinned F2 coordinates, buildings, connections and te
  assert.deepEqual(w.terrain,golden.terrain);assert.deepEqual(w.v18!.planetaryGeography,golden.planetaryGeography);
  assert.equal(w.settlements.settlement_ainkrad.name,'Основание');
  assert.notEqual(w.places.commons.mapX,0);
+});
+test('Foundation has one nearby physical lake with a walkable pre-existing footpath',async()=>{
+ const {world:w}=await create('foundation-lake','foundation-lake-world');
+ const lake=w.places.foundation_lake,outskirts=w.places.outskirts;
+ assert.ok(lake);assert.equal(lake.kind,'lake');assert.equal(lake.biome,'lake');assert.equal(lake.surface,'shore');
+ assert.ok((lake.waterPolygon?.length??0)>=16);
+ assert.ok(Math.hypot(lake.mapX-outskirts.mapX,lake.mapY-outskirts.mapY)<10);
+ assert.ok(lake.connectedPlaceIds.includes('outskirts'));
+ assert.ok(outskirts.connectedPlaceIds.includes('foundation_lake'));
+ const route=w.routes[routeIdBetween('outskirts','foundation_lake')];
+ assert.ok(route);assert.equal(route.traversal,'walk');
+ assert.ok((route.completedTraversals??0)>=1);
+ assert.equal(route.widthMetres,1.5);
+ assert.equal(pathCrossesWater(route.waypoints,w.places),false);
 });
 test('same seed produces byte-equivalent initial worlds',async()=>{
  const a=await create(),b=await create();assert.deepEqual(a.world,b.world);
