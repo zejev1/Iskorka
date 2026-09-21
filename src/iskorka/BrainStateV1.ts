@@ -46,6 +46,56 @@ export interface BrainWorkingStepV1 {
   targetObjectId?: string;
 }
 
+export type BrainPerceivedObjectKindV1 = 'place' | 'person' | 'remains';
+
+export interface BrainPerceptionReferenceV1 {
+  refId: string;
+  worldObjectId: string;
+  kind: BrainPerceivedObjectKindV1;
+  firstObservedWorldMinute: number;
+  lastObservedWorldMinute: number;
+  recognitionConfidence: number;
+  /** For remains only; this is an observed physical link, not access to the dead person's brain. */
+  subjectWorldObjectId?: string;
+}
+
+export interface BrainCurrentObservationV1 {
+  refId: string;
+  kind: BrainPerceivedObjectKindV1;
+  relation: 'here' | 'connected_visible' | 'co_located';
+  channel: 'vision';
+  confidence: number;
+  observedAction?: string;
+  eventKind?: 'apparent_death';
+  subjectRefId?: string;
+}
+
+export interface BrainPerceivedMessageV1 {
+  messageId: string;
+  receivedWorldMinute: number;
+  channel: 'hearing' | 'reading';
+  confidence: number;
+  symbols: string[];
+  senderRefId?: string;
+  subjectRefId?: string;
+  eventKind?: 'death_report';
+}
+
+export interface BrainCurrentBodySignalV1 {
+  kind: string;
+  availability: 'available' | 'unavailable';
+  intensity?: number;
+}
+
+export interface BrainPerceptionStateV1 {
+  nextRefSequence: number;
+  references: BrainPerceptionReferenceV1[];
+  lastPerceptWorldMinute?: number;
+  currentBodySignals: BrainCurrentBodySignalV1[];
+  currentObservations: BrainCurrentObservationV1[];
+  recentMessages: BrainPerceivedMessageV1[];
+}
+
 export interface BrainMigrationStateV1 {
   schemaVersion: 1;
   importedLegacy: boolean;
@@ -61,6 +111,7 @@ export interface BrainStateV1 {
   createdWorldMinute: number;
   rngState: number;
   workingStep?: BrainWorkingStepV1;
+  perception?: BrainPerceptionStateV1;
   data: BrainDatumV1[];
   migration: BrainMigrationStateV1;
 }
@@ -71,6 +122,11 @@ const logicalByteCache = new WeakMap<object, number>();
 const BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 = 192;
 const BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 = 24;
 const BRAIN_WORKING_STEP_FIXED_LOGICAL_BYTES_V1 = 32;
+const BRAIN_PERCEPTION_FIXED_LOGICAL_BYTES_V1 = 48;
+const BRAIN_PERCEPTION_REFERENCE_FIXED_LOGICAL_BYTES_V1 = 32;
+const BRAIN_CURRENT_OBSERVATION_FIXED_LOGICAL_BYTES_V1 = 20;
+const BRAIN_MESSAGE_FIXED_LOGICAL_BYTES_V1 = 28;
+const BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1 = 12;
 const BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 = 4;
 
 const utf8BytesV1 = (value: string): number => encoder.encode(value).byteLength;
@@ -105,6 +161,50 @@ function workingStepLogicalBytesV1(
   );
 }
 
+
+function perceptionLogicalBytesV1(
+  perception: Readonly<BrainPerceptionStateV1> | undefined,
+): number {
+  if (!perception) return 0;
+  let bytes = BRAIN_PERCEPTION_FIXED_LOGICAL_BYTES_V1;
+  for (const ref of perception.references) {
+    bytes +=
+      BRAIN_PERCEPTION_REFERENCE_FIXED_LOGICAL_BYTES_V1 +
+      utf8BytesV1(ref.refId) +
+      utf8BytesV1(ref.worldObjectId) +
+      utf8BytesV1(ref.kind) +
+      utf8BytesV1(ref.subjectWorldObjectId ?? '');
+  }
+  for (const signal of perception.currentBodySignals) {
+    bytes +=
+      BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1 +
+      utf8BytesV1(signal.kind) +
+      utf8BytesV1(signal.availability);
+  }
+  for (const observation of perception.currentObservations) {
+    bytes +=
+      BRAIN_CURRENT_OBSERVATION_FIXED_LOGICAL_BYTES_V1 +
+      utf8BytesV1(observation.refId) +
+      utf8BytesV1(observation.kind) +
+      utf8BytesV1(observation.relation) +
+      utf8BytesV1(observation.channel) +
+      utf8BytesV1(observation.observedAction ?? '') +
+      utf8BytesV1(observation.eventKind ?? '') +
+      utf8BytesV1(observation.subjectRefId ?? '');
+  }
+  for (const message of perception.recentMessages) {
+    bytes +=
+      BRAIN_MESSAGE_FIXED_LOGICAL_BYTES_V1 +
+      utf8BytesV1(message.messageId) +
+      utf8BytesV1(message.channel) +
+      utf8BytesV1(message.senderRefId ?? '') +
+      utf8BytesV1(message.subjectRefId ?? '') +
+      utf8BytesV1(message.eventKind ?? '');
+    for (const symbol of message.symbols) bytes += 2 + utf8BytesV1(symbol);
+  }
+  return bytes;
+}
+
 export function invalidateBrainLogicalByteCacheV1(brain: Readonly<BrainStateV1>): void {
   logicalByteCache.delete(brain as object);
 }
@@ -116,6 +216,7 @@ export function logicalBrainBytesV1(brain: Readonly<BrainStateV1>): number {
     BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 +
     utf8BytesV1(brain.ownerAgentId) +
     workingStepLogicalBytesV1(brain.workingStep) +
+    perceptionLogicalBytesV1(brain.perception) +
     brain.data.reduce(
       (sum, datum) => sum + brainDatumLogicalBytesV1(datum),
       0,
@@ -185,6 +286,44 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
     if (!brain.workingStep.stepId.trim()) throw new Error('Brain working step has no ID.');
     if (!Number.isFinite(brain.workingStep.startedWorldMinute) || brain.workingStep.startedWorldMinute < 0) {
       throw new Error('Brain working step time is invalid.');
+    }
+  }
+  if (brain.perception) {
+    if (!Number.isInteger(brain.perception.nextRefSequence) || brain.perception.nextRefSequence < 1) {
+      throw new Error('Brain perception nextRefSequence is invalid.');
+    }
+    const refIds = new Set<string>();
+    const objectIds = new Set<string>();
+    for (const ref of brain.perception.references) {
+      if (!ref.refId.trim() || !ref.worldObjectId.trim()) {
+        throw new Error('Brain perception reference is incomplete.');
+      }
+      if (refIds.has(ref.refId) || objectIds.has(ref.worldObjectId)) {
+        throw new Error('Brain perception references must be unique.');
+      }
+      refIds.add(ref.refId);
+      objectIds.add(ref.worldObjectId);
+      if (
+        !Number.isFinite(ref.firstObservedWorldMinute) ||
+        !Number.isFinite(ref.lastObservedWorldMinute) ||
+        ref.firstObservedWorldMinute < 0 ||
+        ref.lastObservedWorldMinute < ref.firstObservedWorldMinute
+      ) {
+        throw new Error(`Brain perception reference ${ref.refId} has invalid time.`);
+      }
+      if (
+        !Number.isFinite(ref.recognitionConfidence) ||
+        ref.recognitionConfidence < 0 ||
+        ref.recognitionConfidence > 1
+      ) {
+        throw new Error(`Brain perception reference ${ref.refId} confidence is invalid.`);
+      }
+    }
+    if (brain.perception.currentObservations.length > 24) {
+      throw new Error('Brain current perception exceeds observation bound.');
+    }
+    if (brain.perception.recentMessages.length > 8) {
+      throw new Error('Brain recent perception exceeds message bound.');
     }
   }
   const bytes = logicalBrainBytesV1(brain);
