@@ -81,17 +81,41 @@ export interface BrainPerceivedMessageV1 {
   eventKind?: 'death_report';
 }
 
-export interface BrainCurrentBodySignalV1 {
-  kind: string;
-  availability: 'available' | 'unavailable';
-  intensity?: number;
-}
+export const BRAIN_BODY_SIGNAL_ORDER_V1 = [
+  'thirst',
+  'hunger',
+  'breathlessness',
+  'weakness',
+  'coldStress',
+  'heatStress',
+  'sweating',
+  'tremor',
+  'heartPounding',
+  'bladderUrge',
+  'bowelUrge',
+  'physicalDiscomfort',
+  'cryingDrive',
+  'tears',
+  'blushing',
+  'goosebumps',
+  'dryMouth',
+  'startle',
+  'physicalPleasure',
+  'sexualArousal',
+  'postPleasureRelaxation',
+] as const;
+
+/**
+ * Fixed-order subjective body values. -1 means unavailable/unknown; 0..1 is
+ * an available intensity. Signal names live in shared code, not per-person RAM.
+ */
+export type BrainCurrentBodySignalsV1 = number[];
 
 export interface BrainPerceptionStateV1 {
   nextRefSequence: number;
   references: BrainPerceptionReferenceV1[];
   lastPerceptWorldMinute?: number;
-  currentBodySignals: BrainCurrentBodySignalV1[];
+  currentBodySignals: BrainCurrentBodySignalsV1;
   currentObservations: BrainCurrentObservationV1[];
   recentMessages: BrainPerceivedMessageV1[];
 }
@@ -127,7 +151,7 @@ const BRAIN_PERCEPTION_FIXED_LOGICAL_BYTES_V1 = 48;
 const BRAIN_PERCEPTION_REFERENCE_FIXED_LOGICAL_BYTES_V1 = 32;
 const BRAIN_CURRENT_OBSERVATION_FIXED_LOGICAL_BYTES_V1 = 20;
 const BRAIN_MESSAGE_FIXED_LOGICAL_BYTES_V1 = 28;
-const BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1 = 12;
+const BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1 = 4;
 const BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 = 4;
 
 const utf8BytesV1 = (value: string): number => encoder.encode(value).byteLength;
@@ -176,12 +200,9 @@ function perceptionLogicalBytesV1(
       utf8BytesV1(ref.kind) +
       utf8BytesV1(ref.subjectWorldObjectId ?? '');
   }
-  for (const signal of perception.currentBodySignals) {
-    bytes +=
-      BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1 +
-      utf8BytesV1(signal.kind) +
-      utf8BytesV1(signal.availability);
-  }
+  bytes +=
+    perception.currentBodySignals.length *
+    BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1;
   for (const observation of perception.currentObservations) {
     bytes +=
       BRAIN_CURRENT_OBSERVATION_FIXED_LOGICAL_BYTES_V1 +
@@ -333,6 +354,14 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
       ) {
         throw new Error(`Brain perception reference ${ref.refId} confidence is invalid.`);
       }
+    }
+    if (
+      brain.perception.currentBodySignals.length !== BRAIN_BODY_SIGNAL_ORDER_V1.length ||
+      brain.perception.currentBodySignals.some(
+        (value) => !Number.isFinite(value) || value < -1 || value > 1,
+      )
+    ) {
+      throw new Error('Brain current body signals are invalid.');
     }
     if (brain.perception.currentObservations.length > 24) {
       throw new Error('Brain current perception exceeds observation bound.');
