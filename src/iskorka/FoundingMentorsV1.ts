@@ -13,12 +13,14 @@ import type { GenesisDomain } from '../v15/GenesisBootstrap';
 import { consumeStoredResources, harvestRenewably } from '../v15/RenewableAgriculture';
 import { ensureRussianKnowledgeV18 } from '../v18/UnderworldFoundationV18';
 import { ensureLifeRhythmV18, recordMealV18 } from '../v18/LivelihoodAndRhythmV18';
+import { placeSupportsCapabilityV1 } from './MedievalPlaceInfrastructureV1';
 
 export const FOUNDING_SPARK_START_AGE_YEARS_V1 = 0.5;
 export const FOUNDING_MENTOR_RELEASE_AGE_YEARS_V1 = 18;
 export const FOUNDING_MENTOR_VERSION_V1 = 'iskorka-founding-mentors-v1' as const;
 export const FOUNDING_MENTOR_VISIBILITY_RADIUS_V1 = 45;
 const YEAR = 365 * 24 * 60;
+const DAY = 24 * 60;
 const SEMANTIC_QUANTUM = YEAR / 60;
 const MAX_STUDENT_MESSAGES = 8;
 
@@ -230,44 +232,113 @@ function roleDomain(role: FoundingMentorRoleV1): GenesisDomain | undefined {
   }
 }
 
+export type FoundingGuardianRoutinePhaseV1 =
+  | 'home_sleep'
+  | 'fresh_air'
+  | 'home_care'
+  | 'learning_outing';
+
+export function foundingMentorHomeIdV1(
+  world: Readonly<WorldState>,
+  mentorId: string,
+): string | undefined {
+  const first = foundingMentorStudentsV1(world, mentorId)[0];
+  return first?.homeId;
+}
+
+function routinePhaseAtMinuteV1(worldMinute: number): FoundingGuardianRoutinePhaseV1 {
+  const hour = ((Math.max(0, worldMinute) % DAY) / 60);
+  if (hour < 7 || hour >= 20) return 'home_sleep';
+  if (hour < 10) return 'fresh_air';
+  if (hour < 12) return 'home_care';
+  if (hour < 15) return 'learning_outing';
+  if (hour < 18) return 'fresh_air';
+  return 'home_care';
+}
+
+export function nextFoundingMentorRoutineBoundaryV1(worldMinute: number): number {
+  const minute = Math.max(0, worldMinute);
+  const dayStart = Math.floor(minute / DAY) * DAY;
+  const minuteOfDay = minute - dayStart;
+  for (const boundary of [7 * 60, 10 * 60, 12 * 60, 15 * 60, 18 * 60, 20 * 60, DAY]) {
+    if (boundary > minuteOfDay + 1e-9) return dayStart + boundary;
+  }
+  return dayStart + DAY + 7 * 60;
+}
+
+export function foundingMentorRoutineDestinationAtV1(
+  world: Readonly<WorldState>,
+  mentor: Readonly<FoundingMentorStateV1>,
+  studentAgeYears: number,
+  worldMinute: number,
+): string {
+  const homeId = foundingMentorHomeIdV1(world, mentor.id) ?? 'commons';
+  const phase = routinePhaseAtMinuteV1(worldMinute);
+  if (phase === 'home_sleep' || phase === 'home_care') return homeId;
+
+  const day = Math.floor(Math.max(0, worldMinute) / DAY);
+  const mentorIndex = Math.max(0, MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+  const pick = (ids: string[]): string => {
+    const available = ids.filter((id) => Boolean(world.places[id]));
+    if (available.length === 0) return homeId;
+    return available[(day + mentorIndex) % available.length] ?? homeId;
+  };
+
+  if (phase === 'fresh_air') {
+    const nearby = ['quiet_space', 'commons'];
+    if (studentAgeYears >= 1.5) nearby.push('foundation_lake');
+    return pick(nearby);
+  }
+
+  if (studentAgeYears < 3) return pick(['quiet_space', 'commons']);
+  if (studentAgeYears < 5) return pick(['quiet_space', 'commons', 'resource_field']);
+  if (studentAgeYears < 8) {
+    return pick(['resource_field', 'workshop', 'foundation_lake', 'quiet_space']);
+  }
+  if (studentAgeYears < 12) {
+    return pick(['resource_field', 'workshop', 'foundation_lake', 'meadow', 'forest']);
+  }
+  return pick([
+    'resource_field','workshop','foundation_lake','meadow','forest','outskirts','river','lake',
+  ]);
+}
+
 export function mentorTeachingPlaceV1(
   world: Readonly<WorldState>,
   mentor: Readonly<FoundingMentorStateV1>,
   studentAgeYears: number,
 ): string {
-  // The destination belongs to the guardian's schedule, not to a task in the
-  // child's brain. The same caregiver raises the same two children and takes
-  // them on age-appropriate outings to learn by watching and helping.
-  const candidates: string[] = ['commons'];
-  const add = (id: string): void => {
-    if (world.places[id] && !candidates.includes(id)) candidates.push(id);
-  };
-
-  if (studentAgeYears >= 2) add('quiet_space');
-  if (studentAgeYears >= 5) {
-    add('resource_field');
-    add('workshop');
-    add('foundation_lake');
-    add('shore');
-  }
-  if (studentAgeYears >= 8) {
-    add('meadow');
-    add('forest');
-  }
-  if (studentAgeYears >= 12) {
-    add('outskirts');
-    add('river');
-    add('lake');
-  }
-
-  const mentorIndex = Math.max(
-    0,
-    MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id),
+  return foundingMentorRoutineDestinationAtV1(
+    world,
+    mentor,
+    studentAgeYears,
+    world.calendar.elapsedWorldMinutes,
   );
-  const outingSlot = Math.floor(
-    world.calendar.elapsedWorldMinutes / (SEMANTIC_QUANTUM * 2),
-  );
-  return candidates[(outingSlot + mentorIndex) % candidates.length] ?? 'commons';
+}
+
+export function placeFoundingMentorHouseholdsV1(world: WorldState): void {
+  const state = world.iskorkaMentorsV1;
+  if (!state?.active) return;
+  Object.values(state.mentorsById).forEach((mentor, mentorIndex) => {
+    const students = foundingMentorStudentsV1(world, mentor.id);
+    const homeId = students[0]?.homeId;
+    const home = homeId ? world.places[homeId] : undefined;
+    if (!home || students.length === 0) return;
+    students.forEach((child, childIndex) => {
+      child.locationId = home.id;
+      child.position = {
+        x: home.mapX + (childIndex === 0 ? -0.12 : 0.12),
+        y: home.mapY + (childIndex === 0 ? 0.08 : -0.08),
+        layerId: 'surface',
+      };
+      child.movement = undefined;
+    });
+    mentor.locationId = home.id;
+    mentor.position = {
+      x: home.mapX + Math.cos((Math.PI * 2 * mentorIndex) / MENTOR_SPECS.length) * 0.2,
+      y: home.mapY + Math.sin((Math.PI * 2 * mentorIndex) / MENTOR_SPECS.length) * 0.2,
+    };
+  });
 }
 
 function mentorDomainAtCurrentPlaceV1(
@@ -350,9 +421,14 @@ export function ensureFoundingMentorWorldV1(world: WorldState): FoundingMentorWo
   const students = Object.values(world.agents)
     .filter((agent) => agent.life.generation === 0)
     .map((agent) => agent.id)
-    .sort();
+    .sort((left, right) => {
+      const a = Number(left.match(/\d+$/)?.[0] ?? 0);
+      const b = Number(right.match(/\d+$/)?.[0] ?? 0);
+      return a - b || left.localeCompare(right);
+    });
   const created = createFoundingMentorWorldV1(world, students);
   world.iskorkaMentorsV1 = created;
+  placeFoundingMentorHouseholdsV1(world);
   return created;
 }
 
@@ -572,6 +648,12 @@ export function applyFoundingMentorLessonV1(
   }
   if (mentor.status !== 'caregiving') return { taught: false, gained: 0 };
   if (mentor.locationId !== student.locationId) return { taught: false, gained: 0 };
+  if (
+    mentor.locationId === 'workshop' &&
+    !placeSupportsCapabilityV1(world.places[mentor.locationId], 'general_craft')
+  ) {
+    return { taught: false, gained: 0 };
+  }
 
   const now = world.calendar.elapsedWorldMinutes;
   const reproductiveEducationStage = teachReproductiveEducationV1(

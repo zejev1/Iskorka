@@ -8,6 +8,7 @@ import {
   applyFoundingMentorCareV1,
   applyFoundingMentorLessonV1,
   assignedFoundingMentorV1,
+  foundingMentorHomeIdV1,
   foundingMentorStudentsV1,
   mentorActorsVisibleV1,
   mentorTeachingPlaceV1,
@@ -39,7 +40,8 @@ test('new world starts ten six-month Sparks with five non-population mentors', a
     assert.equal(spark.life.ageYears, FOUNDING_SPARK_START_AGE_YEARS_V1);
     assert.equal(spark.life.stage, 'child');
     assert.equal(spark.life.generation, 0);
-    assert.equal(spark.locationId, 'commons');
+    const guardian = assignedFoundingMentorV1(world, spark.id)!;
+    assert.equal(spark.locationId, foundingMentorHomeIdV1(world, guardian.id));
     assert.equal(spark.lastDecision, undefined);
     assert.ok(Object.values(spark.skills).every((value) => value === 0));
     assert.ok(Object.values(spark.mind.values).every((value) => value === 0));
@@ -60,6 +62,43 @@ test('new world starts ten six-month Sparks with five non-population mentors', a
     assert.equal(mentor.fullKnowledge.household, 0.96);
     assert.equal(mentor.fullKnowledge.survival, 0.96);
   }
+});
+
+test('founding infants live with their guardian and are taken outside before age two', async () => {
+  const { store, runtime, world: initial } = await create(
+    'mentor-fresh-air',
+    'mentor-fresh-air-world',
+  );
+
+  for (const mentor of Object.values(initial.iskorkaMentorsV1!.mentorsById)) {
+    const pair = foundingMentorStudentsV1(initial, mentor.id);
+    assert.equal(pair.length, 2);
+    const homeId = foundingMentorHomeIdV1(initial, mentor.id)!;
+    assert.equal(mentor.locationId, homeId);
+    assert.ok(pair.every((child) => child.locationId === homeId));
+  }
+
+  await runtime.advanceTo(YEAR * 0.4);
+  const events = await store.history(initial.id);
+  const outings = events.filter(
+    (event) => event.kind === 'mentor.guardian.outing.started',
+  );
+  assert.ok(outings.length > 0);
+  assert.ok(
+    outings.some((event) =>
+      ['quiet_space', 'commons'].includes(String(event.payload.destinationId)),
+    ),
+  );
+  const state = runtime.snapshot();
+  assert.ok(Object.values(state.agents).every((child) => child.life.ageYears < 2));
+  // The snapshot may legitimately catch the family back at home. Event
+  // evidence proves that an actual physical outing started while the children
+  // were still non-walking infants, and that they were carried by a guardian.
+  assert.ok(
+    outings.some(
+      (event) => String(event.payload.carriedStudentIds ?? '').length > 0,
+    ),
+  );
 });
 
 test('mentor care physically feeds, hydrates and tends a founding infant', async () => {

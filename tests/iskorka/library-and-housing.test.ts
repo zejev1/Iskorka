@@ -12,6 +12,8 @@ test('human library: at most five volunteers; no learning before physical arriva
  for(const agent of Object.values(prepared.agents)){
   agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
+  agent.locationId='commons';agent.position={x:prepared.places.commons.mapX,y:prepared.places.commons.mapY,layerId:'surface'};agent.movement=undefined;
+  agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),'commons',SECRET_LIBRARY_PLACE_ID_V18])];
   prepared.v18!.languageByAgentId[agent.id].cyrillicLiteracy=1;
  }
  const store=new InMemoryWorldStore();await store.initializeWorld(prepared);
@@ -19,7 +21,11 @@ test('human library: at most five volunteers; no learning before physical arriva
  await world.step(1);const w=world.snapshot(),selected=w.v18!.secretLibrary.visitors;
  assert.ok(selected.length>0&&selected.length<=5);assert.equal(w.v18!.secretLibrary.totalKnowledgeRecords,0);
  assert.ok(selected.every(v=>v.acceptedVoluntarily));
- assert.ok(selected.every(v=>w.agents[v.agentId].movement?.targetPlaceId===SECRET_LIBRARY_PLACE_ID_V18));
+ // Selection and physical travel are separate causal stages. A newly admitted
+ // visitor may begin walking on this or the next semantic pass, but may not
+ // learn anything before a real arrival receipt exists.
+ assert.ok(selected.every(v=>v.status==='travelling'&&v.arrivedWorldMinute===undefined));
+ assert.ok(selected.every(v=>w.agents[v.agentId].locationId!==SECRET_LIBRARY_PLACE_ID_V18));
  for(let tick=2;tick<=7;tick++)await world.step(tick);
  const complete=world.snapshot().v18!.secretLibrary;
  assert.ok(complete.totalKnowledgeRecords>0);

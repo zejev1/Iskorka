@@ -219,6 +219,8 @@ export interface AgentPositionState extends WorldPoint2D {
 export interface AgentMovementState {
   /** Occupancy of a real vessel; never permits walking through water. */
   boatId?: string;
+  /** Founding infants may be physically carried by their assigned mentor. */
+  carriedByFoundingMentorId?: string;
   targetPlaceId: string;
   purpose: AgentActionKind;
   waypoints: WorldPoint2D[];
@@ -371,6 +373,11 @@ export interface WorldPlace {
   /** A wilderness claim can change through settlement decisions or war. */
   claimedBySettlementId?: string;
   discoveredAt?: number;
+  /**
+   * Physical medieval rooms and installed fixtures. A place name alone is not
+   * proof that a resident can sleep, cook, wash or practise a craft there.
+   */
+  medievalInfrastructureV1?: import('../iskorka/MedievalPlaceInfrastructureV1').MedievalPlaceInfrastructureV1;
 }
 
 export interface WorldRouteState {

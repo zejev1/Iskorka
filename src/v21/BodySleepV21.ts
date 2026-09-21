@@ -2,6 +2,7 @@ import type { AgentState, V21BodyState, WorldPlaceKind, WorldState, WorldV21Stat
 import { cancelLearningAttempt } from '../world/learning/ResidentLearning';
 import { ensureAgentEmbodiedWorldV21 } from './EmbodiedWorldV21';
 import { worldWeatherV21 } from './WeatherV21';
+import { placeSupportsCapabilityV1 } from '../iskorka/MedievalPlaceInfrastructureV1';
 
 // Sleep is a body constraint, not an external decision. Expensive context is
 // captured once when sleep begins; sleeping itself is a timestamp comparison.
@@ -66,10 +67,13 @@ function sleepQualityV21(
   const recovery = clamp01(agent.life.physiology.recovery);
   const ownHome = agent.locationId === agent.homeId;
   const sheltered = isSheltered(place?.kind);
+  const furnishedSleep = placeSupportsCapabilityV1(place, 'sleep');
   const kit = hasSleepingKit(world, agent);
   const weatherPenalty = (1 - weather.comfort) * (sheltered ? 0.04 : 0.18);
 
-  if (ownHome) return 1;
+  if (ownHome && furnishedSleep) return 1;
+  if (furnishedSleep) return clamp01(0.92 + recovery * 0.06 - weatherPenalty);
+  if (ownHome) return clamp01(0.62 + recovery * 0.08 - weatherPenalty);
   if (sheltered) return clamp01(0.86 + recovery * 0.1 - weatherPenalty);
   if (kit) return clamp01(0.91 + recovery * 0.09 - weatherPenalty * 0.45);
   if (forced) {
