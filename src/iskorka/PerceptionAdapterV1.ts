@@ -253,6 +253,36 @@ function localObservationsV1(
     });
   }
 
+  if (result.length < MAX_LOCAL_OBSERVATIONS) {
+    // Co-located remains are immediate physical evidence and must not be
+    // crowded out by distant place labels or a busy room.
+    const remainsById = world.v16?.remainsById;
+    if (remainsById) {
+      for (const entryId in remainsById) {
+        if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+        const entry = remainsById[entryId];
+        if (entry.currentPlaceId !== agent.locationId) continue;
+        const assessment = visualAssessmentV1(
+          noise,
+          entry.id,
+          0,
+          vision.capacity,
+          Math.max(8, vision.reach),
+        );
+        if (!assessment.recognized) continue;
+        result.push({
+          objectId: entry.id,
+          kind: 'remains',
+          relation: 'co_located',
+          channel: 'vision',
+          confidence: assessment.confidence,
+          subjectObjectId: entry.agentId,
+          eventKind: 'apparent_death',
+        });
+      }
+    }
+  }
+
   for (const id of current.connectedPlaceIds) {
     if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
     const place = world.places[id];
@@ -340,33 +370,6 @@ function localObservationsV1(
     }
   }
 
-  if (result.length < MAX_LOCAL_OBSERVATIONS) {
-    const remainsById = world.v16?.remainsById;
-    if (remainsById) {
-      for (const entryId in remainsById) {
-        if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
-        const entry = remainsById[entryId];
-        if (entry.currentPlaceId !== agent.locationId) continue;
-        const assessment = visualAssessmentV1(
-          noise,
-          entry.id,
-          0,
-          vision.capacity,
-          Math.max(8, vision.reach),
-        );
-        if (!assessment.recognized) continue;
-        result.push({
-          objectId: entry.id,
-          kind: 'remains',
-          relation: 'co_located',
-          channel: 'vision',
-          confidence: assessment.confidence,
-          subjectObjectId: entry.agentId,
-          eventKind: 'apparent_death',
-        });
-      }
-    }
-  }
   return result;
 }
 
