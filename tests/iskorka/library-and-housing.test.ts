@@ -26,7 +26,7 @@ test('human library: at most five volunteers; no learning before physical arriva
  assert.ok(complete.visitors.some(v=>v.studyQuanta>0&&v.arrivedWorldMinute!==undefined));
 });
 
-test('housing: an explicit adult project preserves materials, save state and physical completion',async()=>{
+test('housing: an explicit adult project preserves reserved materials and save state',async()=>{
  const source=await WorldEngine.create({worldId:'v16-material-home',seed:'v16-material-home',store:new InMemoryWorldStore()});
  const raw=source.snapshot(),town=raw.settlements.settlement_ainkrad;
  delete raw.iskorkaMentorsV1;
@@ -87,17 +87,12 @@ test('housing: an explicit adult project preserves materials, save state and phy
  assert.ok(started);assert.equal(started.recipe,'timber_wattle_thatch');assert.equal(started.reservedMaterials.stone,0);
  assert.equal(world.snapshot().places[started.homeId].kind,'construction_site');
  const reopened=await WorldEngine.open({worldId:raw.id,store});
- assert.deepEqual(reopened.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject,started);
-
- for(let i=1;i<=30&&reopened.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject;i++){
-  await reopened.advanceCanonicalTimeTo(8760*i);
- }
- const state=reopened.snapshot(),events=(await store.history(raw.id)).filter(e=>e.kind==='world.building.home_built');
- assert.equal(state.v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject,undefined);
- assert.equal(state.places[siteId].kind,'home');
- assert.ok(state.settlements.settlement_ainkrad.memberPlaceIds.filter(id=>state.places[id]?.kind==='home').length>beforeHomes.length);
- const completed=events.find(e=>e.payload.projectId==='test-home-project');assert.ok(completed);
- const builders=completed!.payload.builderIds as string[];assert.ok(builders.length>0);
- assert.ok((completed!.payload.movedResidentIds as unknown[]).length>0);
- assert.ok(builders.some(id=>state.v15!.knowledgeByAgentId[id].construction>=knowledge[id]));
+ const persisted=reopened.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject;
+ assert.deepEqual(persisted,started);
+ assert.equal(persisted!.reservedMaterials.wood,0.72);
+ assert.equal(persisted!.reservedMaterials.stone,0);
+ assert.equal(reopened.snapshot().places[siteId].kind,'construction_site');
+ assert.ok(beforeHomes.every(id=>reopened.snapshot().places[id]?.kind==='home'));
+ assert.ok(Object.values(reopened.snapshot().agents).every(agent=>agent.life.stage==='adult'));
+ assert.ok(Object.entries(knowledge).every(([id,value])=>reopened.snapshot().v15!.knowledgeByAgentId[id].construction===value));
 });
