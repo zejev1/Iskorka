@@ -341,14 +341,14 @@ test('BodyCore uses realistic infant mass growth instead of freezing near newbor
   const infant = world.agents.agent_1;
   const body = world.v21!.bodiesByAgentId[infant.id];
   const adultMass = body.bodyCore!.phenotype.massKg;
+  const adultHeight = body.bodyCore!.phenotype.heightM;
 
   infant.life.ageYears = 0.75;
   infant.life.stage = 'child';
   const core = ensureBodyCoreV1(world, infant, body)!;
 
   const massRatio = core.phenotype.massKg / adultMass;
-  const heightRatio = core.phenotype.heightM /
-    (core.phenotype.heightM / 0.41);
+  const heightRatio = core.phenotype.heightM / adultHeight;
   assert.ok(massRatio >= 0.11 && massRatio <= 0.13);
   assert.ok(heightRatio >= 0.40 && heightRatio <= 0.42);
   assert.equal(core.homeostasis.sexualArousal, undefined);
