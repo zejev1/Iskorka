@@ -4866,7 +4866,7 @@ export class WorldEngine {
         belonging: rng.between(0.35, 0.8),
         purpose: rng.between(0.35, 0.8),
       };
-      const ageYears = 20 + ((index * 3) % 15);
+      const ageYears = FOUNDING_SPARK_START_AGE_YEARS_V1;
       const partial = {
         id,
         name,
@@ -4876,14 +4876,14 @@ export class WorldEngine {
         progression: {
           level: 1,
           experience: 0,
-          objectControlAuthority: 0.08,
-          systemControlAuthority: 0.06,
-          combatMastery: 0.05,
-          sacredArts: 0.02,
+          objectControlAuthority: 0,
+          systemControlAuthority: 0,
+          combatMastery: 0,
+          sacredArts: 0,
         },
-        energy: rng.between(0.55, 0.95),
-        stress: rng.between(0.05, 0.25),
-        resources: rng.between(0.35, 0.8),
+        energy: rng.between(0.72, 0.9),
+        stress: rng.between(0.02, 0.12),
+        resources: 0,
         socialDrive,
         personality,
         life: {
@@ -4903,20 +4903,22 @@ export class WorldEngine {
           parentIds: [],
           childIds: [],
         },
-        mind: createMindState(options.worldId, id, personality, needs),
+        mind: createFoundingInfantMindState(options.worldId, id, personality, needs),
         needs,
         skills: {
-          gathering: rng.between(0.15, 0.55),
-          hunting: rng.between(0.08, 0.42),
-          craft: rng.between(0.15, 0.55),
-          social: rng.between(0.15, 0.55),
-          exploration: rng.between(0.15, 0.55),
+          gathering: 0,
+          hunting: 0,
+          craft: 0,
+          social: 0,
+          exploration: 0,
         },
         homeId,
-        locationId: homeId,
+        // The founding cohort begins together under mentor care in the central
+        // nursery/community space. Individual homes remain their future homes.
+        locationId: 'commons',
         position: {
-          x: places[homeId].mapX,
-          y: places[homeId].mapY,
+          x: places.commons.mapX,
+          y: places.commons.mapY,
           layerId: 'surface' as const,
         },
         lastMeaningfulEventAt: now,
@@ -4924,7 +4926,8 @@ export class WorldEngine {
 
       agents[id] = {
         ...partial,
-        goal: goalFromInitialState(partial, now),
+        // Legacy one-goal scaffolding stays inert during the mentored years.
+        goal: { kind: 'connect', strength: 0.25, since: now },
       };
     });
     makeConnectionsReciprocal(places);
