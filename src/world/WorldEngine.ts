@@ -3471,6 +3471,23 @@ function createMindState(
 function v15KnowledgeForAgent(agent: Readonly<AgentState>): WorldV15State['knowledgeByAgentId'][string] {
   const curiosity = clamp01(agent.personality.curiosity);
   const diligence = clamp01(agent.personality.diligence);
+  if (agent.life.ageYears < 1) {
+    return {
+      agriculture: 0,
+      construction: 0,
+      household: 0,
+      survival: 0,
+      // Aptitude is an innate learning tendency, not acquired knowledge.
+      aptitude: {
+        agriculture: clamp01(0.32 + diligence * 0.35),
+        construction: clamp01(0.3 + diligence * 0.3),
+        household: clamp01(0.3 + agent.personality.generosity * 0.28),
+        survival: clamp01(0.28 + agent.personality.resilience * 0.27 + curiosity * 0.2),
+      },
+      verifiedLearningSessions: 0,
+      verifiedPracticeSessions: 0,
+    };
+  }
   return {
     agriculture: clamp01(0.015 + agent.skills.gathering * 0.07 + diligence * 0.025),
     construction: clamp01(0.015 + agent.skills.craft * 0.075 + diligence * 0.02),
@@ -3499,14 +3516,16 @@ function v15FamilyAgencyForAgent(agent: Readonly<AgentState>): WorldV15State['fa
   };
 }
 
-function emptySmithingProfile(): WorldV15State['smithingByAgentId'][string] {
+function emptySmithingProfile(
+  newborn = false,
+): WorldV15State['smithingByAgentId'][string] {
   return {
     knowledge: {
-      stoneToolmaking: 0.02,
+      stoneToolmaking: newborn ? 0 : 0.02,
       primitiveSmithing: 0,
-      weaponcraft: 0.01,
+      weaponcraft: newborn ? 0 : 0.01,
       heatWorking: 0,
-      materialKnowledge: 0.02,
+      materialKnowledge: newborn ? 0 : 0.02,
     },
     verifiedWorkshopSessions: 0,
     failedCraftAttempts: 0,
@@ -3577,7 +3596,9 @@ function ensureAgentV15State(state: WorldState, agent: Readonly<AgentState>): vo
   if (!v15) throw new Error('v15 state is missing.');
   v15.knowledgeByAgentId[agent.id] ??= v15KnowledgeForAgent(agent);
   v15.familyAgencyByAgentId[agent.id] ??= v15FamilyAgencyForAgent(agent);
-  v15.smithingByAgentId[agent.id] ??= emptySmithingProfile();
+  v15.smithingByAgentId[agent.id] ??= emptySmithingProfile(
+    agent.life.ageYears < 1,
+  );
   v15.equipmentByAgentId[agent.id] ??= {};
 }
 
