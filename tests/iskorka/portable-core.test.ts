@@ -90,18 +90,23 @@ test('portable brain shell accepts only its own monotonic percept stream', async
     agent.life.generation,
     state.determinism.rngState,
   );
-  acceptPerceptBatchV1(brain, batch);
-  assert.equal(brain.lastAcceptedPerceptWorldMinute, batch.worldMinute);
+  const first = {
+    ...batch,
+    worldMinute: 10,
+    body: { ...batch.body, worldMinute: 10 },
+  };
+  acceptPerceptBatchV1(brain, first);
+  assert.equal(brain.lastAcceptedPerceptWorldMinute, 10);
 
   assert.throws(
-    () => acceptPerceptBatchV1(brain, { ...batch, ownerAgentId: 'other' }),
+    () => acceptPerceptBatchV1(brain, { ...first, ownerAgentId: 'other' }),
     /owner mismatch/,
   );
   assert.throws(
     () => acceptPerceptBatchV1(brain, {
-      ...batch,
-      worldMinute: batch.worldMinute - 1,
-      body: { ...batch.body, worldMinute: batch.worldMinute - 1 },
+      ...first,
+      worldMinute: 9,
+      body: { ...first.body, worldMinute: 9 },
     }),
     /backwards/,
   );
