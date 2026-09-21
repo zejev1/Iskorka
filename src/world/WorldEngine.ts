@@ -5203,9 +5203,12 @@ export class WorldEngine {
     // Human-scale current intention is a pure observation projection. It is
     // deliberately not persisted as causal history.
     for (const agent of Object.values(snapshot.agents)) {
-      if (agent.life.alive) {
+      if (agent.life.alive && !isMentoredMinorV1(snapshot, agent)) {
         agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
       } else {
+        // Founding children are living through mentor care/lessons, not the
+        // old adult intention projector. Their observable state comes from
+        // body, perception and mentor activity until adulthood.
         delete agent.agencyCadence;
       }
     }
