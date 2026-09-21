@@ -1,5 +1,5 @@
 import { stableJsonStringify } from '../core/stableJson';
-import type { AgentState, WorldState } from '../world/types';
+import type { AgentState, MemoryRecord, WorldState } from '../world/types';
 import {
   assertBrainStateV1,
   createBrainStateV1,
@@ -112,6 +112,37 @@ function importLegacyOwnedStateV1(
   brain.migration.importedAtWorldMinute = world.calendar.elapsedWorldMinutes;
   brain.migration.sourceWorldRevision = world.revision;
   brain.migration.importedDatumIds = brain.data.map((datum) => datum.id);
+  assertBrainStateV1(brain);
+}
+
+export function importLegacyPersistentMemoriesV1(
+  brain: BrainStateV1,
+  memories: readonly Readonly<MemoryRecord>[],
+): void {
+  const owned = memories
+    .filter((memory) => memory.agentId === brain.ownerAgentId)
+    .map((memory) => ({
+      memoryId: memory.memoryId,
+      createdAt: memory.createdAt,
+      kind: memory.kind,
+      summary: memory.summary,
+      importance: memory.importance,
+      valence: memory.valence,
+      relatedAgentIds: [...memory.relatedAgentIds],
+    }));
+  if (owned.length === 0) return;
+
+  const datumId = 'legacy:persistent-memory-store';
+  storeLegacy(
+    brain,
+    datumId,
+    'significant',
+    'legacy_persistent_memories',
+    owned,
+  );
+  if (!brain.migration.importedDatumIds.includes(datumId)) {
+    brain.migration.importedDatumIds.push(datumId);
+  }
   assertBrainStateV1(brain);
 }
 
