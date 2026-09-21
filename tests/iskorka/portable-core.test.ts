@@ -11,6 +11,7 @@ import {
   humanBodyPerceptV1,
   perceptBatchForAgentV1,
 } from '../../src/iskorka/PerceptionAdapterV1';
+import { bodySignalsV1 } from '../../src/iskorka/BodyCoreV1';
 
 async function world() {
   const runtime = await IskorkaRuntime.openOrCreate(
@@ -36,6 +37,23 @@ test('body percept exposes bounded subjective signals and not physical internals
   assert.equal('homeostasis' in (percept as unknown as Record<string, unknown>), false);
   assert.equal('reproductive' in (percept as unknown as Record<string, unknown>), false);
   assert.ok(JSON.stringify(percept).length < 5_000);
+});
+
+test('interoception is a subjective deterministic reading, not raw BodyCore numbers', async () => {
+  const state = await world();
+  const agent = state.agents.agent_1;
+  const body = state.v21!.bodiesByAgentId[agent.id];
+  const core = body.bodyCore!;
+  core.phenotype.interoceptionSensitivity = 0.52;
+  core.homeostasis.hydration = 0.37;
+  core.homeostasis.energyReserve = 0.28;
+  const raw = bodySignalsV1(agent, body, core);
+  const first = humanBodyPerceptV1(state, agent);
+  const second = humanBodyPerceptV1(state, agent);
+  assert.deepEqual(first, second);
+  assert.equal(first.interoception.thirst.availability, 'available');
+  if (first.interoception.thirst.availability !== 'available') throw new Error('expected thirst');
+  assert.notEqual(first.interoception.thirst.intensity, raw.thirst);
 });
 
 test('missing body signal state is unavailable rather than ideal zero', async () => {
@@ -78,6 +96,8 @@ test('co-located person observation contains identity reference but no private m
   assert.ok(seen);
   const text = JSON.stringify(seen);
   assert.doesNotMatch(text, /emotion|belief|goal|stress|skill|memory|resource/);
+  assert.equal('observedLabel' in seen!, false);
+  assert.equal(text.includes(b.name), false);
   assert.ok(percept.localObservations.length <= 24);
 });
 
