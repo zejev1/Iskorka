@@ -23,6 +23,12 @@ export interface WorldCommitBatch {
    * recovery copies that could resurrect their private brain.
    */
   retiredBrainOwnerIds?: string[];
+  /**
+   * Owner-scoped legacy MemoryRecord rows already migrated into finite
+   * BrainState. They are removed in the same atomic commit so the old store
+   * cannot become an unbudgeted private archive.
+   */
+  purgedPersonalMemoryOwnerIds?: string[];
 }
 
 export interface WorldCommitResult {
