@@ -28,7 +28,11 @@ test('human library: at most five volunteers; no learning before physical arriva
  assert.ok(selected.every(v=>w.agents[v.agentId].locationId!==SECRET_LIBRARY_PLACE_ID_V18));
  for(let tick=2;tick<=14;tick++)await world.step(tick);
  const complete=world.snapshot().v18!.secretLibrary;
- assert.ok(complete.totalKnowledgeRecords>0);
+ assert.ok(complete.totalKnowledgeRecords>0,JSON.stringify({
+  minute:world.snapshot().calendar.elapsedWorldMinutes,
+  visitors:complete.visitors.map(v=>({agentId:v.agentId,status:v.status,arrived:v.arrivedWorldMinute,study:v.studyQuanta,words:v.wordsRead})),
+  agents:Object.fromEntries(selected.map(v=>{const a=world.snapshot().agents[v.agentId];return [v.agentId,{locationId:a.locationId,movement:a.movement,energy:a.energy,alive:a.life.alive}]})),
+ }));
  assert.ok(complete.visitors.some(v=>v.studyQuanta>0&&v.arrivedWorldMinute!==undefined));
 });
 
