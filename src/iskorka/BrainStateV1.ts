@@ -52,8 +52,8 @@ export interface BrainPerceptionReferenceV1 {
   refId: string;
   worldObjectId: string;
   kind: BrainPerceivedObjectKindV1;
-  firstObservedWorldMinute: number;
-  lastObservedWorldMinute: number;
+  firstAcquiredWorldMinute: number;
+  lastAcquiredWorldMinute: number;
   recognitionConfidence: number;
   /** For remains only; this is an observed physical link, not access to the dead person's brain. */
   subjectWorldObjectId?: string;
@@ -304,10 +304,10 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
       refIds.add(ref.refId);
       objectIds.add(ref.worldObjectId);
       if (
-        !Number.isFinite(ref.firstObservedWorldMinute) ||
-        !Number.isFinite(ref.lastObservedWorldMinute) ||
-        ref.firstObservedWorldMinute < 0 ||
-        ref.lastObservedWorldMinute < ref.firstObservedWorldMinute
+        !Number.isFinite(ref.firstAcquiredWorldMinute) ||
+        !Number.isFinite(ref.lastAcquiredWorldMinute) ||
+        ref.firstAcquiredWorldMinute < 0 ||
+        ref.lastAcquiredWorldMinute < ref.firstAcquiredWorldMinute
       ) {
         throw new Error(`Brain perception reference ${ref.refId} has invalid time.`);
       }
