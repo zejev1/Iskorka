@@ -63,8 +63,9 @@ export function assertIskorkaProfile(world: Readonly<WorldState>, fresh = false)
   if (Object.values(world.places).some(p => /^(?:settlement_|race_)?(?:elf|dwarf|goblin|orc|ogre)(?:_|$)/.test(p.id))) throw new Error('В Искорке обнаружена локация другой расы.');
   if (Object.keys(world.v19?.adventureEconomy?.dungeonsById ?? {}).length) throw new Error('В Искорке обнаружено подземелье.');
   if ((world.v15?.genesisTeachers.length ?? 0) !== 0) throw new Error('Старые скрытые Genesis-учителя в Искорке отключены.');
-  assertFoundingMentorsV1(world);
+  if (world.iskorkaMentorsV1) assertFoundingMentorsV1(world);
   if (fresh) {
+    if (!world.iskorkaMentorsV1) throw new Error('Новый мир Искорки требует пять наставников.');
     if (
       agents.length !== 10 ||
       agents.filter(a => a.sex === 'male').length !== 5 ||
