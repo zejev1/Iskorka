@@ -118,6 +118,7 @@ export interface BrainStateV1 {
 
 const encoder = new TextEncoder();
 const logicalByteCache = new WeakMap<object, number>();
+const logicalBaseByteCache = new WeakMap<object, number>();
 
 const BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 = 192;
 const BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 = 24;
@@ -207,16 +208,20 @@ function perceptionLogicalBytesV1(
 
 export function invalidateBrainLogicalByteCacheV1(brain: Readonly<BrainStateV1>): void {
   logicalByteCache.delete(brain as object);
+  logicalBaseByteCache.delete(brain as object);
 }
 
-export function logicalBrainBytesV1(brain: Readonly<BrainStateV1>): number {
-  const cached = logicalByteCache.get(brain as object);
+export function invalidateBrainPerceptionByteCacheV1(brain: Readonly<BrainStateV1>): void {
+  logicalByteCache.delete(brain as object);
+}
+
+function logicalBrainBaseBytesV1(brain: Readonly<BrainStateV1>): number {
+  const cached = logicalBaseByteCache.get(brain as object);
   if (cached !== undefined) return cached;
   const bytes =
     BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 +
     utf8BytesV1(brain.ownerAgentId) +
     workingStepLogicalBytesV1(brain.workingStep) +
-    perceptionLogicalBytesV1(brain.perception) +
     brain.data.reduce(
       (sum, datum) => sum + brainDatumLogicalBytesV1(datum),
       0,
@@ -226,6 +231,16 @@ export function logicalBrainBytesV1(brain: Readonly<BrainStateV1>): number {
         sum + BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 + utf8BytesV1(id),
       0,
     );
+  logicalBaseByteCache.set(brain as object, bytes);
+  return bytes;
+}
+
+export function logicalBrainBytesV1(brain: Readonly<BrainStateV1>): number {
+  const cached = logicalByteCache.get(brain as object);
+  if (cached !== undefined) return cached;
+  const bytes =
+    logicalBrainBaseBytesV1(brain) +
+    perceptionLogicalBytesV1(brain.perception);
   logicalByteCache.set(brain as object, bytes);
   return bytes;
 }
@@ -354,6 +369,7 @@ export function tryStoreBrainDatumV1(
     return false;
   }
   brain.data.push(datum);
+  invalidateBrainLogicalByteCacheV1(brain);
   logicalByteCache.set(brain, beforeBytes + deltaBytes);
   return true;
 }
