@@ -6882,10 +6882,7 @@ export class WorldEngine {
       if (!agent.life.alive) return;
     }
     const giftBefore = giftLearningSnapshotV20(this.state, agent);
-    const ageAllowedActions = allowedActionsForAgeV16(
-      agent.race ?? 'human',
-      agent.life.ageYears,
-    );
+    const ageAllowedActions = allowedActionsForResidentV1(agent);
     if (
       agent.movement &&
       !ageAllowedActions.has(agent.movement.purpose)
@@ -7328,10 +7325,7 @@ export class WorldEngine {
     consideredActionCount: number;
     openness: number;
   } {
-    const allowedActions = allowedActionsForAgeV16(
-      agent.race ?? 'human',
-      agent.life.ageYears,
-    );
+    const allowedActions = allowedActionsForResidentV1(agent);
     // Helping and bonding use a two-stage resident choice. Cheap local
     // awareness keeps them in the action ballot; the exact relationship-aware
     // recipient is resolved only if the resident actually chooses that action.
@@ -16140,8 +16134,13 @@ export class WorldEngine {
       currentSettlementId && currentSettlementId === targetSettlementId
         ? 0.84 + weatherWalkingScale * 0.16
         : weatherWalkingScale;
+    const developmentalMobility =
+      (agent.race ?? 'human') === 'human'
+        ? humanMotorMobilityScaleV1(agent.life.ageYears)
+        : 1;
     const mobilityScale =
       (0.8 + agent.life.physiology.mobility * 0.4) *
+      developmentalMobility *
       bodyMobilityScaleV21(this.state, agent.id) *
       bodyFatigueMobilityScaleV21(agent) *
       exposedWeatherScale *
