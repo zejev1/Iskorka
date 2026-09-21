@@ -17,6 +17,12 @@ export interface WorldCommitBatch {
   nextState: WorldState;
   events: WorldEvent[];
   memories: MemoryRecord[];
+  /**
+   * Brain owners retired by this same atomic world operation. Durable stores
+   * must remove owner-scoped legacy memory records and invalidate managed
+   * recovery copies that could resurrect their private brain.
+   */
+  retiredBrainOwnerIds?: string[];
 }
 
 export interface WorldCommitResult {
