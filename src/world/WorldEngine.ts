@@ -4669,7 +4669,6 @@ export class WorldEngine {
   private stagedEvents: WorldEvent[] | undefined;
   private stagedMemories: MemoryRecord[] | undefined;
   private stagedRetiredBrainOwnerIds: Set<string> | undefined;
-  private stagedPurgedPersonalMemoryOwnerIds: Set<string> | undefined;
   private committedSignalCache: WorldEvent[] | undefined;
   private routePathCache:
     | Map<string, Map<string, string[]>>
@@ -5864,6 +5863,7 @@ export class WorldEngine {
       this.rng.restore(before.determinism.rngState);
       this.stagedEvents = [];
       this.stagedMemories = [];
+      this.stagedRetiredBrainOwnerIds = new Set();
       this.committedSignalCache = undefined;
       this.routePathCache = new Map();
 
@@ -5871,6 +5871,7 @@ export class WorldEngine {
         await apply();
         this.syncDeterminismState();
         this.state.revision = before.revision + 1;
+        if (isIskorkaWorld(this.state)) assertWorldBrainRegistryV1(this.state);
         assertWorldState(this.state);
 
         const result = await this.store.commit({
@@ -5881,6 +5882,7 @@ export class WorldEngine {
           nextState: this.state,
           events: this.stagedEvents,
           memories: this.stagedMemories,
+          retiredBrainOwnerIds: [...this.stagedRetiredBrainOwnerIds],
         });
 
         this.adopt(result.state, result.committed && result.state === this.state);
@@ -5898,6 +5900,7 @@ export class WorldEngine {
         this.workingState = undefined;
         this.stagedEvents = undefined;
         this.stagedMemories = undefined;
+        this.stagedRetiredBrainOwnerIds = undefined;
         this.committedSignalCache = undefined;
         this.routePathCache = undefined;
         this.residentsByLocation = undefined;
@@ -16541,6 +16544,36 @@ export class WorldEngine {
     if (!this.stagedMemories) {
       throw new Error('World memory was produced outside a logical operation.');
     }
+    const owner = this.state.agents[memory.agentId];
+    if (
+      isIskorkaWorld(this.state) &&
+      owner &&
+      (owner.race ?? 'human') === 'human'
+    ) {
+      const brain =
+        brainForLiveOwnerV1(this.state, owner.id, owner.life.generation) ??
+        ensureBrainForAgentV1(this.state, owner);
+      if (!brain) return;
+      // Until the later perception/episodic-memory stage replaces these legacy
+      // producers, keep their actual content inside the finite brain and mark
+      // provenance as unknown instead of pretending system prose was lived.
+      tryStoreBrainDatumV1(brain, {
+        id: `legacy-memory:${memory.memoryId}`,
+        section: memory.importance >= 0.78 ? 'significant' : 'recent',
+        kind: `legacy_memory:${memory.kind}`,
+        source: 'unknown_legacy',
+        encoded: stableJsonStringify({
+          createdAt: memory.createdAt,
+          kind: memory.kind,
+          summary: memory.summary,
+          importance: memory.importance,
+          valence: memory.valence,
+          relatedAgentIds: [...memory.relatedAgentIds],
+        }),
+      });
+      return;
+    }
+
     const stored: MemoryRecord = {
       ...memory,
       relatedAgentIds: [...memory.relatedAgentIds],
