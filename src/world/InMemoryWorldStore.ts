@@ -56,6 +56,25 @@ export class InMemoryWorldStore implements WorldStore {
   private readonly memoriesByAgent = new Map<string, MemoryRecord[]>();
   private readonly memoriesByPair = new Map<string, MemoryRecord[]>();
 
+  private purgeOwnedMemories(worldId: string, agentId: string): void {
+    const aKey = agentKey(worldId, agentId);
+    const owned = this.memoriesByAgent.get(aKey) ?? [];
+    if (owned.length === 0) {
+      this.memoriesByAgent.delete(aKey);
+      return;
+    }
+    const ownedIds = new Set(owned.map((memory) => memory.memoryId));
+    for (const memoryId of ownedIds) {
+      this.memoriesById.delete(memoryKey(worldId, memoryId));
+    }
+    this.memoriesByAgent.delete(aKey);
+    for (const [key, values] of this.memoriesByPair) {
+      const retained = values.filter((memory) => !ownedIds.has(memory.memoryId));
+      if (retained.length === 0) this.memoriesByPair.delete(key);
+      else if (retained.length !== values.length) this.memoriesByPair.set(key, retained);
+    }
+  }
+
   async initializeWorld(state: WorldState): Promise<void> {
     const existing = this.worlds.get(state.id);
     if (existing) {
@@ -92,6 +111,19 @@ export class InMemoryWorldStore implements WorldStore {
     }
     if (batch.nextState.id !== batch.worldId) {
       throw new Error('World commit nextState belongs to a different world.');
+    }
+
+    const retiredBrainOwnerIds = batch.retiredBrainOwnerIds ?? [];
+    const retiredBrainOwners = new Set<string>();
+    for (const agentId of retiredBrainOwnerIds) {
+      if (!agentId.trim()) throw new Error('Retired brain owner ID must not be empty.');
+      if (retiredBrainOwners.has(agentId)) {
+        throw new Error(`Retired brain owner ${agentId} was listed twice.`);
+      }
+      retiredBrainOwners.add(agentId);
+    }
+    if (batch.memories.some((memory) => retiredBrainOwners.has(memory.agentId))) {
+      throw new Error('World commit cannot append private memory for a retired brain owner.');
     }
 
     const opKey = operationKey(batch.worldId, batch.operationId);
@@ -210,8 +242,23 @@ export class InMemoryWorldStore implements WorldStore {
       }
     }
 
+    for (const agentId of retiredBrainOwners) {
+      this.purgeOwnedMemories(batch.worldId, agentId);
+    }
+
     const nextState = structuredClone(batch.nextState);
     this.worlds.set(batch.worldId, nextState);
+
+    if (retiredBrainOwners.size > 0) {
+      // Recovery owned by this store must never silently resurrect a brain
+      // that the committed line has retired.
+      for (let index = this.migrationBackups.length - 1; index >= 0; index -= 1) {
+        if (this.migrationBackups[index].id === batch.worldId) {
+          this.migrationBackups.splice(index, 1);
+        }
+      }
+      this.migrationBackups.push(structuredClone(nextState));
+    }
 
     const operation: CommittedWorldOperation = {
       operationId: batch.operationId,
