@@ -328,15 +328,18 @@ test('guardians teach complete reproduction basics before adulthood without crea
 });
 
 test('mentor state survives save/reopen and continuation deterministically', async () => {
-  const a = await create('mentor-save', 'mentor-save-a');
-  const b = await create('mentor-save', 'mentor-save-b');
+  // Separate stores, same logical world identity. Terrain intentionally depends
+  // on world id, so using different ids would compare two different physical
+  // worlds rather than testing save/reopen determinism.
+  const a = await create('mentor-save', 'mentor-save-world');
+  const b = await create('mentor-save', 'mentor-save-world');
   await a.runtime.advanceTo(YEAR * 6);
   await b.runtime.advanceTo(YEAR * 6);
 
   const reopened = await IskorkaRuntime.openOrCreate(
     b.store,
     'ignored',
-    'mentor-save-b',
+    'mentor-save-world',
   );
   assert.deepEqual(
     b.runtime.snapshot().iskorkaMentorsV1,
@@ -347,8 +350,7 @@ test('mentor state survives save/reopen and continuation deterministically', asy
   await reopened.advanceTo(YEAR * 7);
   const left = a.runtime.snapshot();
   const right = reopened.snapshot();
-  // World IDs differ, but the mentor causal state and per-person learning
-  // counters must evolve identically under the same seed.
+  // The same saved world must continue identically after reopen.
   assert.deepEqual(
     Object.values(left.iskorkaMentorsV1!.mentorsById).map((m) => ({
       role: m.role,
