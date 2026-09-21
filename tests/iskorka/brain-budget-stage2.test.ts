@@ -191,8 +191,19 @@ test('old-age death removes own brain and managed recovery without erasing ident
   assert.deepEqual(dead.life.childIds, [living.id]);
   assert.deepEqual(after.agents[living.id].life.parentIds, [dying.id]);
   assert.equal(dead.learning, undefined);
-  assert.equal(after.v15!.knowledgeByAgentId[dying.id], undefined);
-  assert.equal(after.v18!.languageByAgentId[dying.id], undefined);
+  const deadKnowledge = after.v15!.knowledgeByAgentId[dying.id];
+  assert.equal(deadKnowledge.agriculture, 0);
+  assert.equal(deadKnowledge.construction, 0);
+  assert.equal(deadKnowledge.household, 0);
+  assert.equal(deadKnowledge.survival, 0);
+  assert.equal(deadKnowledge.verifiedLearningSessions, 0);
+  assert.equal(deadKnowledge.verifiedPracticeSessions, 0);
+  const deadLanguage = after.v18!.languageByAgentId[dying.id];
+  assert.equal(deadLanguage.spokenComprehension, 0);
+  assert.equal(deadLanguage.spokenExpression, 0);
+  assert.equal(deadLanguage.vocabulary, 0);
+  assert.equal(deadLanguage.cyrillicLiteracy, 0);
+  assert.deepEqual(deadLanguage.teacherIds, []);
   assert.equal(after.v21!.appliedKnowledgeByAgentId[dying.id], undefined);
   assert.equal(after.v21!.bodiesByAgentId[dying.id], undefined);
 
