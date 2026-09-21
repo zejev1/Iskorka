@@ -1,7 +1,7 @@
 import type { AgentState, WorldState } from '../world/types';
 import {
   BRAIN_LOGICAL_BUDGET_BYTES_V1,
-  invalidateBrainLogicalByteCacheV1,
+  invalidateBrainPerceptionByteCacheV1,
   logicalBrainBytesV1,
   type BrainCurrentObservationV1,
   type BrainPerceivedMessageV1,
@@ -38,17 +38,45 @@ function sourceKindV1(
   return observation.kind;
 }
 
+interface ReferenceSnapshotV1 {
+  reference: BrainPerceptionReferenceV1;
+  kind: BrainPerceivedObjectKindV1;
+  lastAcquiredWorldMinute: number;
+  recognitionConfidence: number;
+  subjectWorldObjectId?: string;
+}
+
+interface PerceptionMutationContextV1 {
+  byWorldObjectId: Map<string, BrainPerceptionReferenceV1>;
+  changedReferences: Map<string, ReferenceSnapshotV1>;
+}
+
+function rememberReferenceBeforeMutationV1(
+  context: PerceptionMutationContextV1,
+  reference: BrainPerceptionReferenceV1,
+): void {
+  if (context.changedReferences.has(reference.refId)) return;
+  context.changedReferences.set(reference.refId, {
+    reference,
+    kind: reference.kind,
+    lastAcquiredWorldMinute: reference.lastAcquiredWorldMinute,
+    recognitionConfidence: reference.recognitionConfidence,
+    ...(reference.subjectWorldObjectId
+      ? { subjectWorldObjectId: reference.subjectWorldObjectId }
+      : {}),
+  });
+}
+
 function ensureReferenceV1(
   perception: BrainPerceptionStateV1,
+  context: PerceptionMutationContextV1,
   worldObjectId: string,
   kind: BrainPerceivedObjectKindV1,
   worldMinute: number,
   recognitionConfidence: number,
   subjectWorldObjectId?: string,
 ): BrainPerceptionReferenceV1 {
-  let reference = perception.references.find(
-    (candidate) => candidate.worldObjectId === worldObjectId,
-  );
+  let reference = context.byWorldObjectId.get(worldObjectId);
   if (!reference) {
     reference = {
       refId: `ref:${perception.nextRefSequence.toString(36)}`,
@@ -61,7 +89,9 @@ function ensureReferenceV1(
     };
     perception.nextRefSequence += 1;
     perception.references.push(reference);
+    context.byWorldObjectId.set(worldObjectId, reference);
   } else {
+    rememberReferenceBeforeMutationV1(context, reference);
     reference.kind = kind;
     reference.lastAcquiredWorldMinute = Math.max(
       reference.lastAcquiredWorldMinute,
@@ -93,11 +123,13 @@ function bodySignalsFromBatchV1(batch: Readonly<PerceptBatchV1>) {
 
 function observationForBrainV1(
   perception: BrainPerceptionStateV1,
+  context: PerceptionMutationContextV1,
   observation: Readonly<LocalObservationV1>,
   worldMinute: number,
 ): BrainCurrentObservationV1 {
   const reference = ensureReferenceV1(
     perception,
+    context,
     observation.objectId,
     sourceKindV1(observation),
     worldMinute,
@@ -108,6 +140,7 @@ function observationForBrainV1(
   if (observation.subjectObjectId) {
     const subject = ensureReferenceV1(
       perception,
+      context,
       observation.subjectObjectId,
       'person',
       worldMinute,
@@ -131,6 +164,7 @@ function observationForBrainV1(
 
 function messageForBrainV1(
   perception: BrainPerceptionStateV1,
+  context: PerceptionMutationContextV1,
   message: Readonly<ReceivedMessageV1>,
   worldMinute: number,
 ): BrainPerceivedMessageV1 {
@@ -138,6 +172,7 @@ function messageForBrainV1(
   if (message.senderObjectId) {
     senderRefId = ensureReferenceV1(
       perception,
+      context,
       message.senderObjectId,
       'person',
       worldMinute,
@@ -148,6 +183,7 @@ function messageForBrainV1(
   if (message.subjectObjectId) {
     subjectRefId = ensureReferenceV1(
       perception,
+      context,
       message.subjectObjectId,
       'person',
       worldMinute,
@@ -166,23 +202,40 @@ function messageForBrainV1(
   };
 }
 
-function appendMessagesV1(
-  perception: BrainPerceptionStateV1,
+function mergedMessagesV1(
+  current: readonly BrainPerceivedMessageV1[],
   messages: readonly BrainPerceivedMessageV1[],
-): void {
+): BrainPerceivedMessageV1[] {
+  if (messages.length === 0) return current as BrainPerceivedMessageV1[];
+  const next = [...current];
   for (const message of messages) {
-    const prior = perception.recentMessages.findIndex(
+    const prior = next.findIndex(
       (candidate) => candidate.messageId === message.messageId,
     );
-    if (prior >= 0) perception.recentMessages.splice(prior, 1);
-    perception.recentMessages.push(message);
+    if (prior >= 0) next.splice(prior, 1);
+    next.push(message);
   }
-  if (perception.recentMessages.length > MAX_RECENT_MESSAGES_V1) {
-    perception.recentMessages.splice(
-      0,
-      perception.recentMessages.length - MAX_RECENT_MESSAGES_V1,
-    );
+  return next.slice(-MAX_RECENT_MESSAGES_V1);
+}
+
+function rollbackPerceptionMutationV1(
+  perception: BrainPerceptionStateV1,
+  context: PerceptionMutationContextV1,
+  initialReferenceLength: number,
+  priorNextRefSequence: number,
+): void {
+  for (const snapshot of context.changedReferences.values()) {
+    snapshot.reference.kind = snapshot.kind;
+    snapshot.reference.lastAcquiredWorldMinute = snapshot.lastAcquiredWorldMinute;
+    snapshot.reference.recognitionConfidence = snapshot.recognitionConfidence;
+    if (snapshot.subjectWorldObjectId) {
+      snapshot.reference.subjectWorldObjectId = snapshot.subjectWorldObjectId;
+    } else {
+      delete snapshot.reference.subjectWorldObjectId;
+    }
   }
+  perception.references.splice(initialReferenceLength);
+  perception.nextRefSequence = priorNextRefSequence;
 }
 
 /**
@@ -199,13 +252,9 @@ export function acceptPersonalPerceptBatchV1(
   if (!Number.isFinite(batch.worldMinute) || batch.worldMinute < 0) {
     throw new Error('Personal percept worldMinute is invalid.');
   }
-  const priorPerception = brain.perception
-    ? structuredClone(brain.perception)
-    : undefined;
-  const perception = priorPerception
-    ? structuredClone(priorPerception)
-    : emptyPerceptionStateV1();
 
+  const createdPerception = brain.perception === undefined;
+  const perception = brain.perception ??= emptyPerceptionStateV1();
   if (
     perception.lastPerceptWorldMinute !== undefined &&
     batch.worldMinute < perception.lastPerceptWorldMinute
@@ -213,26 +262,61 @@ export function acceptPersonalPerceptBatchV1(
     throw new Error('Personal perception cannot move backwards in world time.');
   }
 
+  const priorLastPerceptWorldMinute = perception.lastPerceptWorldMinute;
+  const priorBodySignals = perception.currentBodySignals;
+  const priorObservations = perception.currentObservations;
+  const priorMessages = perception.recentMessages;
+  const priorNextRefSequence = perception.nextRefSequence;
+  const initialReferenceLength = perception.references.length;
+  const context: PerceptionMutationContextV1 = {
+    byWorldObjectId: new Map(
+      perception.references.map((reference) => [
+        reference.worldObjectId,
+        reference,
+      ]),
+    ),
+    changedReferences: new Map(),
+  };
+
   perception.lastPerceptWorldMinute = batch.worldMinute;
   perception.currentBodySignals = bodySignalsFromBatchV1(batch);
   perception.currentObservations = batch.localObservations
     .slice(0, 24)
     .map((observation) =>
-      observationForBrainV1(perception, observation, batch.worldMinute),
+      observationForBrainV1(
+        perception,
+        context,
+        observation,
+        batch.worldMinute,
+      ),
     );
-  appendMessagesV1(
-    perception,
-    batch.receivedMessages.map((message) =>
-      messageForBrainV1(perception, message, batch.worldMinute),
+  const receivedMessages = batch.receivedMessages.map((message) =>
+    messageForBrainV1(
+      perception,
+      context,
+      message,
+      batch.worldMinute,
     ),
   );
+  perception.recentMessages = mergedMessagesV1(
+    priorMessages,
+    receivedMessages,
+  );
 
-  brain.perception = perception;
-  invalidateBrainLogicalByteCacheV1(brain);
+  invalidateBrainPerceptionByteCacheV1(brain);
   if (logicalBrainBytesV1(brain) > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
-    if (priorPerception) brain.perception = priorPerception;
-    else delete brain.perception;
-    invalidateBrainLogicalByteCacheV1(brain);
+    rollbackPerceptionMutationV1(
+      perception,
+      context,
+      initialReferenceLength,
+      priorNextRefSequence,
+    );
+    perception.lastPerceptWorldMinute = priorLastPerceptWorldMinute;
+    perception.currentBodySignals = priorBodySignals;
+    perception.currentObservations = priorObservations;
+    perception.recentMessages = priorMessages;
+    if (createdPerception) delete brain.perception;
+    invalidateBrainPerceptionByteCacheV1(brain);
     return { accepted: false, budgetBlocked: true };
   }
   return { accepted: true, budgetBlocked: false };
@@ -268,24 +352,48 @@ function queueMessageV1(
   message: Readonly<ReceivedMessageV1>,
   worldMinute: number,
 ): boolean {
-  const priorPerception = brain.perception
-    ? structuredClone(brain.perception)
-    : undefined;
-  const perception = priorPerception
-    ? structuredClone(priorPerception)
-    : emptyPerceptionStateV1();
-  const translated = messageForBrainV1(perception, message, worldMinute);
-  appendMessagesV1(perception, [translated]);
+  const createdPerception = brain.perception === undefined;
+  const perception = brain.perception ??= emptyPerceptionStateV1();
+  const priorLastPerceptWorldMinute = perception.lastPerceptWorldMinute;
+  const priorMessages = perception.recentMessages;
+  const priorNextRefSequence = perception.nextRefSequence;
+  const initialReferenceLength = perception.references.length;
+  const context: PerceptionMutationContextV1 = {
+    byWorldObjectId: new Map(
+      perception.references.map((reference) => [
+        reference.worldObjectId,
+        reference,
+      ]),
+    ),
+    changedReferences: new Map(),
+  };
+  const translated = messageForBrainV1(
+    perception,
+    context,
+    message,
+    worldMinute,
+  );
+  perception.recentMessages = mergedMessagesV1(
+    priorMessages,
+    [translated],
+  );
   perception.lastPerceptWorldMinute = Math.max(
     perception.lastPerceptWorldMinute ?? 0,
     worldMinute,
   );
-  brain.perception = perception;
-  invalidateBrainLogicalByteCacheV1(brain);
+
+  invalidateBrainPerceptionByteCacheV1(brain);
   if (logicalBrainBytesV1(brain) > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
-    if (priorPerception) brain.perception = priorPerception;
-    else delete brain.perception;
-    invalidateBrainLogicalByteCacheV1(brain);
+    rollbackPerceptionMutationV1(
+      perception,
+      context,
+      initialReferenceLength,
+      priorNextRefSequence,
+    );
+    perception.lastPerceptWorldMinute = priorLastPerceptWorldMinute;
+    perception.recentMessages = priorMessages;
+    if (createdPerception) delete brain.perception;
+    invalidateBrainPerceptionByteCacheV1(brain);
     return false;
   }
   return true;
