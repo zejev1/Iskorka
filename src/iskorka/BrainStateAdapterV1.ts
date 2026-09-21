@@ -128,6 +128,7 @@ const SYNCHRONIZED_LEGACY_DATUM_IDS_V1 = new Set([
   'legacy:v18-secret-library',
   'legacy:v19-divine',
   'legacy:v21-applied-knowledge',
+  'legacy:runtime-owned-state',
 ]);
 
 function makeLegacyDatumV1(
@@ -163,57 +164,37 @@ export function synchronizeLegacyOwnedStateV1(
   const retained = brain.data.filter(
     (datum) => !SYNCHRONIZED_LEGACY_DATUM_IDS_V1.has(datum.id),
   );
-  const next = [
-    makeLegacyDatumV1('legacy:mind', 'identity', 'legacy_mind', {
-      values: agent.mind.values,
-      beliefs: agent.mind.beliefs,
-      needs: agent.needs,
-    }),
-    makeLegacyDatumV1('legacy:skills', 'identity', 'legacy_skill_levels', agent.skills),
-    makeLegacyDatumV1('legacy:learning', 'significant', 'legacy_learning', agent.learning),
-    makeLegacyDatumV1('legacy:map', 'knowledge', 'legacy_private_map', {
-      knownPlaceIds: agent.knownPlaceIds,
-      knownDungeonIds: agent.knownDungeonIds,
-      cartography: agent.cartography,
-    }),
-    makeLegacyDatumV1(
-      'legacy:v15-knowledge',
-      'knowledge',
-      'legacy_v15_knowledge',
-      world.v15?.knowledgeByAgentId[agent.id],
-    ),
-    makeLegacyDatumV1(
-      'legacy:v18-language',
-      'knowledge',
-      'legacy_language',
-      world.v18?.languageByAgentId[agent.id],
-    ),
-    makeLegacyDatumV1(
-      'legacy:v18-livelihood',
-      'identity',
-      'legacy_livelihood',
-      world.v18?.livelihoodByAgentId[agent.id],
-    ),
-    makeLegacyDatumV1(
-      'legacy:v18-secret-library',
-      'knowledge',
-      'legacy_read_knowledge',
-      world.v18?.secretLibrary.knowledgeByAgentId[agent.id],
-    ),
-    makeLegacyDatumV1(
-      'legacy:v19-divine',
-      'significant',
-      'legacy_personal_divine_state',
-      world.v19?.divineAgency.byAgentId[agent.id],
-    ),
-    makeLegacyDatumV1(
-      'legacy:v21-applied-knowledge',
-      'knowledge',
-      'legacy_applied_knowledge',
-      world.v21?.appliedKnowledgeByAgentId[agent.id],
-    ),
-  ].filter((datum): datum is NonNullable<typeof datum> => datum !== undefined);
 
+  // One canonical envelope is materially cheaper than serializing ten small
+  // mirrors separately on every world commit, while accounting for exactly
+  // the same acquired legacy state under the same finite budget.
+  const runtimeDatum = makeLegacyDatumV1(
+    'legacy:runtime-owned-state',
+    'knowledge',
+    'legacy_runtime_owned_state',
+    {
+      mind: {
+        values: agent.mind.values,
+        beliefs: agent.mind.beliefs,
+        needs: agent.needs,
+      },
+      skills: agent.skills,
+      learning: agent.learning,
+      privateMap: {
+        knownPlaceIds: agent.knownPlaceIds,
+        knownDungeonIds: agent.knownDungeonIds,
+        cartography: agent.cartography,
+      },
+      v15Knowledge: world.v15?.knowledgeByAgentId[agent.id],
+      language: world.v18?.languageByAgentId[agent.id],
+      livelihood: world.v18?.livelihoodByAgentId[agent.id],
+      readKnowledge: world.v18?.secretLibrary.knowledgeByAgentId[agent.id],
+      divine: world.v19?.divineAgency.byAgentId[agent.id],
+      appliedKnowledge: world.v21?.appliedKnowledgeByAgentId[agent.id],
+    },
+  );
+
+  const next = runtimeDatum ? [runtimeDatum] : [];
   brain.data = [...retained, ...next];
   brain.rngState = world.determinism.rngState;
   brain.migration.importedLegacy = true;
