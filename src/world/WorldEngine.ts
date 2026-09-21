@@ -5041,6 +5041,79 @@ export class WorldEngine {
       }
     }
 
+    // Stage 2: migrate every currently stored private brain field and the
+    // old owner-scoped MemoryRecord stream into one finite personal packet.
+    // The old rows are purged in the same commit so they cannot act as hidden
+    // memory outside BrainState.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const repaired = structuredClone(state);
+      const before = stableJsonStringify(repaired);
+      ensureWorldBrainRegistryV1(repaired);
+      const ownersToPurge: string[] = [];
+
+      for (const agent of Object.values(repaired.agents)) {
+        if ((agent.race ?? 'human') !== 'human') continue;
+        const oldMemories = await options.store.historyForAgent(state.id, agent.id);
+        if (oldMemories.length === 0) continue;
+        ownersToPurge.push(agent.id);
+        if (!agent.life.alive) continue;
+        const brain = repaired.iskorkaBrainV1?.brainsByAgentId[agent.id];
+        if (!brain) throw new Error(`Missing BrainState while migrating ${agent.id}.`);
+        importLegacyPersistentMemoriesV1(brain, oldMemories);
+      }
+
+      assertWorldBrainRegistryV1(repaired);
+      if (stableJsonStringify(repaired) === before && ownersToPurge.length === 0) break;
+
+      await options.store.checkpointWorld?.(
+        state.id,
+        state.revision,
+        'before-brain-state-v1-additive-repair',
+      );
+      repaired.revision = state.revision + 1;
+      const operationId =
+        `migration:${state.id}:brain-state-v1:revision:${state.revision}`;
+      const operationFingerprint = stableJsonStringify({
+        kind: 'world_migration',
+        mode: 'iskorka_brain_state_v1_additive_repair',
+        worldId: state.id,
+        fromRevision: state.revision,
+      });
+      try {
+        const result = await options.store.commit({
+          operationId,
+          operationFingerprint,
+          worldId: state.id,
+          expectedRevision: state.revision,
+          nextState: repaired,
+          events: [{
+            eventId: `${operationId}:event`,
+            worldId: state.id,
+            kind: 'world.migrated',
+            source: 'system',
+            occurredAt: state.now,
+            occurredWorldMinutes: state.calendar.elapsedWorldMinutes,
+            payload: {
+              migrationMode: 'iskorka_brain_state_v1_additive_repair',
+              preservedWorldMinutes: state.calendar.elapsedWorldMinutes,
+              migratedLivingBrains: Object.values(repaired.iskorkaBrainV1?.brainsByAgentId ?? {}).length,
+              purgedLegacyMemoryOwners: ownersToPurge.length,
+            },
+          }],
+          memories: [],
+          purgedPersonalMemoryOwnerIds: ownersToPurge,
+        });
+        state = result.state;
+        break;
+      } catch (error) {
+        if (!(error instanceof WorldRevisionConflictError)) throw error;
+        const concurrent = await options.store.loadWorld(options.worldId);
+        if (!concurrent) throw error;
+        state = concurrent;
+      }
+    }
+
+    assertWorldBrainRegistryV1(state);
     assertWorldState(state);
     return new WorldEngine(options.store, state);
   }
