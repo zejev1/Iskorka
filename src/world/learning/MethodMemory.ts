@@ -1,6 +1,7 @@
 import type { AgentActionKind, AgentState } from '../types';
 import type { ResidentLearningContext, LifeProblem, LearnedMethod } from './types';
 import { noticeLifeProblem } from './LifeObservation';
+import { brainDevelopmentProfileV1 } from '../../iskorka/BrainLifecycleV1';
 const clamp = (n: number, low = 0, high = 1) => Math.max(low, Math.min(high, n));
 
 export function predictedEffect(method: LearnedMethod, problem: LifeProblem): number {
@@ -36,7 +37,11 @@ export function learnedActionAdjustment(context: Readonly<ResidentLearningContex
     const saturation = m.trials <= 120 ? 1 : Math.max(0.2, 120 / m.trials);
     sum += belief*transferConfidence*relevance*saturation; weight+=relevance;
   }
-  return clamp(sum/Math.max(1,weight)*0.32,-0.32,0.32);
+  const retrieval=brainDevelopmentProfileV1(agent.life.ageYears).retrievalReliability;
+  // Age can make a learned method less immediately accessible without deleting
+  // the method or its accumulated experience from personal memory.
+  const accessScale=0.25+retrieval*0.75;
+  return clamp(sum/Math.max(1,weight)*0.32*accessScale,-0.32,0.32);
 }
 
 /** Compare previously tried sites, without reading their unobserved current stocks. */
