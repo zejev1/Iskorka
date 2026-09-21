@@ -110,7 +110,11 @@ export function mentorTeachingPlaceV1(
   mentor: Readonly<FoundingMentorStateV1>,
   studentAgeYears: number,
 ): string {
-  if (studentAgeYears < 5) return 'commons';
+  // Young children are not sent to adult workplaces. Up to eight years old
+  // mentors demonstrate, talk and play-practice inside the settlement commons.
+  // Later a mentor may escort them to a real teaching site, but the site is a
+  // classroom-by-example, never a child labour assignment.
+  if (studentAgeYears < 8) return 'commons';
   switch (mentor.role) {
     case 'agriculture_nature':
       return world.places.resource_field ? 'resource_field' : 'commons';
@@ -119,7 +123,7 @@ export function mentorTeachingPlaceV1(
     case 'household_health':
       return 'commons';
     case 'survival_navigation':
-      return studentAgeYears >= 12 && world.places.outskirts ? 'outskirts' : 'quiet_space';
+      return studentAgeYears >= 13 && world.places.outskirts ? 'outskirts' : 'quiet_space';
     case 'care_language':
     default:
       return world.places.quiet_space ? 'quiet_space' : 'commons';
@@ -363,6 +367,7 @@ export interface FoundingMentorLessonResultV1 {
   taught: boolean;
   mentorId?: string;
   domain?: GenesisDomain | 'language';
+  mode?: 'demonstration' | 'guided_practice';
   gained: number;
 }
 
@@ -402,21 +407,31 @@ export function applyFoundingMentorLessonV1(
           activityVerified: true,
         },
       );
-      const practice = applyIndependentPractice(
-        learner,
-        {
-          practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
-          personId: student.id,
-          domain: primaryDomain,
-          worldMinutes: now,
-          durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 60,
-          activityVerified: true,
-          challenge: student.life.ageYears >= 12 ? 0.52 : 0.28,
-        },
-      );
-      gained = lesson.gained + practice.gained;
+      let practiceGained = 0;
+      if (student.life.ageYears >= 8) {
+        // This is an optional supervised try after the mentor's demonstration.
+        // It changes only the student's learning state; it does not harvest,
+        // build, earn resources or satisfy settlement labour demand.
+        const practice = applyIndependentPractice(
+          learner,
+          {
+            practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
+            personId: student.id,
+            domain: primaryDomain,
+            worldMinutes: now,
+            durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 45,
+            activityVerified: true,
+            challenge: student.life.ageYears >= 12 ? 0.52 : 0.18,
+          },
+        );
+        practiceGained = practice.gained;
+      }
+      gained = lesson.gained + practiceGained;
       domain = primaryDomain;
-      skillPracticeFromDomain(student, primaryDomain, gained);
+      if (student.life.ageYears >= 8) {
+        const ageScale = student.life.ageYears < 12 ? 0.35 : 1;
+        skillPracticeFromDomain(student, primaryDomain, gained * ageScale);
+      }
       rememberMentorSourceV1(world, student, mentor, primaryDomain);
     }
     gained += teachLanguageV1(world, student, mentor) * 0.25;
@@ -426,18 +441,22 @@ export function applyFoundingMentorLessonV1(
   mentor.lastLessonWorldMinute = now;
   const state = ensureFoundingMentorWorldV1(world);
   state.totalLessons += 1;
+  const mode: FoundingMentorLessonResultV1['mode'] =
+    student.life.ageYears < 8 ? 'demonstration' : 'guided_practice';
   pushStudentMessage(state, {
     id: `mentor-message:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
     mentorId: mentor.id,
     studentId: student.id,
     worldMinute: now,
     symbols: domain === 'language'
-      ? [`${mentor.name}: слушай, смотри, повторяй и спрашивай, если не понял.`]
-      : [`${mentor.name}: сегодня учимся через пример и собственную попытку — ${domain}.`],
+      ? [`${mentor.name}: я рядом. Слушай, смотри, повторяй и спрашивай, если не понял.`]
+      : mode === 'demonstration'
+        ? [`${mentor.name}: сначала я покажу сам. Ты смотри и спрашивай — это урок, не работа.`]
+        : [`${mentor.name}: сначала я покажу. Если хочешь — попробуй рядом со мной; это обучение, не обязанность работать.`],
     kind: 'lesson',
   });
 
-  return { taught: true, mentorId: mentor.id, domain, gained };
+  return { taught: true, mentorId: mentor.id, domain, mode, gained };
 }
 
 export interface FoundingMentorCareResultV1 {
@@ -546,8 +565,40 @@ export function updateMentorTeachingPositionsV1(world: WorldState): void {
     .filter((agent): agent is AgentState => Boolean(agent?.life.alive));
   if (!livingStudents.length) return;
   const representativeAge = livingStudents.reduce((sum, agent) => sum + agent.life.ageYears, 0) / livingStudents.length;
+
   Object.values(state.mentorsById).forEach((mentor, index) => {
     if (mentor.status !== 'caregiving') return;
+
+    const assignedStudents = livingStudents.filter(
+      (student) => assignedFoundingMentorV1(world, student.id)?.id === mentor.id,
+    );
+    const escortedStudent =
+      assignedStudents.find((student) => Boolean(student.movement)) ??
+      assignedStudents.find(
+        (student) =>
+          student.locationId !==
+          mentorTeachingPlaceV1(world, mentor, student.life.ageYears),
+      );
+
+    if (escortedStudent) {
+      // The caregiver stays physically with the children while a scripted
+      // mentor-led outing is in progress. The child never receives an
+      // independent "go to work" order.
+      const together = assignedStudents.filter(
+        (student) => student.locationId === escortedStudent.locationId,
+      );
+      const group = together.length > 0 ? together : [escortedStudent];
+      const baseX = group.reduce((sum, student) => sum + student.position.x, 0) / group.length;
+      const baseY = group.reduce((sum, student) => sum + student.position.y, 0) / group.length;
+      const angle = (Math.PI * 2 * index) / MENTOR_SPECS.length;
+      mentor.locationId = escortedStudent.locationId;
+      mentor.position = {
+        x: baseX + Math.cos(angle) * 0.35,
+        y: baseY + Math.sin(angle) * 0.35,
+      };
+      return;
+    }
+
     const placeId = mentorTeachingPlaceV1(world, mentor, representativeAge);
     mentor.locationId = placeId;
     mentor.position = placePosition(world, placeId, index);
