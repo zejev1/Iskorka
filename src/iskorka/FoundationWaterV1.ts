@@ -11,7 +11,9 @@ export interface FoundationWellWaterV1 {
   capacityLitres: number;
   waterLitres: number;
   rechargeLitresPerDay: number;
-  lastAdvancedWorldMinute: number;
+  createdWorldMinute: number;
+  initialWaterLitres: number;
+  withdrawnLitres: number;
 }
 
 const DAY = 24 * 60;
@@ -47,21 +49,21 @@ function stableWellPoint(
   const half = side < 0
     ? homes.slice(0, Math.max(1, Math.ceil(homes.length / 2)))
     : homes.slice(Math.floor(homes.length / 2));
-  const centroid = {
-    x: half.reduce((sum, home) => sum + home.mapX, 0) / half.length,
-    y: half.reduce((sum, home) => sum + home.mapY, 0) / half.length,
-  };
-  // Pull each well toward the commons so it sits between houses rather than
-  // beyond the settlement edge. The tiny perpendicular split keeps two wells
-  // from landing on the same street line.
-  const vx = centroid.x - commons.mapX;
-  const vy = centroid.y - commons.mapY;
+  const anchor = half[Math.floor(half.length / 2)] ?? homes[0];
+  const vx = anchor.mapX - commons.mapX;
+  const vy = anchor.mapY - commons.mapY;
   const length = Math.max(0.001, Math.hypot(vx, vy));
-  const px = -vy / length;
-  const py = vx / length;
+  const ux = vx / length;
+  const uy = vy / length;
+  const px = -uy;
+  const py = ux;
+
+  // About 18m sideways from a house/street axis and slightly toward the
+  // central lane. This is close enough to be a neighbourhood well but keeps
+  // its route origin clear of house footprints.
   return {
-    x: commons.mapX + vx * 0.58 + px * side * 0.10,
-    y: commons.mapY + vy * 0.58 + py * side * 0.10,
+    x: anchor.mapX - ux * 0.06 + px * side * 0.18,
+    y: anchor.mapY - uy * 0.06 + py * side * 0.18,
   };
 }
 
@@ -92,7 +94,9 @@ function createWell(
       capacityLitres: 900,
       waterLitres: 760,
       rechargeLitresPerDay: 420,
-      lastAdvancedWorldMinute: world.calendar.elapsedWorldMinutes,
+      createdWorldMinute: world.calendar.elapsedWorldMinutes,
+      initialWaterLitres: 760,
+      withdrawnLitres: 0,
     },
   };
 }
@@ -164,8 +168,16 @@ export function ensureFoundationWellsV1(world: WorldState): boolean {
         capacityLitres: 900,
         waterLitres: 760,
         rechargeLitresPerDay: 420,
-        lastAdvancedWorldMinute: world.calendar.elapsedWorldMinutes,
+        createdWorldMinute: world.calendar.elapsedWorldMinutes,
+        initialWaterLitres: 760,
+        withdrawnLitres: 0,
       };
+      well.wellWaterV1.createdWorldMinute ??= world.calendar.elapsedWorldMinutes;
+      well.wellWaterV1.initialWaterLitres ??= Math.min(
+        well.wellWaterV1.capacityLitres,
+        Math.max(0, well.wellWaterV1.waterLitres),
+      );
+      well.wellWaterV1.withdrawnLitres ??= 0;
       if (
         prior !==
         JSON.stringify({
@@ -219,35 +231,47 @@ export function ensureFoundationWellsV1(world: WorldState): boolean {
   return changed;
 }
 
-function advanceWellV1(
-  world: Readonly<WorldState>,
-  well: WorldPlace,
-): FoundationWellWaterV1 | undefined {
-  const water = well.wellWaterV1;
-  if (!water?.potable) return undefined;
-  const now = world.calendar.elapsedWorldMinutes;
-  const elapsed = Math.max(0, now - water.lastAdvancedWorldMinute);
-  if (elapsed > 0) {
-    water.waterLitres = Math.min(
+function projectedWellWaterLitresV1(
+  water: Readonly<FoundationWellWaterV1>,
+  worldMinute: number,
+): number {
+  const elapsed = Math.max(0, worldMinute - water.createdWorldMinute);
+  return Math.max(
+    0,
+    Math.min(
       water.capacityLitres,
-      water.waterLitres + (elapsed / DAY) * water.rechargeLitresPerDay,
-    );
-    water.lastAdvancedWorldMinute = now;
+      water.initialWaterLitres +
+        (elapsed / DAY) * water.rechargeLitresPerDay -
+        water.withdrawnLitres,
+    ),
+  );
+}
+
+export function synchronizeFoundationWellWaterV1(
+  world: WorldState,
+  worldMinute = world.calendar.elapsedWorldMinutes,
+): void {
+  for (const id of WELL_IDS) {
+    const water = world.places[id]?.wellWaterV1;
+    if (!water?.potable) continue;
+    water.waterLitres = projectedWellWaterLitresV1(water, worldMinute);
   }
-  return water;
 }
 
 export function drawWellWaterLitresV1(
   world: WorldState,
   wellId: string,
   requestedLitres: number,
+  worldMinute = world.calendar.elapsedWorldMinutes,
 ): number {
   const well = world.places[wellId];
   if (!well || well.kind !== 'well' || !(requestedLitres > 0)) return 0;
-  const water = advanceWellV1(world, well);
-  if (!water) return 0;
-  const drawn = Math.min(requestedLitres, water.waterLitres);
-  water.waterLitres -= drawn;
+  const water = well.wellWaterV1;
+  if (!water?.potable) return 0;
+  const available = projectedWellWaterLitresV1(water, worldMinute);
+  const drawn = Math.min(requestedLitres, available);
+  water.withdrawnLitres += drawn;
+  water.waterLitres = projectedWellWaterLitresV1(water, worldMinute);
   return drawn;
 }
 
@@ -288,6 +312,7 @@ export function refillHomeWaterFromWellV1(
   homeId: string,
   wellId: string,
   maximumCarryLitres = 18,
+  worldMinute = world.calendar.elapsedWorldMinutes,
 ): number {
   const home = world.places[homeId];
   const well = world.places[wellId];
@@ -306,7 +331,7 @@ export function refillHomeWaterFromWellV1(
   const room = Math.max(0, capacity - reserve);
   const requested = Math.min(room, Math.max(0, maximumCarryLitres));
   if (!(requested > 0)) return 0;
-  const drawn = drawWellWaterLitresV1(world, wellId, requested);
+  const drawn = drawWellWaterLitresV1(world, wellId, requested, worldMinute);
   if (!(drawn > 0)) return 0;
   infrastructure.waterReserveLitres = reserve + drawn;
   return drawn;
@@ -346,7 +371,11 @@ export function assertFoundationWellsV1(world: Readonly<WorldState>): void {
       !(water.capacityLitres > 0) ||
       water.waterLitres < 0 ||
       water.waterLitres > water.capacityLitres ||
-      !(water.rechargeLitresPerDay > 0)
+      !(water.rechargeLitresPerDay > 0) ||
+      !Number.isFinite(water.createdWorldMinute) ||
+      !(water.initialWaterLitres >= 0) ||
+      water.initialWaterLitres > water.capacityLitres ||
+      !(water.withdrawnLitres >= 0)
     ) {
       throw new Error(`Foundation well ${id} has invalid potable water state.`);
     }
