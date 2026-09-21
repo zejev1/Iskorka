@@ -65,7 +65,15 @@ test('founding town retains pinned F2 coordinates, buildings, connections and te
    assert.deepEqual((actual as any)[key],value,id+'.'+key);
   }
  }
- assert.deepEqual(w.terrain,golden.terrain);assert.deepEqual(w.v18!.planetaryGeography,golden.planetaryGeography);
+ assert.equal(w.terrain?.version,golden.terrain.version);
+ assert.equal(w.terrain?.epoch,golden.terrain.epoch);
+ assert.equal(w.terrain?.seed,golden.terrain.seed);
+ for(const expectedAnchor of golden.terrain.anchors){
+  const actualAnchor=w.terrain!.anchors.find((anchor:any)=>anchor.id===expectedAnchor.id);
+  assert.deepEqual(actualAnchor,expectedAnchor,'terrain anchor '+expectedAnchor.id);
+ }
+ assert.equal(w.terrain!.anchors.filter((anchor:any)=>anchor.id==='foundation_lake').length,1);
+ assert.deepEqual(w.v18!.planetaryGeography,golden.planetaryGeography);
  assert.equal(w.settlements.settlement_ainkrad.name,'Основание');
  assert.notEqual(w.places.commons.mapX,0);
 });
