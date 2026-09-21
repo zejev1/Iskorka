@@ -206,6 +206,50 @@ test('founding childhood stays mentor-led: no adult decisions, no births, real l
   }
 });
 
+test('guardians teach complete reproduction basics before adulthood without creating desire or consent', async () => {
+  const { runtime } = await create('mentor-reproduction-education', 'mentor-reproduction-education-world');
+  await runtime.advanceTo(YEAR * 17);
+  const world = runtime.snapshot();
+
+  const expectedStages = [
+    'body_boundaries',
+    'puberty',
+    'conception',
+    'pregnancy_birth',
+    'adult_relationships_parenthood',
+  ];
+
+  for (const spark of Object.values(world.agents)) {
+    assert.ok(spark.life.ageYears >= 17 && spark.life.ageYears < 18);
+    const brain = world.iskorkaBrainV1!.brainsByAgentId[spark.id];
+    assert.ok(brain);
+
+    for (const stage of expectedStages) {
+      const datum = brain.data.find(
+        (item) => item.id === `mentor-reproduction:${stage}`,
+      );
+      assert.ok(datum, `${spark.id} missing reproduction education stage ${stage}`);
+      assert.equal(datum!.kind, 'human_reproduction_education');
+      assert.equal(datum!.source, 'message');
+      const payload = JSON.parse(datum!.encoded);
+      assert.equal(payload.stage, stage);
+      assert.equal(typeof payload.mentorId, 'string');
+      assert.equal(payload.constraints.createsDesire, false);
+      assert.equal(payload.constraints.createsConsent, false);
+      assert.equal(payload.constraints.createsRelationship, false);
+      assert.equal(payload.constraints.createsPregnancy, false);
+      assert.equal(payload.constraints.createsParenthoodDecision, false);
+    }
+
+    const family = world.v15!.familyAgencyByAgentId[spark.id];
+    assert.equal(family.physicalIntimacyInclination, 0);
+    assert.equal(family.childDesire, 0);
+    assert.equal(family.autonomy, 0);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.plan, undefined);
+  }
+});
+
 test('mentor state survives save/reopen and continuation deterministically', async () => {
   const a = await create('mentor-save', 'mentor-save-a');
   const b = await create('mentor-save', 'mentor-save-b');
