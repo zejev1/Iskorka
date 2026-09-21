@@ -6,6 +6,7 @@ import type {
 import { allowedActionsForAgeV16 } from '../v16/SocietyFoundationV16';
 import { residentDecisionReflection } from '../world/ResidentDecisionReflection';
 import { bodySignalsV1 } from './BodyCoreV1';
+import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 
 const MINUTE = 1;
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -173,14 +174,19 @@ export function projectResidentAgencyCadenceV1(
 ): ResidentAgencyCadenceV1 {
   const schedule = agencyScheduleV1(world, agent);
   const decision = previewResidentIntentV1(world, agent, schedule.index);
-  const reflection = residentDecisionReflection(agent, decision);
+  const development = brainDevelopmentProfileV1(agent.life.ageYears);
+  const reflection = development.adultLikeNarrativeReflection
+    ? residentDecisionReflection(agent, decision)
+    : undefined;
   return {
     currentIntent: decision.action,
     dominantIntent: decision.dominantAction,
     consideredActionCount: decision.consideredActionCount,
     openness: decision.openness,
-    innerThought: reflection.innerThought,
-    deliberationWorldMinutes: reflection.deliberationWorldMinutes,
+    ...(reflection?.innerThought === undefined ? {} : { innerThought: reflection.innerThought }),
+    ...(reflection?.deliberationWorldMinutes === undefined
+      ? {}
+      : { deliberationWorldMinutes: reflection.deliberationWorldMinutes }),
     intentSinceWorldMinute: schedule.reviewWorldMinute,
     decisionWorldMinute: schedule.reviewWorldMinute,
     lastReviewWorldMinute: schedule.reviewWorldMinute,
