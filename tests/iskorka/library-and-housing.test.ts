@@ -52,8 +52,11 @@ test('housing: an explicit adult project preserves materials, save state and phy
   agent.life.physiology={strength:1,endurance:1,mobility:1,recovery:1};
   agent.energy=1;agent.stress=0;agent.resources=0.8;agent.movement=undefined;agent.plan=undefined;agent.lastDecision=undefined;
   agent.locationId=siteId;agent.position={x:raw.places[siteId].mapX,y:raw.places[siteId].mapY,layerId:'surface'};agent.lastAction='work';
-  agent.skills.craft=1;agent.personality.diligence=1;agent.personality.curiosity=0;agent.personality.generosity=1;agent.personality.sociability=0;agent.personality.riskTolerance=0;
-  agent.mind.values.care=1;agent.mind.values.ambition=1;agent.needs.purpose=0;agent.goal={kind:'contribute',strength:1,since:0};
+  agent.skills.craft=1;agent.personality.diligence=1;agent.personality.curiosity=0;agent.personality.generosity=0;agent.personality.sociability=0;agent.personality.riskTolerance=0;
+  agent.socialDrive=0;agent.needs.belonging=1;agent.needs.purpose=0;
+  agent.mind.values={care:0,freedom:0,knowledge:0,tradition:0,ambition:1};
+  agent.mind.emotions={joy:0,fear:0,grief:0,awe:0,hope:0};
+  agent.goal={kind:'contribute',strength:1,since:0};
   raw.v15!.knowledgeByAgentId[agent.id].construction=0.4;
   agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),siteId,'workshop'])];
  }
