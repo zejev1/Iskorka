@@ -24,6 +24,8 @@ async function releasedWorld() {
   spark.life.ageYears = 18.1;
   spark.life.stage = 'adult';
   world.iskorkaMentorsV1!.active = false;
+  world.iskorkaMentorsV1!.farewellStartedWorldMinute = 0;
+  world.iskorkaMentorsV1!.departureStartedWorldMinute = 0;
   for (const mentor of Object.values(world.iskorkaMentorsV1!.mentorsById)) {
     mentor.status = 'inactive';
   }
