@@ -44,12 +44,21 @@ import {
   humanMotorMobilityScaleV1,
 } from '../iskorka/HumanMotorDevelopmentV1';
 import {
+  assertMedievalPlaceInfrastructureV1,
+  ensureMedievalPlaceInfrastructureV1,
+  equipMedievalHomeV1,
+  placeSupportsCapabilityV1,
+} from '../iskorka/MedievalPlaceInfrastructureV1';
+import {
   FOUNDING_SPARK_START_AGE_YEARS_V1,
   advanceFoundingMentorLifecycleV1,
   applyFoundingMentorCareV1,
   applyFoundingMentorLessonV1,
   assignedFoundingMentorV1,
   foundingMentorStudentsV1,
+  foundingMentorHomeIdV1,
+  foundingMentorRoutineDestinationAtV1,
+  nextFoundingMentorRoutineBoundaryV1,
   ensureFoundingMentorWorldV1,
   isFoundingCohortStudentV1,
   isMentoredMinorV1,
@@ -5117,6 +5126,8 @@ export class WorldEngine {
     reconcileLibraryAdmissions(state, state.calendar.elapsedWorldMinutes, true);
 
     initializeIskorkaWorld(state, options.seed);
+    ensureMedievalPlaceInfrastructureV1(state);
+    assertMedievalPlaceInfrastructureV1(state);
     for (const resident of Object.values(state.agents)) observeLocalPlacesV20(state, resident);
     ensureWorldBrainRegistryV1(state);
     assertWorldBrainRegistryV1(state);
@@ -5279,6 +5290,59 @@ export class WorldEngine {
       }
     }
 
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const repaired = structuredClone(state);
+      const changed = ensureMedievalPlaceInfrastructureV1(repaired);
+      if (!changed) break;
+      assertMedievalPlaceInfrastructureV1(repaired);
+      await options.store.checkpointWorld?.(
+        state.id,
+        state.revision,
+        'before-medieval-infrastructure-v1-additive-repair',
+      );
+      repaired.revision = state.revision + 1;
+      const operationId =
+        `migration:${state.id}:medieval-infrastructure-v1:revision:${state.revision}`;
+      const operationFingerprint = stableJsonStringify({
+        kind: 'world_migration',
+        mode: 'iskorka_medieval_infrastructure_v1_additive_repair',
+        worldId: state.id,
+        fromRevision: state.revision,
+      });
+      try {
+        const result = await options.store.commit({
+          operationId,
+          operationFingerprint,
+          worldId: state.id,
+          expectedRevision: state.revision,
+          nextState: repaired,
+          events: [{
+            eventId: `${operationId}:event`,
+            worldId: state.id,
+            kind: 'world.migrated',
+            source: 'system',
+            occurredAt: state.now,
+            occurredWorldMinutes: state.calendar.elapsedWorldMinutes,
+            payload: {
+              migrationMode: 'iskorka_medieval_infrastructure_v1_additive_repair',
+              equippedHomes: Object.values(repaired.places).filter((place) => place.kind === 'home').length,
+              equippedWorkshops: Object.values(repaired.places).filter((place) => place.kind === 'workshop').length,
+              preservedRngState: state.determinism.rngState,
+            },
+          }],
+          memories: [],
+        });
+        state = result.state;
+        break;
+      } catch (error) {
+        if (!(error instanceof WorldRevisionConflictError)) throw error;
+        const concurrent = await options.store.loadWorld(options.worldId);
+        if (!concurrent) throw error;
+        state = concurrent;
+      }
+    }
+
+    assertMedievalPlaceInfrastructureV1(state);
     assertWorldBrainRegistryV1(state);
     assertWorldState(state);
     return new WorldEngine(options.store, state);
@@ -5479,6 +5543,8 @@ export class WorldEngine {
           repairCompactSettlementLayout(this.state);
         }
         initializeIskorkaWorld(this.state, seed);
+        ensureMedievalPlaceInfrastructureV1(this.state);
+        assertMedievalPlaceInfrastructureV1(this.state);
         for (const resident of Object.values(this.state.agents)) {
           observeLocalPlacesV20(this.state, resident);
         }
@@ -6762,6 +6828,7 @@ export class WorldEngine {
 
   private advanceV15SmithingFromWork(agent: AgentState, now: number): void {
     if (agent.life.ageYears < 12 || !agent.life.alive) return;
+    if (!placeSupportsCapabilityV1(this.state.places[agent.locationId], 'smithing')) return;
     ensureAgentV15State(this.state, agent);
     const v15 = this.v15World();
     const profile = v15.smithingByAgentId[agent.id];
@@ -7118,6 +7185,60 @@ export class WorldEngine {
     );
   }
 
+  private applyFoundingMentorPhysicalRoutineAt(worldMinute: number): void {
+    const mentorWorld = this.state.iskorkaMentorsV1;
+    if (!mentorWorld?.active) return;
+
+    for (const mentor of Object.values(mentorWorld.mentorsById)) {
+      if (mentor.status !== 'caregiving') continue;
+      const students = foundingMentorStudentsV1(this.state, mentor.id)
+        .filter((child) => child.life.ageYears < mentorWorld.releaseAgeYears);
+      if (students.length === 0) continue;
+
+      const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
+      const destinationId = foundingMentorRoutineDestinationAtV1(
+        this.state,
+        mentor,
+        youngestAge,
+        worldMinute,
+      );
+      const homeId = foundingMentorHomeIdV1(this.state, mentor.id);
+      const hour = (Math.max(0, worldMinute) % (24 * 60)) / 60;
+
+      if (
+        homeId &&
+        destinationId === homeId &&
+        (hour >= 20 || hour < 7) &&
+        students.every((child) => child.locationId === homeId && !child.movement)
+      ) {
+        for (const child of students) {
+          if (!isBodySleepingV21(this.state, child.id)) {
+            startBodySleepV21(this.state, child, false);
+          }
+        }
+        updateMentorTeachingPositionsV1(this.state);
+        continue;
+      }
+
+      if (students.some((child) => Boolean(child.movement))) {
+        updateMentorTeachingPositionsV1(this.state);
+        continue;
+      }
+
+      for (const child of students) {
+        if (child.locationId === destinationId) continue;
+        this.moveAgent(child, destinationId, mentor.id);
+        if (child.movement) {
+          child.movement.purpose = 'walk';
+          delete child.lastAction;
+          delete child.lastDecision;
+          delete child.plan;
+        }
+      }
+      updateMentorTeachingPositionsV1(this.state);
+    }
+  }
+
   private stepFoundingMentorGuardians(now: number): void {
     const mentorWorld = this.state.iskorkaMentorsV1;
     if (!mentorWorld?.active) return;
@@ -7148,15 +7269,10 @@ export class WorldEngine {
         if (care.resourcesChanged) this.resourceProjectionDirty = true;
       }
 
-      // If the pair is currently walking, the guardian follows them physically;
-      // no lesson is injected while bodies are still en route.
       if (students.some((child) => Boolean(child.movement))) {
         updateMentorTeachingPositionsV1(this.state);
         continue;
       }
-
-      // A parent-like guardian does not take one small child away while the
-      // other assigned child is sleeping or elsewhere. The pair moves together.
       if (
         awake.length !== students.length ||
         new Set(students.map((child) => child.locationId)).size !== 1
@@ -7165,45 +7281,9 @@ export class WorldEngine {
         continue;
       }
 
-      const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
-      const destinationId = mentorTeachingPlaceV1(
-        this.state,
-        mentor,
-        youngestAge,
-      );
+      // Physical daily walking/carrying is scheduled in the continuous-time
+      // movement loop. This semantic pass handles care and learning only.
       const currentPlaceId = students[0].locationId;
-
-      if (currentPlaceId !== destinationId) {
-        // The outing is initiated by the guardian. moveAgent only creates the
-        // physical path; no child decision, goal, job or profession is written.
-        for (const child of students) {
-          this.moveAgent(child, destinationId);
-          if (child.movement) child.movement.purpose = 'walk';
-          delete child.lastAction;
-          delete child.lastDecision;
-          delete child.plan;
-        }
-        updateMentorTeachingPositionsV1(this.state);
-        this.stageEvent({
-          eventId: this.nextId('mentor-outing'),
-          worldId: this.state.id,
-          kind: 'mentor.guardian.outing.started',
-          source: 'world',
-          occurredAt: now,
-          payload: {
-            mentorId: mentor.id,
-            studentIds: students.map((child) => child.id).join(','),
-            fromPlaceId: currentPlaceId,
-            destinationId,
-            childTaskScriptUsed: false,
-          },
-        });
-        continue;
-      }
-
-      // The guardian demonstrates and may allow age-appropriate supervised
-      // practice. Learning is a consequence of co-location with the mentor,
-      // never a "go work" task assigned to the child.
       mentor.locationId = currentPlaceId;
       updateMentorTeachingPositionsV1(this.state);
       for (const child of awake) {
@@ -9774,6 +9854,10 @@ export class WorldEngine {
     }
     const workshopId = this.localPlace(agent, ['workshop'], 'workshop');
     if (this.travelBeforeAction(agent, workshopId, 'work', now)) return;
+    if (!placeSupportsCapabilityV1(this.state.places[agent.locationId], 'general_craft')) {
+      this.performRest(agent, now);
+      return;
+    }
     this.tryAdventureMarketTrade(agent, now);
     const capacityScale = productiveCapacityScaleV16(
       agent.race ?? 'human',
@@ -9939,6 +10023,7 @@ export class WorldEngine {
     site.kind = 'home';
     site.name = `Построенный дом ${sequence}`;
     site.capacity = 6;
+    equipMedievalHomeV1(site);
     site.urbanLot = project.urbanLot;
     site.urbanLayoutVersion = 3;
     site.rotation = project.plotRotation;
@@ -16441,13 +16526,30 @@ export class WorldEngine {
     });
   }
 
-  private moveAgent(agent: AgentState, locationId: string): void {
+  private moveAgent(
+    agent: AgentState,
+    locationId: string,
+    foundingMentorId?: string,
+  ): void {
     const destination = this.state.places[locationId];
     if (!destination) {
       throw new Error(`Cannot move ${agent.id} to unknown place ${locationId}.`);
     }
-    if (!this.youngChildMayTravelTo(agent, locationId)) return;
-    if (!mayKnowPlaceV20(agent, locationId, this.state)) return;
+    const assignedMentor = foundingMentorId
+      ? assignedFoundingMentorV1(this.state, agent.id)
+      : undefined;
+    const mentorGuided = Boolean(
+      assignedMentor &&
+      assignedMentor.id === foundingMentorId &&
+      assignedMentor.status === 'caregiving' &&
+      assignedMentor.locationId === agent.locationId &&
+      Math.hypot(
+        assignedMentor.position.x - agent.position.x,
+        assignedMentor.position.y - agent.position.y,
+      ) <= 2,
+    );
+    if (!this.youngChildMayTravelTo(agent, locationId, mentorGuided)) return;
+    if (!mentorGuided && !mayKnowPlaceV20(agent, locationId, this.state)) return;
     if (agent.movement && agent.movement.targetPlaceId !== locationId) {
       // Another resident's interaction cannot pull a traveller off a route.
       return;
@@ -16460,8 +16562,13 @@ export class WorldEngine {
       if (waterShortcut && startBoatTravel(this.state, agent, locationId, agent.lastDecision?.action ?? 'walk',
           this.rng.next(), (a,b)=>this.pathBetween(a,b)!==undefined)) return;
     }
-    const path = residentKnownPath(this.state, agent, locationId);
-    if (!path || path.slice(1).some(id => !mayKnowPlaceV20(agent, id, this.state))) {
+    const path = mentorGuided
+      ? this.pathBetween(agent.locationId, locationId)
+      : residentKnownPath(this.state, agent, locationId);
+    if (
+      !path ||
+      (!mentorGuided && path.slice(1).some(id => !mayKnowPlaceV20(agent, id, this.state)))
+    ) {
       // Water and disconnected territory are physical boundaries. A resident
       // never receives an implicit teleport just because an action chose it.
       return;
@@ -16482,6 +16589,9 @@ export class WorldEngine {
       agent.movement = {
         targetPlaceId: locationId,
         purpose: agent.lastDecision?.action ?? 'walk',
+        ...(mentorGuided && humanMotorMobilityScaleV1(agent.life.ageYears) <= 0
+          ? { carriedByFoundingMentorId: foundingMentorId }
+          : {}),
         waypoints,
         nextWaypointIndex: 1,
         startedAt: this.state.now,
@@ -16507,7 +16617,23 @@ export class WorldEngine {
     const end = minute + elapsedWorldMinutes;
     this.finishSecretLibraryAdmissions(minute, this.state.now);
     while (minute < end - PHYSICAL_TIME_EPSILON) {
-      const next = Math.min(end, ...ensureWorldV18State(this.state).secretLibrary.visitors.map(admissionDeadline).filter(t => t > minute));
+      if (this.state.iskorkaMentorsV1?.active) {
+        this.applyFoundingMentorPhysicalRoutineAt(minute);
+      }
+      const nextMentorBoundary = this.state.iskorkaMentorsV1?.active
+        ? nextFoundingMentorRoutineBoundaryV1(minute)
+        : Number.POSITIVE_INFINITY;
+      const nextWake = nextBodyWakeWorldMinuteV21(this.state);
+      const next = Math.min(
+        end,
+        nextMentorBoundary,
+        nextWake !== undefined && nextWake > minute
+          ? nextWake
+          : Number.POSITIVE_INFINITY,
+        ...ensureWorldV18State(this.state).secretLibrary.visitors
+          .map(admissionDeadline)
+          .filter(t => t > minute),
+      );
       const arrivedByBoat = new Set<string>();
       for (const arrival of advanceBoats(this.state, next-minute, minute)) {
         arrivedByBoat.add(arrival.agentId);
@@ -16529,6 +16655,7 @@ export class WorldEngine {
         updateMentorTeachingPositionsV1(this.state);
       }
       minute = next;
+      wakeDueSleepingBodiesV21(this.state, minute);
       this.finishSecretLibraryAdmissions(minute, this.state.now);
     }
   }
@@ -16552,8 +16679,17 @@ export class WorldEngine {
       currentSettlementId && currentSettlementId === targetSettlementId
         ? 0.84 + weatherWalkingScale * 0.16
         : weatherWalkingScale;
-    const developmentalMobility =
-      (agent.race ?? 'human') === 'human'
+    const assignedCarrier = movement.carriedByFoundingMentorId
+      ? assignedFoundingMentorV1(this.state, agent.id)
+      : undefined;
+    const carriedByMentor = Boolean(
+      assignedCarrier &&
+      assignedCarrier.id === movement.carriedByFoundingMentorId &&
+      assignedCarrier.status === 'caregiving',
+    );
+    const developmentalMobility = carriedByMentor
+      ? 1
+      : (agent.race ?? 'human') === 'human'
         ? humanMotorMobilityScaleV1(agent.life.ageYears)
         : 1;
     const mobilityScale =
@@ -16574,8 +16710,9 @@ export class WorldEngine {
         PHYSICAL_TIME_EPSILON,
         RESIDENT_WALK_MAP_UNITS_PER_WORLD_MINUTE * mobilityScale,
       );
-    const movementIntensity =
-      movement.purpose === 'hunt' || movement.purpose === 'explore'
+    const movementIntensity = carriedByMentor
+      ? 0
+      : movement.purpose === 'hunt' || movement.purpose === 'explore'
         ? 0.72
         : movement.purpose === 'work' || movement.purpose === 'gather'
           ? 0.62
@@ -16635,12 +16772,14 @@ export class WorldEngine {
       agent.position.y += (dy / distance) * remaining * groundScale;
       remaining = 0;
     }
-    recordBodyMovementV1(
-      this.state,
-      agent,
-      movementMinutesUsed(),
-      movementIntensity,
-    );
+    if (!carriedByMentor) {
+      recordBodyMovementV1(
+        this.state,
+        agent,
+        movementMinutesUsed(),
+        movementIntensity,
+      );
+    }
     return true;
   }
 

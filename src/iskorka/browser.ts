@@ -160,6 +160,7 @@ function activity(a:AgentState,w:WorldState):string {
   if(body && 'sleep' in body && (body.sleep as { status?: string } | undefined)?.status === 'sleeping')return 'Спит';
   if(isMentoredMinorV1(w,a)){
     const mentor=assignedFoundingMentorV1(w,a.id);
+    if(a.movement?.carriedByFoundingMentorId)return mentor?'С '+mentor.name+' · на руках на прогулке':'На руках у наставника';
     if(a.movement)return mentor?'С '+mentor.name+' · идёт под присмотром':'Идёт под присмотром';
     return mentor?'С '+mentor.name+' · учится и наблюдает':'Под присмотром наставников';
   }

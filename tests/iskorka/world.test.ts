@@ -10,6 +10,10 @@ import { worldWeatherV21 } from '../../src/v21/WeatherV21';
 import { worldCalendarAtMinutes } from '../../src/world/WorldClock';
 import { routeIdBetween } from '../../src/world/WorldNavigation';
 import { pathCrossesWater } from '../../src/world/WaterNavigation';
+import {
+  homeHasEssentialLifeSupportV1,
+  workshopHasCoreEquipmentV1,
+} from '../../src/iskorka/MedievalPlaceInfrastructureV1';
 import type { WorldState } from '../../src/world/types';
 
 const YEAR=525600;
@@ -90,6 +94,22 @@ test('Foundation has one nearby physical lake with a walkable pre-existing footp
  assert.ok((route.completedTraversals??0)>=1);
  assert.equal(route.widthMetres,1.5);
  assert.equal(pathCrossesWater(route.waypoints,w.places),false);
+});
+test('Foundation homes and workshop are physically furnished, not semantic labels',async()=>{
+ const {world:w}=await create('physical-interiors','physical-interiors-world');
+ const homes=Object.values(w.places).filter(place=>place.kind==='home');
+ assert.ok(homes.length>=10);
+ assert.ok(homes.every(home=>homeHasEssentialLifeSupportV1(home)));
+ assert.ok(homes.every(home=>{
+  const kinds=new Set(Object.values(home.medievalInfrastructureV1!.fixtures).map(item=>item.kind));
+  return ['bed_frame','mattress','bedding','hearth','cookpot','dining_table','privy','washbasin','pantry'].every(kind=>kinds.has(kind));
+ }));
+ assert.ok(workshopHasCoreEquipmentV1(w.places.workshop));
+ const workshopKinds=new Set(Object.values(w.places.workshop.medievalInfrastructureV1!.fixtures).map(item=>item.kind));
+ for(const kind of ['workbench','hand_saw','charcoal_forge','bellows','anvil','smithing_hammer','tongs','quench_trough','grindstone','stone_bench','leather_bench']){
+  assert.ok(workshopKinds.has(kind),kind);
+ }
+ assert.equal(w.places.workshop.medievalInfrastructureV1!.era,'pre_electric_medieval');
 });
 test('same seed produces byte-equivalent initial worlds',async()=>{
  const a=await create(),b=await create();assert.deepEqual(a.world,b.world);
