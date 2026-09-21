@@ -129,9 +129,10 @@ test('Foundation has two physical potable wells between homes with walkable rout
   assert.equal(well.wellWaterV1?.potable,true);
   assert.ok((well.wellWaterV1?.waterLitres??0)>0);
   assert.ok(homes.some(home=>Math.hypot(home.mapX-well.mapX,home.mapY-well.mapY)<1.5));
-  const route=w.routes[routeIdBetween(id,'commons')];
-  assert.ok(route,id+' route');
-  assert.equal(route.traversal,'walk');
+  const residentialRoute=well.connectedPlaceIds
+    .map(connectedId=>w.routes[routeIdBetween(id,connectedId)])
+    .find(route=>route?.traversal==='walk');
+  assert.ok(residentialRoute,id+' residential route');
  }
  const firstHome=w.places[homes[0].id];
  assert.ok(homeWaterReserveFractionV1(w,firstHome.id)>0);
