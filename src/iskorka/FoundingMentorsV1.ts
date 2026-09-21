@@ -505,6 +505,22 @@ export function applyFoundingMentorCareV1(
   student.resources = Math.max(student.resources, 0.12);
   student.needs.belonging = Math.max(student.needs.belonging, age < 8 ? 0.76 : 0.62);
 
+  // Scripted caregivers can clean/tend injuries and support ordinary recovery,
+  // but they do not erase wounds or diseases instantly.
+  for (const wound of body.wounds) {
+    wound.bleeding = clamp01(wound.bleeding - 0.025 * mentor.careMastery);
+    wound.contamination = clamp01(wound.contamination - 0.035 * mentor.careMastery);
+    wound.pain = clamp01(wound.pain - 0.015 * mentor.careMastery);
+    wound.lastTreatedWorldMinute = world.calendar.elapsedWorldMinutes;
+  }
+  for (const disease of body.diseases) {
+    disease.severity = clamp01(disease.severity - 0.012 * mentor.careMastery);
+    disease.lastObservedWorldMinute = world.calendar.elapsedWorldMinutes;
+  }
+  if (body.wounds.length > 0 || body.diseases.length > 0) {
+    student.life.health = clamp01(student.life.health + 0.0025 * mentor.careMastery);
+  }
+
   mentor.careCount += 1;
   mentor.lastCareWorldMinute = world.calendar.elapsedWorldMinutes;
   state.totalCareActions += 1;
