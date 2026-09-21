@@ -52,18 +52,27 @@ export interface HumanBodyPerceptV1 {
   interoception: Record<HumanBodySignalKindV1, SubjectiveSignalV1>;
 }
 
-export type LocalObservationKindV1 = 'place' | 'person';
+export type LocalObservationKindV1 = 'place' | 'person' | 'remains';
 
 export interface LocalObservationV1 {
   objectId: string;
   kind: LocalObservationKindV1;
   relation: 'here' | 'connected_visible' | 'co_located';
+  channel: 'vision';
+  confidence: number;
+  subjectObjectId?: string;
+  observedAction?: PortableHumanActionKindV1;
+  eventKind?: 'apparent_death';
 }
 
 export interface ReceivedMessageV1 {
   messageId: string;
   senderObjectId?: string;
+  subjectObjectId?: string;
   symbols: readonly string[];
+  channel: 'hearing' | 'reading';
+  confidence: number;
+  eventKind?: 'death_report';
 }
 
 export interface PerceptBatchV1 {

@@ -44,6 +44,8 @@ export interface BodyPhenotypeV1 {
   painSensitivity: number;
   sweatSensitivity: number;
   motionSicknessSensitivity: number;
+  /** Ordinary individual baseline; age maturation/decline is applied separately. */
+  visualAcuityBaseline: number;
   /** How clearly this body reports internal state; interpretation still belongs to the brain. */
   interoceptionSensitivity: number;
 }
@@ -192,6 +194,8 @@ function phenotypeFor(
       stableBetween(`${key}:sweat-sensitivity`, 0.20, 0.90),
     motionSicknessSensitivity: existing?.motionSicknessSensitivity ??
       stableBetween(`${key}:motion-sickness`, 0.08, 0.86),
+    visualAcuityBaseline: existing?.visualAcuityBaseline ??
+      stableBetween(`${key}:visual-acuity`, 0.82, 1),
     interoceptionSensitivity: existing?.interoceptionSensitivity ??
       stableBetween(`${key}:interoception`, 0.52, 0.96),
   };
@@ -508,6 +512,7 @@ export function assertBodyCoreV1(
   requireUnit(core.phenotype.painSensitivity, `BodyCore ${agent.id}.painSensitivity`);
   requireUnit(core.phenotype.sweatSensitivity, `BodyCore ${agent.id}.sweatSensitivity`);
   requireUnit(core.phenotype.motionSicknessSensitivity, `BodyCore ${agent.id}.motionSicknessSensitivity`);
+  requireUnit(core.phenotype.visualAcuityBaseline, `BodyCore ${agent.id}.visualAcuityBaseline`);
   requireUnit(core.phenotype.interoceptionSensitivity, `BodyCore ${agent.id}.interoceptionSensitivity`);
 
   const h = core.homeostasis;

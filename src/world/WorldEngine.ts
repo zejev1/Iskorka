@@ -22,6 +22,14 @@ import {
   projectResidentAgencyCadenceV1,
 } from '../iskorka/ResidentAgencyCadenceV1';
 import {
+  buildReceivedMessageIndexV1,
+  perceptBatchForAgentV1,
+} from '../iskorka/PerceptionAdapterV1';
+import {
+  acceptPersonalPerceptBatchV1,
+  shareKnownDeathReportV1,
+} from '../iskorka/PersonalPerceptionV1';
+import {
   assertWorldBrainRegistryV1,
   brainForLiveOwnerV1,
   ensureBrainForAgentV1,
@@ -4689,6 +4697,9 @@ export class WorldEngine {
   private huntOpportunityByLocation:
     | Map<string, WildlifePopulation | null>
     | undefined;
+  private perceptionMessagesByAgentId:
+    | ReturnType<typeof buildReceivedMessageIndexV1>
+    | undefined;
   private deferResourceProjection = false;
   private resourceProjectionDirty = false;
 
@@ -5509,6 +5520,10 @@ export class WorldEngine {
       // Previously every meal rescanned every resident, turning one quantum
       // into O(population²) work once the civilization passed one thousand.
       this.buildResidentDecisionIndexes(livingAgents);
+      // Direct spoken-message evidence is indexed once for this semantic
+      // quantum. Conversations created during the loop are perceived on the
+      // next brain opportunity; this avoids replay scans per resident.
+      this.perceptionMessagesByAgentId = buildReceivedMessageIndexV1(this.state);
       // v15 separates stored resources from the renewable production base.
       this.advanceV15RenewableResources(elapsedWorldMinutes);
       // One lived-action opportunity per resident per canonical quantum.
@@ -5593,6 +5608,7 @@ export class WorldEngine {
         this.placesBySettlement = undefined;
         this.placesByKind = undefined;
         this.huntOpportunityByLocation = undefined;
+        this.perceptionMessagesByAgentId = undefined;
       }
     }
   }
@@ -6900,6 +6916,23 @@ export class WorldEngine {
       this.advanceMonsterEncounter(agent, environment, now);
       if (!agent.life.alive) return;
     }
+
+    if ((agent.race ?? 'human') === 'human') {
+      const brain =
+        brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+        ensureBrainForAgentV1(this.state, agent);
+      if (brain) {
+        acceptPersonalPerceptBatchV1(
+          brain,
+          perceptBatchForAgentV1(this.state, agent.id, {
+            localAgents: this.agentsAtLocation(agent.locationId),
+            receivedMessages:
+              this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
+          }),
+        );
+      }
+    }
+
     const giftBefore = giftLearningSnapshotV20(this.state, agent);
     const ageAllowedActions = allowedActionsForResidentV1(agent);
     if (
@@ -15822,6 +15855,12 @@ export class WorldEngine {
       audibilityRoll: this.rng.next(),
       placeOccupancy: this.agentsAtLocation(a.locationId).length,
     });
+    shareKnownDeathReportV1(
+      this.state,
+      a,
+      b,
+      `${conversation.id}:death-report`,
+    );
     if (
       conversation.observerAudible ||
       (conversation.topic === 'learning' &&
