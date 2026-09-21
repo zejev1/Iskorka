@@ -348,8 +348,11 @@ function neutralizeLegacyAgentMindV1(agent: AgentState): void {
     exploration: 0,
   };
   agent.goal = { kind: 'recover', strength: 0, since: agent.life.diedAt ?? 0 };
+  const identityId = agent.mind.identityId;
   agent.mind = {
-    identityId: `retired:${agent.id}:${agent.life.generation}`,
+    // The stable identity key is a world record linking grave/kinship/history;
+    // all recoverable personal mental content is cleared around it.
+    identityId,
     continuity: 0,
     autonomy: 0,
     memoryCoherence: 0,
