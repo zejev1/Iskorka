@@ -82,3 +82,22 @@ test('strong body urgency changes the current projected intention without mutati
   assert.equal(projected.currentIntent, 'rest');
   assert.equal(agent.lastDecision, beforeDecision);
 });
+
+
+test('infant projection never fabricates an adult inner monologue', async () => {
+  const store = new InMemoryWorldStore();
+  const runtime = await IskorkaRuntime.openOrCreate(
+    store,
+    'agency-infant-development',
+    'agency-infant-development-world',
+  );
+  const world = runtime.presentationSnapshot();
+  const infant = world.agents.agent_1;
+  infant.life.ageYears = 0.75;
+  infant.life.stage = 'child';
+
+  const projected = projectResidentAgencyCadenceV1(world, infant);
+  assert.equal(projected.currentIntent, 'rest');
+  assert.equal(projected.innerThought, undefined);
+  assert.equal(projected.deliberationWorldMinutes, undefined);
+});
