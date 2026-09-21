@@ -68,9 +68,22 @@ export interface BrainStateV1 {
 }
 
 const encoder = new TextEncoder();
+const logicalByteCache = new WeakMap<object, number>();
+
+function encodedBytesV1(value: unknown): number {
+  return encoder.encode(stableJsonStringify(value)).byteLength;
+}
+
+export function invalidateBrainLogicalByteCacheV1(brain: Readonly<BrainStateV1>): void {
+  logicalByteCache.delete(brain as object);
+}
 
 export function logicalBrainBytesV1(brain: Readonly<BrainStateV1>): number {
-  return encoder.encode(stableJsonStringify(brain)).byteLength;
+  const cached = logicalByteCache.get(brain as object);
+  if (cached !== undefined) return cached;
+  const bytes = encodedBytesV1(brain);
+  logicalByteCache.set(brain as object, bytes);
+  return bytes;
 }
 
 export function brainBudgetRemainingBytesV1(brain: Readonly<BrainStateV1>): number {
@@ -148,11 +161,14 @@ export function tryStoreBrainDatumV1(
     }
     return true;
   }
-  brain.data.push(datum);
-  if (logicalBrainBytesV1(brain) > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
-    brain.data.pop();
+  const beforeBytes = logicalBrainBytesV1(brain);
+  const deltaBytes =
+    encodedBytesV1(datum) + (brain.data.length > 0 ? 1 : 0);
+  if (beforeBytes + deltaBytes > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
     return false;
   }
+  brain.data.push(datum);
+  logicalByteCache.set(brain, beforeBytes + deltaBytes);
   return true;
 }
 
@@ -161,11 +177,14 @@ export function setBrainWorkingStepV1(
   step: BrainWorkingStepV1 | undefined,
 ): boolean {
   const previous = brain.workingStep;
+  invalidateBrainLogicalByteCacheV1(brain);
   if (step === undefined) delete brain.workingStep;
   else brain.workingStep = { ...step };
   if (logicalBrainBytesV1(brain) > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
     if (previous === undefined) delete brain.workingStep;
     else brain.workingStep = previous;
+    invalidateBrainLogicalByteCacheV1(brain);
+    logicalBrainBytesV1(brain);
     return false;
   }
   return true;
