@@ -91,12 +91,12 @@ test('founding infants live with their guardian and are taken outside before age
   );
   const state = runtime.snapshot();
   assert.ok(Object.values(state.agents).every((child) => child.life.ageYears < 2));
+  // The snapshot may legitimately catch the family back at home. Event
+  // evidence proves that an actual physical outing started while the children
+  // were still non-walking infants, and that they were carried by a guardian.
   assert.ok(
-    Object.values(state.agents).some(
-      (child) =>
-        child.movement?.carriedByFoundingMentorId !== undefined ||
-        child.locationId === 'quiet_space' ||
-        child.locationId === 'commons',
+    outings.some(
+      (event) => String(event.payload.carriedStudentIds ?? '').length > 0,
     ),
   );
 });

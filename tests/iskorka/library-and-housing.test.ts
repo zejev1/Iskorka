@@ -13,6 +13,7 @@ test('human library: at most five volunteers; no learning before physical arriva
   agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
   agent.locationId='commons';agent.position={x:prepared.places.commons.mapX,y:prepared.places.commons.mapY,layerId:'surface'};agent.movement=undefined;
+  agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),'commons',SECRET_LIBRARY_PLACE_ID_V18])];
   prepared.v18!.languageByAgentId[agent.id].cyrillicLiteracy=1;
  }
  const store=new InMemoryWorldStore();await store.initializeWorld(prepared);
