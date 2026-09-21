@@ -178,8 +178,33 @@ export function ensureFoundationWellsV1(world: WorldState): boolean {
       ) changed = true;
     }
 
-    connect(well, commons);
-    for (const home of nearestHomes(world, well)) connect(well, home);
+    // A village well belongs to the residential street network, not to
+    // a magical direct edge across the whole square. Connect through the
+    // nearest houses; their ordinary streets lead onward to the commons.
+    const nearbyHomes = nearestHomes(world, well);
+    const desired = new Set(nearbyHomes.map((home) => home.id));
+    for (const connectedId of [...well.connectedPlaceIds]) {
+      if (desired.has(connectedId)) continue;
+      const other = world.places[connectedId];
+      if (other) {
+        other.connectedPlaceIds = other.connectedPlaceIds.filter(
+          (id) => id !== well.id,
+        );
+      }
+      well.connectedPlaceIds = well.connectedPlaceIds.filter(
+        (id) => id !== connectedId,
+      );
+      changed = true;
+    }
+    for (const home of nearbyHomes) {
+      const beforeA = well.connectedPlaceIds.length;
+      const beforeB = home.connectedPlaceIds.length;
+      connect(well, home);
+      if (
+        well.connectedPlaceIds.length !== beforeA ||
+        home.connectedPlaceIds.length !== beforeB
+      ) changed = true;
+    }
   }
 
   const settlement = world.settlements.settlement_ainkrad;
