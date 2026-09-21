@@ -9,6 +9,14 @@ test('human library: at most five volunteers; no learning before physical arriva
  const source=await WorldEngine.create({worldId:'library-study',seed:'secret-library-physical-study',store:new InMemoryWorldStore()});
  const prepared=source.snapshot();
  delete prepared.iskorkaMentorsV1;
+ // This regression isolates the old invitation/arrival/reading pipeline. Treat
+ // its library as physically provisioned by the Foundation settlement so
+ // six-day legacy semantic quanta do not kill the reading volunteers before
+ // the assertion can observe study.
+ prepared.places[SECRET_LIBRARY_PLACE_ID_V18].settlementId='settlement_ainkrad';
+ if(!prepared.settlements.settlement_ainkrad.memberPlaceIds.includes(SECRET_LIBRARY_PLACE_ID_V18)){
+  prepared.settlements.settlement_ainkrad.memberPlaceIds.push(SECRET_LIBRARY_PLACE_ID_V18);
+ }
  for(const agent of Object.values(prepared.agents)){
   agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
