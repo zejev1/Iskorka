@@ -12,7 +12,7 @@
 - `zejev1/ainkrad-v0.3` — источник для чтения, не место экспериментальных изменений. Старый `zejev1/ainkrad` не использовать как подмену донора.
 - Не менять исходный Ainkrad, его ветки, конфигурацию и Vercel.
 - Iskorka полностью автономна: не добавлять внешние управляющие экземпляры, наблюдатели, журналы, скрытые входы или режимы отключённого управления. Общая физика должна быть самостоятельной.
-- Работа над кодом в `bootstrap/iskorka-human-lab`. Никакого автоматического merge. Документация main разрешена отдельным поручением от 18.09.2026; это не разрешение залить непроверенный код мира.
+- Каждый новый этап разрабатывать в отдельной ветке. По прямому разрешению владельца от 21.09.2026 полностью проверенный этап можно сливать в `main` только после полного `npm run verify`, профильных/производительных проверок и успешного Vercel. После merge повторно проверить CI и production Vercel и сразу исправить обнаруженные ошибки. Ainkrad при этом не менять.
 
 ## Актуальная стартовая конфигурация
 
@@ -59,7 +59,7 @@
 
 ## Brain lifecycle and age development
 
-Before changing newborn initialization, learning, memory access, language development, child cognition, old-age cognition or any future BrainCore lifecycle, read `docs/ISKORKA_BRAIN_LIFECYCLE_V1.md` together with the current brain implementation plan.
+Before changing newborn initialization, learning, memory access, language development, child cognition, old-age cognition or any future BrainCore lifecycle, read the current brain implementation plan and the 21.09.2026 amendment in `ISKORKA_CONSTITUTION.md`.
 
 A newborn may inherit physical traits and temperament, but never parental acquired memories, values, beliefs, learned skills, vocabulary or maps. Reflexes, sensation and mechanisms of learning are not acquired knowledge. Age changes capacity to encode/retrieve/plan; it must not silently delete all consolidated lifetime experience. Severe cognitive decline is a separate physical/pathological state, not an automatic consequence of crossing an elder age threshold. Never show an adult canned inner monologue for an infant or young child and call it cognition.
 
