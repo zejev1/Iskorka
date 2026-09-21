@@ -52,7 +52,7 @@ export interface HumanBodyPerceptV1 {
   interoception: Record<HumanBodySignalKindV1, SubjectiveSignalV1>;
 }
 
-export type LocalObservationKindV1 = 'place' | 'person' | 'remains';
+export type LocalObservationKindV1 = 'place' | 'person' | 'remains' | 'fixture';
 
 export interface LocalObservationV1 {
   objectId: string;

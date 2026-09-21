@@ -45,6 +45,7 @@ const BODY_SIGNAL_KEYS: readonly HumanBodySignalKindV1[] = [
 
 const LOCAL_VISIBILITY_RADIUS = 45;
 const MAX_LOCAL_OBSERVATIONS = 24;
+const MAX_FIXTURE_OBSERVATIONS = 8;
 const MAX_RECEIVED_MESSAGES = 8;
 const MESSAGE_WINDOW_WORLD_MINUTES = 8_760;
 
@@ -314,6 +315,52 @@ function localObservationsV1(
     }
   }
 
+
+  if (
+    result.length < MAX_LOCAL_OBSERVATIONS &&
+    current.medievalInfrastructureV1
+  ) {
+    // Furniture/tools are physical world objects, not invisible capabilities.
+    // A finite visual frame samples only a bounded subset at once; the window
+    // rotates with world days so a child can gradually perceive the whole room.
+    const fixtures = Object.values(current.medievalInfrastructureV1.fixtures)
+      .filter(
+        (fixture) =>
+          fixture.installed &&
+          fixture.quantity > 0 &&
+          fixture.condition >= 0.25,
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (fixtures.length > 0) {
+      const day = Math.floor(world.calendar.elapsedWorldMinutes / (24 * 60));
+      const start =
+        (day + Math.floor(stableUnit(`${agent.id}:${current.id}:fixtures`) * fixtures.length)) %
+        fixtures.length;
+      for (
+        let index = 0;
+        index < Math.min(MAX_FIXTURE_OBSERVATIONS, fixtures.length) &&
+        result.length < MAX_LOCAL_OBSERVATIONS;
+        index += 1
+      ) {
+        const fixture = fixtures[(start + index) % fixtures.length];
+        const assessment = visualAssessmentV1(
+          noise,
+          fixture.id,
+          0.8,
+          vision.capacity,
+          Math.max(4, vision.reach),
+        );
+        if (!assessment.recognized) continue;
+        result.push({
+          objectId: fixture.id,
+          kind: 'fixture',
+          relation: 'co_located',
+          channel: 'vision',
+          confidence: assessment.confidence,
+        });
+      }
+    }
+  }
 
   for (const id of current.connectedPlaceIds) {
     if (result.length >= MAX_LOCAL_OBSERVATIONS) break;

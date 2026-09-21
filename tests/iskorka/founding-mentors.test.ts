@@ -15,6 +15,7 @@ import {
   updateMentorTeachingPositionsV1,
 } from '../../src/iskorka/FoundingMentorsV1';
 import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
+import { FOUNDATION_WELL_IDS_V1 } from '../../src/iskorka/FoundationWaterV1';
 
 const YEAR = 525_600;
 const QUANTUM = YEAR / 60;
@@ -86,7 +87,7 @@ test('founding infants live with their guardian and are taken outside before age
   assert.ok(outings.length > 0);
   assert.ok(
     outings.some((event) =>
-      ['quiet_space', 'commons'].includes(String(event.payload.destinationId)),
+      ['quiet_space', 'commons', ...FOUNDATION_WELL_IDS_V1].includes(String(event.payload.destinationId)),
     ),
   );
   const state = runtime.snapshot();
@@ -123,17 +124,54 @@ test('mentor care physically feeds, hydrates and tends a founding infant', async
   });
 
   const foodBefore = world.v15!.renewableResources.storedResources;
+  const homeWaterBefore =
+    world.places[spark.homeId].medievalInfrastructureV1!.waterReserveLitres!;
   const result = applyFoundingMentorCareV1(world, spark);
   assert.equal(result.cared, true);
   assert.ok(core.homeostasis.hydration > 0.42);
   assert.ok(core.homeostasis.stomachFill > 0.2);
   assert.ok(world.v15!.renewableResources.storedResources < foodBefore);
+  assert.ok(
+    world.places[spark.homeId].medievalInfrastructureV1!.waterReserveLitres! <
+      homeWaterBefore,
+  );
   assert.ok(body.wounds[0].bleeding < 0.3);
   assert.ok(body.wounds[0].contamination < 0.5);
   assert.equal(body.wounds[0].lastTreatedWorldMinute, 0);
   assert.equal(world.iskorkaMentorsV1!.totalCareActions, 1);
   assert.equal(world.iskorkaMentorsV1!.totalMeals, 1);
   assert.equal(world.iskorkaMentorsV1!.totalDrinks, 1);
+});
+
+test('mentor water care uses household reserves and real wells, never magic hydration', async () => {
+  const { world } = await create('mentor-water', 'mentor-water-world');
+  const spark = world.agents.agent_1;
+  const mentor = assignedFoundingMentorV1(world, spark.id)!;
+  const body = world.v21!.bodiesByAgentId[spark.id];
+  const core = body.bodyCore!;
+  const home = world.places[spark.homeId];
+  const infrastructure = home.medievalInfrastructureV1!;
+  infrastructure.waterReserveLitres = 0;
+  core.homeostasis.hydration = 0.31;
+
+  const drinksBefore = world.iskorkaMentorsV1!.totalDrinks;
+  const dryCare = applyFoundingMentorCareV1(world, spark);
+  assert.equal(dryCare.cared, true);
+  assert.equal(core.homeostasis.hydration, 0.31);
+  assert.equal(world.iskorkaMentorsV1!.totalDrinks, drinksBefore);
+
+  const well = world.places[FOUNDATION_WELL_IDS_V1[0]];
+  const wellBefore = well.wellWaterV1!.waterLitres;
+  spark.locationId = well.id;
+  spark.position = { x: well.mapX, y: well.mapY, layerId: 'surface' };
+  mentor.locationId = well.id;
+  mentor.position = { x: well.mapX + 0.2, y: well.mapY, };
+  const wetCare = applyFoundingMentorCareV1(world, spark);
+  assert.equal(wetCare.cared, true);
+  assert.ok(core.homeostasis.hydration > 0.31);
+  assert.ok(well.wellWaterV1!.waterLitres < wellBefore);
+  assert.ok((infrastructure.waterReserveLitres ?? 0) > 0);
+  assert.equal(world.iskorkaMentorsV1!.totalDrinks, drinksBefore + 1);
 });
 
 test('mentor lesson requires physical co-location and does not write a target level', async () => {
@@ -290,15 +328,18 @@ test('guardians teach complete reproduction basics before adulthood without crea
 });
 
 test('mentor state survives save/reopen and continuation deterministically', async () => {
-  const a = await create('mentor-save', 'mentor-save-a');
-  const b = await create('mentor-save', 'mentor-save-b');
+  // Separate stores, same logical world identity. Terrain intentionally depends
+  // on world id, so using different ids would compare two different physical
+  // worlds rather than testing save/reopen determinism.
+  const a = await create('mentor-save', 'mentor-save-world');
+  const b = await create('mentor-save', 'mentor-save-world');
   await a.runtime.advanceTo(YEAR * 6);
   await b.runtime.advanceTo(YEAR * 6);
 
   const reopened = await IskorkaRuntime.openOrCreate(
     b.store,
     'ignored',
-    'mentor-save-b',
+    'mentor-save-world',
   );
   assert.deepEqual(
     b.runtime.snapshot().iskorkaMentorsV1,
@@ -309,8 +350,7 @@ test('mentor state survives save/reopen and continuation deterministically', asy
   await reopened.advanceTo(YEAR * 7);
   const left = a.runtime.snapshot();
   const right = reopened.snapshot();
-  // World IDs differ, but the mentor causal state and per-person learning
-  // counters must evolve identically under the same seed.
+  // The same saved world must continue identically after reopen.
   assert.deepEqual(
     Object.values(left.iskorkaMentorsV1!.mentorsById).map((m) => ({
       role: m.role,

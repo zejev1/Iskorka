@@ -13,6 +13,9 @@ export function placeDrawing(kind: WorldPlaceKind): string {
     case 'workshop':
       body='<rect x="2" y="3" width="54" height="40" fill="#b6a383" stroke="#574f43"/><path d="M2 6H56V33H2Z" fill="#635f58"/><path d="M3 19H56M15 6V33M30 6V33M45 6V33" stroke="#858077" stroke-width="2"/><rect x="40" y="2" width="10" height="15" fill="#4b4440"/><path d="M6 45H54" stroke="#705f41" stroke-width="5"/>';
       break;
+    case 'well':
+      body='<circle cx="30" cy="27" r="15" fill="#8f8167" stroke="#544b3d" stroke-width="3"/><circle cx="30" cy="27" r="9" fill="#416f82" stroke="#d1c49b" stroke-width="2"/><path d="M14 16V4M46 16V4M12 5H48M30 5V17" stroke="#6b5138" stroke-width="3"/><path d="M25 17H35V25H25Z" fill="#8a7652" stroke="#5a4935"/>';
+      break;
     case 'library':
       body='<rect x="2" y="1" width="56" height="43" fill="#c9c6b6" stroke="#566065"/><path d="M2 2H58V32H2Z" fill="#526b77"/><path d="M2 17H58M13 2V32M25 2V32M37 2V32M49 2V32" stroke="#7d9496"/><path d="M17 43V35H43V43M14 47H46" fill="none" stroke="#e4d6ad" stroke-width="3"/><rect x="26" y="34" width="8" height="10" fill="#43433e"/>';
       break;

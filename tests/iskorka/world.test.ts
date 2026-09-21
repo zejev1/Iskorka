@@ -14,6 +14,11 @@ import {
   homeHasEssentialLifeSupportV1,
   workshopHasCoreEquipmentV1,
 } from '../../src/iskorka/MedievalPlaceInfrastructureV1';
+import {
+  FOUNDATION_WELL_IDS_V1,
+  homeWaterReserveFractionV1,
+} from '../../src/iskorka/FoundationWaterV1';
+import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
 import type { WorldState } from '../../src/world/types';
 
 const YEAR=525600;
@@ -111,6 +116,49 @@ test('Foundation homes and workshop are physically furnished, not semantic label
  }
  assert.equal(w.places.workshop.medievalInfrastructureV1!.era,'pre_electric_medieval');
 });
+test('Foundation has two physical potable wells between homes with walkable routes',async()=>{
+ const {world:w}=await create('foundation-wells','foundation-wells-world');
+ assert.equal(FOUNDATION_WELL_IDS_V1.length,2);
+ const homes=Object.values(w.places).filter(p=>p.kind==='home'&&p.settlementId==='settlement_ainkrad');
+ for(const id of FOUNDATION_WELL_IDS_V1){
+  const well=w.places[id];
+  assert.ok(well,id);
+  assert.equal(well.kind,'well');
+  assert.equal(well.surface,'land');
+  assert.equal(well.settlementId,'settlement_ainkrad');
+  assert.equal(well.wellWaterV1?.potable,true);
+  assert.ok((well.wellWaterV1?.waterLitres??0)>0);
+  assert.ok(homes.some(home=>Math.hypot(home.mapX-well.mapX,home.mapY-well.mapY)<1.5));
+  const residentialRoute=well.connectedPlaceIds
+    .map(connectedId=>w.routes[routeIdBetween(id,connectedId)])
+    .find(route=>route?.traversal==='walk');
+  assert.ok(residentialRoute,id+' residential route');
+ }
+ const firstHome=w.places[homes[0].id];
+ assert.ok(homeWaterReserveFractionV1(w,firstHome.id)>0);
+});
+
+test('Spark perception receives real co-located furniture/tools, not only a place label',async()=>{
+ const {world:w}=await create('fixture-perception','fixture-perception-world');
+ const spark=w.agents.agent_1;
+ spark.life.ageYears=5;
+ spark.locationId=spark.homeId;
+ spark.position={x:w.places[spark.homeId].mapX,y:w.places[spark.homeId].mapY,layerId:'surface'};
+ const percept=perceptBatchForAgentV1(w,spark.id);
+ const fixtures=percept.localObservations.filter(o=>o.kind==='fixture');
+ assert.ok(fixtures.length>0);
+ const physicalIds=new Set(Object.keys(w.places[spark.homeId].medievalInfrastructureV1!.fixtures));
+ assert.ok(fixtures.every(o=>physicalIds.has(o.objectId)));
+
+ spark.locationId='workshop';
+ spark.position={x:w.places.workshop.mapX,y:w.places.workshop.mapY,layerId:'surface'};
+ const workshopPercept=perceptBatchForAgentV1(w,spark.id);
+ const workshopFixtures=workshopPercept.localObservations.filter(o=>o.kind==='fixture');
+ assert.ok(workshopFixtures.length>0);
+ const workshopIds=new Set(Object.keys(w.places.workshop.medievalInfrastructureV1!.fixtures));
+ assert.ok(workshopFixtures.every(o=>workshopIds.has(o.objectId)));
+});
+
 test('same seed produces byte-equivalent initial worlds',async()=>{
  const a=await create(),b=await create();assert.deepEqual(a.world,b.world);
 });

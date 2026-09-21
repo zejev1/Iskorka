@@ -312,6 +312,7 @@ export type WorldPlaceKind =
   | 'library'
   | 'resource_field'
   | 'workshop'
+  | 'well'
   | 'quiet_space'
   | 'outskirts'
   | 'meadow'
@@ -378,6 +379,8 @@ export interface WorldPlace {
    * proof that a resident can sleep, cook, wash or practise a craft there.
    */
   medievalInfrastructureV1?: import('../iskorka/MedievalPlaceInfrastructureV1').MedievalPlaceInfrastructureV1;
+  /** Potable groundwater state for explicit settlement wells. */
+  wellWaterV1?: import('../iskorka/FoundationWaterV1').FoundationWellWaterV1;
 }
 
 export interface WorldRouteState {
