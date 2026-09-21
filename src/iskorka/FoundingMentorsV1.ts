@@ -41,7 +41,7 @@ export interface FoundingMentorMessageV1 {
   studentId: string;
   worldMinute: number;
   symbols: string[];
-  kind: 'care' | 'lesson' | 'farewell';
+  kind: 'care' | 'lesson' | 'body_education' | 'farewell';
 }
 
 export interface FoundingMentorStateV1 {
@@ -94,6 +94,131 @@ const MENTOR_SPECS: ReadonlyArray<{
 ] as const;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+type ReproductiveEducationStageV1 =
+  | 'body_boundaries'
+  | 'puberty'
+  | 'conception'
+  | 'pregnancy_birth'
+  | 'adult_relationships_parenthood';
+
+interface ReproductiveEducationSpecV1 {
+  stage: ReproductiveEducationStageV1;
+  minAgeYears: number;
+  minComprehension: number;
+  facts: readonly string[];
+  spokenSummary: string;
+}
+
+const REPRODUCTIVE_EDUCATION_V1: readonly ReproductiveEducationSpecV1[] = [
+  {
+    stage: 'body_boundaries',
+    minAgeYears: 6,
+    minComprehension: 0.28,
+    facts: [
+      'У каждого человека есть личные границы тела.',
+      'Интимное прикосновение требует согласия; отказ нужно уважать.',
+      'Состояние тела и любопытство не создают обязанность вступать в близость.',
+    ],
+    spokenSummary: 'Твоё тело принадлежит тебе. У близости всегда должны быть границы и согласие.',
+  },
+  {
+    stage: 'puberty',
+    minAgeYears: 10,
+    minComprehension: 0.45,
+    facts: [
+      'Во время взросления мужское и женское тело постепенно становится способным к размножению.',
+      'Половое созревание меняет тело, но не создаёт любовь, согласие или желание ребёнка.',
+      'Фертильность зависит от возраста, здоровья и состояния тела.',
+    ],
+    spokenSummary: 'По мере взросления тело меняется и становится способным к размножению, но решения о близости остаются личными.',
+  },
+  {
+    stage: 'conception',
+    minAgeYears: 13,
+    minComprehension: 0.62,
+    facts: [
+      'Беременность может начаться после полового акта, если сперматозоид оплодотворит яйцеклетку.',
+      'Половой акт не гарантирует зачатие, а зачатие не является автоматическим следствием любви или желания ребёнка.',
+      'Взаимное согласие необходимо независимо от возможности зачатия.',
+    ],
+    spokenSummary: 'Я объясню биологию зачатия: половая близость может привести к оплодотворению, но это не происходит автоматически.',
+  },
+  {
+    stage: 'pregnancy_birth',
+    minAgeYears: 15,
+    minComprehension: 0.72,
+    facts: [
+      'После зачатия развивающийся ребёнок растёт в матке во время беременности.',
+      'Беременность длится много месяцев и создаёт дополнительную нагрузку и риски для организма матери.',
+      'Роды завершают беременность; после них матери нужно восстановление, а новорождённому нужен постоянный уход.',
+    ],
+    spokenSummary: 'После зачатия начинается беременность, затем роды и долгий уход за новорождённым. Это серьёзная ответственность, а не просто событие.',
+  },
+  {
+    stage: 'adult_relationships_parenthood',
+    minAgeYears: 17,
+    minComprehension: 0.82,
+    facts: [
+      'Сексуальное влечение, любовь, согласие, половой акт, желание ребёнка и фертильность — разные вещи.',
+      'Половой акт взрослых людей возможен только по взаимному согласию.',
+      'Решение о ребёнке требует учитывать здоровье, отношения, жильё, пищу, время и готовность заботиться о нём.',
+      'Ни знание о размножении, ни половое созревание не создают обязанности вступать в отношения или заводить детей.',
+    ],
+    spokenSummary: 'Перед взрослой жизнью запомни: влечение, любовь, согласие, близость и желание ребёнка — не одно и то же. Решение всегда остаётся вашим.',
+  },
+] as const;
+
+function teachReproductiveEducationV1(
+  world: WorldState,
+  student: AgentState,
+  mentor: FoundingMentorStateV1,
+): ReproductiveEducationStageV1 | undefined {
+  const language = ensureRussianKnowledgeV18(world, student);
+  const brain = ensureBrainForAgentV1(world, student);
+  if (!brain) return undefined;
+
+  const spec = REPRODUCTIVE_EDUCATION_V1.find((candidate) =>
+    student.life.ageYears >= candidate.minAgeYears &&
+    language.spokenComprehension >= candidate.minComprehension &&
+    !brain.data.some((datum) => datum.id === `mentor-reproduction:${candidate.stage}`),
+  );
+  if (!spec) return undefined;
+
+  const stored = tryStoreBrainDatumV1(brain, {
+    id: `mentor-reproduction:${spec.stage}`,
+    section: 'knowledge',
+    kind: 'human_reproduction_education',
+    source: 'message',
+    encoded: JSON.stringify({
+      stage: spec.stage,
+      mentorId: mentor.id,
+      mentorName: mentor.name,
+      learnedWorldMinute: world.calendar.elapsedWorldMinutes,
+      facts: [...spec.facts],
+      constraints: {
+        createsDesire: false,
+        createsConsent: false,
+        createsRelationship: false,
+        createsPregnancy: false,
+        createsParenthoodDecision: false,
+      },
+    }),
+  });
+  if (!stored) return undefined;
+
+  const state = ensureFoundingMentorWorldV1(world);
+  pushStudentMessage(state, {
+    id: `mentor-body-education:${mentor.id}:${student.id}:${spec.stage}`,
+    mentorId: mentor.id,
+    studentId: student.id,
+    worldMinute: world.calendar.elapsedWorldMinutes,
+    symbols: [`${mentor.name}: ${spec.spokenSummary}`],
+    kind: 'body_education',
+  });
+  rememberMentorSourceV1(world, student, mentor, `human-reproduction:${spec.stage}`);
+  return spec.stage;
+}
 
 function roleDomain(role: FoundingMentorRoleV1): GenesisDomain | undefined {
   switch (role) {
@@ -420,10 +545,16 @@ function skillPracticeFromDomain(
   }
 }
 
+export type FoundingMentorEducationDomainV1 =
+  | GenesisDomain
+  | 'language'
+  | 'human_reproduction';
+
 export interface FoundingMentorLessonResultV1 {
   taught: boolean;
   mentorId?: string;
-  domain?: GenesisDomain | 'language';
+  domain?: FoundingMentorEducationDomainV1;
+  reproductiveEducationStage?: ReproductiveEducationStageV1;
   mode?: 'demonstration' | 'guided_practice';
   gained: number;
 }
@@ -440,8 +571,28 @@ export function applyFoundingMentorLessonV1(
   if (mentor.locationId !== student.locationId) return { taught: false, gained: 0 };
 
   const now = world.calendar.elapsedWorldMinutes;
+  const reproductiveEducationStage = teachReproductiveEducationV1(
+    world,
+    student,
+    mentor,
+  );
+  if (reproductiveEducationStage) {
+    mentor.lessonCount += 1;
+    mentor.lastLessonWorldMinute = now;
+    const state = ensureFoundingMentorWorldV1(world);
+    state.totalLessons += 1;
+    return {
+      taught: true,
+      mentorId: mentor.id,
+      domain: 'human_reproduction',
+      reproductiveEducationStage,
+      mode: 'demonstration',
+      gained: 0.01,
+    };
+  }
+
   let gained = 0;
-  let domain: GenesisDomain | 'language' = 'language';
+  let domain: FoundingMentorEducationDomainV1 = 'language';
   const lessonDomain = mentorDomainAtCurrentPlaceV1(
     mentor,
     mentor.locationId,
