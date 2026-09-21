@@ -135,6 +135,7 @@ export function startBodySleepV21(
   world: WorldState,
   agent: AgentState,
   forced: boolean,
+  startedWorldMinute = world.calendar.elapsedWorldMinutes,
 ): boolean {
   if (!agent.life.alive) return false;
   const body = sleepBody(world, agent);
@@ -142,7 +143,7 @@ export function startBodySleepV21(
 
   // Weather/equipment/comfort are captured once; no recomputation while sleeping.
   const quality = sleepQualityV21(world, agent, forced);
-  const now = world.calendar.elapsedWorldMinutes;
+  const now = startedWorldMinute;
   const wakesAtWorldMinute = now + SIX_HOURS;
   body.sleep = {
     status: 'sleeping',

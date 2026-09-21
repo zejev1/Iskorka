@@ -56,6 +56,12 @@ import {
   synchronizeFoundationWellWaterV1,
 } from '../iskorka/FoundationWaterV1';
 import {
+  advanceReleasedSparkSurvivalV1,
+  hasReleasedFoundingSparksV1,
+  isReleasedFoundingSparkV1,
+  nextReleasedSparkBodyBoundaryV1,
+} from '../iskorka/ReleasedSparkSurvivalV1';
+import {
   FOUNDING_SPARK_START_AGE_YEARS_V1,
   advanceFoundingMentorLifecycleV1,
   applyFoundingMentorCareV1,
@@ -5791,11 +5797,15 @@ export class WorldEngine {
       // indexes/caches optimize work without dropping resident opportunities.
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
-        const mentoredMinor = isMentoredMinorV1(this.state, agent);
         const foundingSpark = isFoundingCohortStudentV1(this.state, agent.id);
         if (!sleeping && !foundingSpark) {
           this.applyPassiveNeeds(agent, effectiveEnvironment);
         }
+        // Founding Sparks deliberately never use applyPassiveNeeds(): that
+        // legacy helper also auto-eats/auto-drinks from settlement stores.
+        // After mentor release their body-only survival clock runs in exact
+        // physical time instead; it can create hunger/thirst/fatigue/death but
+        // cannot choose an action for the person.
         const body = this.state.v21?.bodiesByAgentId[agent.id];
         const pendingPhysiology = body?.bodyCore
           ? Math.max(
@@ -13544,10 +13554,33 @@ export class WorldEngine {
       // actually available in the settlement, not only on the small personal
       // reserve they carry. Away from home, effective security automatically
       // falls back to personal reserves, so shared stores never teleport.
-      const effectiveResourceSecurity = this.v15EffectiveResourceSecurity(agent);
+      const releasedSurvival =
+        this.state.v21?.bodiesByAgentId[agent.id]?.bodyCore
+          ?.releasedAdultSurvivalV1;
+      const releasedSpark = isReleasedFoundingSparkV1(this.state, agent);
+      const releasedRhythm = releasedSpark
+        ? ensureLifeRhythmV18(this.state, agent)
+        : undefined;
+      const releasedHydration =
+        this.state.v21?.bodiesByAgentId[agent.id]?.bodyCore
+          ?.homeostasis.hydration ?? 0;
+      // An unused full granary cannot heal a person who has not actually eaten
+      // or drunk. Legacy residents keep their old settlement-security model;
+      // released founding Sparks use only physically ingested body state.
+      const effectiveResourceSecurity = releasedSpark && releasedSurvival
+        ? clamp01(
+            (releasedRhythm?.satiety ?? 0) * 0.42 +
+            releasedHydration * 0.32 +
+            releasedSurvival.metabolicReserve * 0.26
+          )
+        : this.v15EffectiveResourceSecurity(agent);
       const deprivation =
         Math.max(0, 0.12 - effectiveResourceSecurity) * 0.014 +
-        Math.max(0, 0.1 - agent.energy) * 0.012;
+        Math.max(0, 0.1 - agent.energy) * 0.012 +
+        (releasedSpark
+          ? Math.max(0, 0.22 - releasedHydration) * 0.035 +
+            Math.max(0, 0.1 - (releasedRhythm?.satiety ?? 0)) * 0.018
+          : 0);
       const elderAge =
         SAPIENT_RACE_LIFE_PROFILES_V16[agent.race ?? 'human'].elderAtAge;
       // Longevity slows biological ageing without lying about chronological age.
@@ -13566,7 +13599,9 @@ export class WorldEngine {
       const rapidHealing = giftMasteryV20(this.state, agent.id, 'rapid_healing');
       const robustHealth = giftMasteryV20(this.state, agent.id, 'robust_health');
       const recovery =
-        effectiveResourceSecurity > 0.35 && agent.energy > 0.3
+        !releasedSurvival?.fatalCause &&
+        effectiveResourceSecurity > 0.35 &&
+        agent.energy > 0.3
           ? (0.0018 + agent.personality.resilience * 0.0014) *
             agent.life.physiology.recovery *
             Math.max(0.4, 1 - frailtyBurden * 0.45)
@@ -13622,7 +13657,9 @@ export class WorldEngine {
       } else if (agent.life.health <= 0.015) {
         this.recordDeath(
           agent,
-          effectiveResourceSecurity < 0.08 ? 'deprivation' : 'illness',
+          releasedSurvival?.fatalCause || effectiveResourceSecurity < 0.08
+            ? 'deprivation'
+            : 'illness',
           now,
         );
       } else if (
@@ -16701,10 +16738,14 @@ export class WorldEngine {
       const nextMentorBoundary = this.state.iskorkaMentorsV1?.active
         ? nextFoundingMentorRoutineBoundaryV1(minute)
         : Number.POSITIVE_INFINITY;
+      const nextReleasedBodyBoundary = hasReleasedFoundingSparksV1(this.state)
+        ? nextReleasedSparkBodyBoundaryV1(minute)
+        : Number.POSITIVE_INFINITY;
       const nextWake = nextBodyWakeWorldMinuteV21(this.state);
       const next = Math.min(
         end,
         nextMentorBoundary,
+        nextReleasedBodyBoundary,
         nextWake !== undefined && nextWake > minute
           ? nextWake
           : Number.POSITIVE_INFINITY,
@@ -16732,6 +16773,32 @@ export class WorldEngine {
       if (this.state.iskorkaMentorsV1?.active) {
         updateMentorTeachingPositionsV1(this.state);
       }
+
+      if (hasReleasedFoundingSparksV1(this.state)) {
+        for (const agent of Object.values(this.state.agents)) {
+          if (!isReleasedFoundingSparkV1(this.state, agent)) continue;
+          const survival = advanceReleasedSparkSurvivalV1(
+            this.state,
+            agent,
+            minute,
+            next,
+            isBodySleepingV21(this.state, agent.id),
+          );
+          if (
+            survival.forceSleep &&
+            !isBodySleepingV21(this.state, agent.id)
+          ) {
+            // Collapse is a body constraint, not a chosen resident task.
+            startBodySleepV21(this.state, agent, true, next);
+            // A forced physiological collapse is visible through BodySleep,
+            // but it is not a chosen Spark action or hidden task.
+            delete agent.lastAction;
+            delete agent.lastDecision;
+            delete agent.plan;
+          }
+        }
+      }
+
       minute = next;
       wakeDueSleepingBodiesV21(this.state, minute);
       this.finishSecretLibraryAdmissions(minute, this.state.now);

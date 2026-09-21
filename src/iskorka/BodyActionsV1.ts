@@ -98,6 +98,22 @@ export function recordBodyMealV1(
   core.homeostasis.energyReserve = clamp01(
     core.homeostasis.energyReserve + amount * 0.16,
   );
+  if (core.releasedAdultSurvivalV1) {
+    core.releasedAdultSurvivalV1.metabolicReserve = clamp01(
+      core.releasedAdultSurvivalV1.metabolicReserve + amount * 0.24,
+    );
+    core.releasedAdultSurvivalV1.criticalStarvationWorldMinutes = Math.max(
+      0,
+      core.releasedAdultSurvivalV1.criticalStarvationWorldMinutes -
+        amount * 3 * 24 * 60,
+    );
+    if (
+      core.releasedAdultSurvivalV1.fatalCause === 'starvation' &&
+      core.releasedAdultSurvivalV1.metabolicReserve > 0.08
+    ) {
+      delete core.releasedAdultSurvivalV1.fatalCause;
+    }
+  }
   core.homeostasis.bowelLoad = clamp01(
     core.homeostasis.bowelLoad + amount * 0.08,
   );
@@ -122,6 +138,19 @@ export function recordBodyDrinkV1(
   core.homeostasis.hydration = clamp01(
     core.homeostasis.hydration + amount * 0.58,
   );
+  if (core.releasedAdultSurvivalV1) {
+    core.releasedAdultSurvivalV1.criticalDehydrationWorldMinutes = Math.max(
+      0,
+      core.releasedAdultSurvivalV1.criticalDehydrationWorldMinutes -
+        amount * 36 * 60,
+    );
+    if (
+      core.releasedAdultSurvivalV1.fatalCause === 'dehydration' &&
+      core.homeostasis.hydration > 0.16
+    ) {
+      delete core.releasedAdultSurvivalV1.fatalCause;
+    }
+  }
   core.homeostasis.electrolyteDeviation *= 0.72;
   core.homeostasis.bladderFill = clamp01(
     core.homeostasis.bladderFill + amount * 0.28,

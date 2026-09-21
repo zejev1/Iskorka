@@ -18,6 +18,7 @@ import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
 import { FOUNDATION_WELL_IDS_V1 } from '../../src/iskorka/FoundationWaterV1';
 
 const YEAR = 525_600;
+const DAY = 24 * 60;
 const QUANTUM = YEAR / 60;
 
 async function create(seed='mentor-seed', id='mentor-world') {
@@ -386,7 +387,19 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
   );
   for (const studentId of world.iskorkaMentorsV1!.cohortStudentIds) {
     const messages = world.iskorkaMentorsV1!.messagesByStudentId[studentId] ?? [];
-    assert.ok(messages.some((message) => message.kind === 'farewell'));
+    const farewells = messages.filter((message) => message.kind === 'farewell');
+    assert.equal(farewells.length, 1);
+    const mentor = assignedFoundingMentorV1(world, studentId)!;
+    assert.equal(farewells[0].mentorId, mentor.id);
+    const brain = world.iskorkaBrainV1!.brainsByAgentId[studentId];
+    const orientation = brain.data.find(
+      (datum) => datum.id === `mentor-farewell-orientation:${mentor.id}`,
+    );
+    assert.ok(orientation);
+    const payload = JSON.parse(orientation!.encoded);
+    assert.equal(payload.constraints.createsTask, false);
+    assert.equal(payload.constraints.forcesLibraryVisit, false);
+    assert.equal(payload.constraints.forcesWork, false);
   }
 
   await runtime.advanceTo(adulthoodFromStart + QUANTUM);
@@ -423,6 +436,28 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
       structuredClone(world.v15!.knowledgeByAgentId[spark.id]),
     ]),
   );
+
+  const releasedAt = world.calendar.elapsedWorldMinutes;
+  const probe = Object.values(world.agents).find((spark) => spark.life.alive)!;
+  const probeBody = world.v21!.bodiesByAgentId[probe.id].bodyCore!;
+  const hydrationAtRelease = probeBody.homeostasis.hydration;
+  const reserveAtRelease = probeBody.homeostasis.energyReserve;
+  const mentorMealsAtRelease = world.iskorkaMentorsV1!.totalMeals;
+  const mentorDrinksAtRelease = world.iskorkaMentorsV1!.totalDrinks;
+
+  await runtime.advanceTo(releasedAt + 2 * DAY);
+  world = runtime.snapshot();
+  const probeAfter = world.agents[probe.id];
+  const probeBodyAfter = world.v21!.bodiesByAgentId[probe.id].bodyCore!;
+  assert.ok(probeBodyAfter.releasedAdultSurvivalV1);
+  assert.ok(probeBodyAfter.homeostasis.hydration < hydrationAtRelease);
+  assert.ok(
+    probeBodyAfter.releasedAdultSurvivalV1!.metabolicReserve <= reserveAtRelease,
+  );
+  assert.equal(world.iskorkaMentorsV1!.totalMeals, mentorMealsAtRelease);
+  assert.equal(world.iskorkaMentorsV1!.totalDrinks, mentorDrinksAtRelease);
+  assert.equal(probeAfter.lastDecision, undefined);
+  assert.equal(probeAfter.plan, undefined);
 
   await runtime.advanceTo(adulthoodFromStart + YEAR * 2);
   world = runtime.snapshot();

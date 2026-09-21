@@ -70,6 +70,7 @@ export interface FoundingMentorStateV1 {
   lastCareWorldMinute?: number;
   farewellWorldMinute?: number;
   departureWorldMinute?: number;
+  departureOriginPosition?: { x: number; y: number };
   inactiveWorldMinute?: number;
 }
 
@@ -958,18 +959,61 @@ function allFoundersAdult(world: Readonly<WorldState>, state: Readonly<FoundingM
   return living.length > 0 && living.every((agent) => agent.life.ageYears >= state.releaseAgeYears);
 }
 
-function sendFarewell(world: WorldState, state: FoundingMentorWorldStateV1, mentor: FoundingMentorStateV1): void {
-  for (const studentId of state.cohortStudentIds) {
-    const student = world.agents[studentId];
-    if (!student?.life.alive) continue;
+function sendFarewell(
+  world: WorldState,
+  state: FoundingMentorWorldStateV1,
+  mentor: FoundingMentorStateV1,
+): void {
+  const students = foundingMentorStudentsV1(world, mentor.id);
+  for (const student of students) {
+    if (!student.life.alive) continue;
+    const message =
+      `${mentor.name}: ты уже взрослый. Я больше не буду кормить, поить или решать за тебя, и назад не вернусь. ` +
+      'Запасы еды и воды конечны: воду мы брали из колодцев, пищу выращивали, собирали, ловили и добывали. ' +
+      'В мастерской инструменты работают только вместе со знаниями и практикой. ' +
+      'В библиотеке есть часть записанных знаний мира, но искать их там или нет — решать только тебе. ' +
+      'Если ты чего-то не знаешь, дальше тебе придётся самому наблюдать, спрашивать, читать, пробовать и делать выводы. Прощай.';
+
     pushStudentMessage(state, {
       id: `mentor-farewell:${mentor.id}:${student.id}`,
       mentorId: mentor.id,
       studentId: student.id,
       worldMinute: world.calendar.elapsedWorldMinutes,
-      symbols: [`${mentor.name}: ты уже взрослый. Теперь твоя жизнь и твои решения принадлежат тебе. Мы уходим в долгое путешествие. Прощай.`],
+      symbols: [message],
       kind: 'farewell',
     });
+
+    const brain = ensureBrainForAgentV1(world, student);
+    if (brain) {
+      tryStoreBrainDatumV1(brain, {
+        id: `mentor-farewell-orientation:${mentor.id}`,
+        section: 'knowledge',
+        kind: 'mentor_farewell_orientation',
+        source: 'message',
+        encoded: JSON.stringify({
+          mentorId: mentor.id,
+          mentorName: mentor.name,
+          learnedWorldMinute: world.calendar.elapsedWorldMinutes,
+          facts: [
+            'Наставник уходит окончательно и больше не будет обеспечивать взрослую Искру.',
+            'Еда и вода конечны и не появляются сами.',
+            'Вода в Основании набиралась из колодцев.',
+            'Пища требует выращивания, собирательства, рыбной ловли или охоты.',
+            'Инструменты мастерской требуют знаний и практики.',
+            'Библиотека содержит часть записанных знаний мира.',
+            'Идти в библиотеку или нет — личное решение.',
+            'Неизвестное можно узнавать через наблюдение, разговор, чтение, попытки и собственные выводы.',
+          ],
+          constraints: {
+            createsTask: false,
+            createsGoal: false,
+            forcesLibraryVisit: false,
+            forcesWork: false,
+            forcesSurvivalAction: false,
+          },
+        }),
+      });
+    }
   }
 }
 
@@ -992,8 +1036,8 @@ export function advanceFoundingMentorLifecycleV1(world: WorldState): void {
     for (const mentor of Object.values(state.mentorsById)) {
       mentor.status = 'farewell';
       mentor.farewellWorldMinute = now;
-      mentor.locationId = 'commons';
-      mentor.position = placePosition(world, 'commons', MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+      // Do not teleport the caregiver to a ceremonial square. Farewell happens
+      // wherever the guardian actually is with their own two young adults.
       sendFarewell(world, state, mentor);
     }
     return;
@@ -1008,8 +1052,9 @@ export function advanceFoundingMentorLifecycleV1(world: WorldState): void {
     for (const mentor of Object.values(state.mentorsById)) {
       mentor.status = 'departing';
       mentor.departureWorldMinute = now;
-      mentor.locationId = 'outskirts';
-      mentor.position = placePosition(world, 'outskirts', MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+      mentor.departureOriginPosition = { ...mentor.position };
+      // Keep the real last place; only the visible actor walks outward.
+      // locationId is not rewritten to a distant place by teleportation.
     }
   }
 
@@ -1024,7 +1069,9 @@ export function advanceFoundingMentorLifecycleV1(world: WorldState): void {
     const elapsedQuanta = Math.max(1, (now - state.departureStartedWorldMinute) / SEMANTIC_QUANTUM + 1);
     for (const mentor of Object.values(state.mentorsById)) {
       if (mentor.status !== 'departing') continue;
-      const start = placePosition(world, 'outskirts', MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
+      const start =
+        mentor.departureOriginPosition ??
+        { ...mentor.position };
       mentor.position = {
         x: start.x + ux * elapsedQuanta * 18,
         y: start.y + uy * elapsedQuanta * 18,

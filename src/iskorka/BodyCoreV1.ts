@@ -128,6 +128,15 @@ export interface BodyActionRecordV1 {
   intensity: number;
 }
 
+export interface ReleasedAdultSurvivalStateV1 {
+  lastAdvancedWorldMinute: number;
+  /** Calories/long-term reserve. Intake may replenish it; time alone only consumes it. */
+  metabolicReserve: number;
+  criticalDehydrationWorldMinutes: number;
+  criticalStarvationWorldMinutes: number;
+  fatalCause?: 'dehydration' | 'starvation';
+}
+
 export interface BodyCoreV1 {
   version: typeof BODY_CORE_VERSION_V1;
   sex: AgentSex;
@@ -136,6 +145,11 @@ export interface BodyCoreV1 {
   reproductive: SexBodyStateV1;
   /** Latest concrete body action only; no unbounded physiology history. */
   lastBodyAction?: BodyActionRecordV1;
+  /**
+   * Activated only after the five founding guardians have left. This is body
+   * state, not an agency/task script.
+   */
+  releasedAdultSurvivalV1?: ReleasedAdultSurvivalStateV1;
   createdWorldMinute: number;
   lastAdvancedWorldMinute: number;
 }
@@ -531,6 +545,31 @@ export function assertBodyCoreV1(
   }
   if (!Number.isFinite(h.skinTemperatureC) || h.skinTemperatureC < 5 || h.skinTemperatureC > 45) {
     throw new Error(`BodyCore ${agent.id}.skinTemperatureC is invalid.`);
+  }
+
+  const survival = core.releasedAdultSurvivalV1;
+  if (survival) {
+    if (
+      !Number.isFinite(survival.lastAdvancedWorldMinute) ||
+      survival.lastAdvancedWorldMinute < 0 ||
+      !Number.isFinite(survival.criticalDehydrationWorldMinutes) ||
+      survival.criticalDehydrationWorldMinutes < 0 ||
+      !Number.isFinite(survival.criticalStarvationWorldMinutes) ||
+      survival.criticalStarvationWorldMinutes < 0
+    ) {
+      throw new Error(`BodyCore ${agent.id} released-adult survival clock is invalid.`);
+    }
+    requireUnit(
+      survival.metabolicReserve,
+      `BodyCore ${agent.id}.releasedAdultSurvivalV1.metabolicReserve`,
+    );
+    if (
+      survival.fatalCause !== undefined &&
+      survival.fatalCause !== 'dehydration' &&
+      survival.fatalCause !== 'starvation'
+    ) {
+      throw new Error(`BodyCore ${agent.id} released-adult fatal cause is invalid.`);
+    }
   }
 
   requireUnit(core.reproductive.reproductiveHealth, `BodyCore ${agent.id}.reproductiveHealth`);
