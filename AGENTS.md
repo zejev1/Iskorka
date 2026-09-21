@@ -57,6 +57,12 @@
 
 Рабочая ветка `bootstrap/iskorka-human-lab` изменилась параллельно (при проверке: `73755431ad3422dda56a77bdc4dc95f231ae1b0c`). Мобильный архив этой сборки хранится отдельно: `bootstrap/iskorka-stage1-spck-20260918`, на базе реального импортированного дерева `536f8a12f9cb3744a63eb831d193cdb528261652`. Это защита параллельной работы, не новая конечная цель. Не подменять HEAD другой ветки, не применять force-push, не сливать варианты без отдельного сравнения и разрешения владельца. Исторические материалы донора из текущего дерева удалены; актуальны только текущие документы и тесты Iskorka.
 
+## Brain lifecycle and age development
+
+Before changing newborn initialization, learning, memory access, language development, child cognition, old-age cognition or any future BrainCore lifecycle, read `docs/ISKORKA_BRAIN_LIFECYCLE_V1.md` together with the current brain implementation plan.
+
+A newborn may inherit physical traits and temperament, but never parental acquired memories, values, beliefs, learned skills, vocabulary or maps. Reflexes, sensation and mechanisms of learning are not acquired knowledge. Age changes capacity to encode/retrieve/plan; it must not silently delete all consolidated lifetime experience. Severe cognitive decline is a separate physical/pathological state, not an automatic consequence of crossing an elder age threshold. Never show an adult canned inner monologue for an infant or young child and call it cognition.
+
 ## Human body architecture
 
 Before changing body, physiology, emotion-body feedback, sleep integration, movement limits, pain, hunger/thirst, temperature, touch, pleasure or adult sexual physiology, read `docs/ISKORKA_HUMAN_BODY_ARCHITECTURE.md`, `docs/ISKORKA_BODYCORE_V1.md` and `docs/ISKORKA_BODY_REFERENCE_AUDIT.md`. Do not rebuild the existing sleep system unless tests prove it necessary. Body signals constrain and inform the mind; they do not choose for the person. External projects are references only: preserve Iskorka's low-cost event/analytic architecture instead of importing a heavyweight physiology engine.
