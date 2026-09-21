@@ -5261,6 +5261,7 @@ export class WorldEngine {
         this.state.wildlife = {};
         this.state.agents = agents;
         this.state.relationships = {};
+        this.state.iskorkaBrainV1 = undefined;
         this.state.centuryHumpback = undefined;
         this.state.v15 = createWorldV15State(
           this.state.id,
@@ -5298,6 +5299,11 @@ export class WorldEngine {
           repairCompactSettlementLayout(this.state);
         }
         initializeIskorkaWorld(this.state, seed);
+        for (const resident of Object.values(this.state.agents)) {
+          observeLocalPlacesV20(this.state, resident);
+        }
+        ensureWorldBrainRegistryV1(this.state);
+        assertWorldBrainRegistryV1(this.state);
         this.state.determinism.eventSequence = priorSequence;
         this.rng.restore(rng.snapshot());
 
