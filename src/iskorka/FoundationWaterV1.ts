@@ -309,7 +309,6 @@ export function refillHomeWaterFromWellV1(
   const drawn = drawWellWaterLitresV1(world, wellId, requested);
   if (!(drawn > 0)) return 0;
   infrastructure.waterReserveLitres = reserve + drawn;
-  infrastructure.lastWaterFetchWorldMinute = world.calendar.elapsedWorldMinutes;
   return drawn;
 }
 
