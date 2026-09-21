@@ -8,6 +8,7 @@ import {SECRET_LIBRARY_PLACE_ID_V18} from '../../src/v18/SecretLibraryV18';
 test('human library: at most five volunteers; no learning before physical arrival',async()=>{
  const source=await WorldEngine.create({worldId:'library-study',seed:'secret-library-physical-study',store:new InMemoryWorldStore()});
  const prepared=source.snapshot();
+ delete prepared.iskorkaMentorsV1;
  for(const agent of Object.values(prepared.agents)){
   agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
@@ -28,6 +29,7 @@ test('human library: at most five volunteers; no learning before physical arriva
 test('housing: real material reservation, construction time, occupancy, learning and save during building',async()=>{
  const source=await WorldEngine.create({worldId:'v16-material-home',seed:'v16-material-home',store:new InMemoryWorldStore()});
  const raw=source.snapshot(),town=raw.settlements.settlement_ainkrad;
+ delete raw.iskorkaMentorsV1;
  const beforeHomes=town.memberPlaceIds.filter(id=>raw.places[id]?.kind==='home');
  for(const id of beforeHomes)raw.places[id].capacity=1;
  const economy=raw.v16!.settlementEconomyById.settlement_ainkrad;
