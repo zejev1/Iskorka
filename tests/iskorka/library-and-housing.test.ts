@@ -9,6 +9,7 @@ test('human library: at most five volunteers; no learning before physical arriva
  const source=await WorldEngine.create({worldId:'library-study',seed:'secret-library-physical-study',store:new InMemoryWorldStore()});
  const prepared=source.snapshot();
  for(const agent of Object.values(prepared.agents)){
+  agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
   prepared.v18!.languageByAgentId[agent.id].cyrillicLiteracy=1;
  }
