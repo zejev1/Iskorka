@@ -9,6 +9,7 @@ import {
   applyFoundingMentorLessonV1,
   assignedFoundingMentorV1,
   mentorActorsVisibleV1,
+  mentorTeachingPlaceV1,
   updateMentorTeachingPositionsV1,
 } from '../../src/iskorka/FoundingMentorsV1';
 import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
@@ -132,6 +133,47 @@ test('mentor lesson requires physical co-location and does not write a target le
   assert.ok(mentor.lessonCount > 0);
 });
 
+test('five-year-old Sparks are cared for and taught, never scripted into work', async () => {
+  const { runtime } = await create('mentor-five-year-old', 'mentor-five-year-old-world');
+  await runtime.advanceTo(YEAR * 4.6);
+  const world = runtime.snapshot();
+
+  for (const spark of Object.values(world.agents)) {
+    assert.ok(spark.life.ageYears >= 5 && spark.life.ageYears < 6);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    assert.equal(spark.locationId, 'commons');
+
+    const livelihood = world.v18!.livelihoodByAgentId[spark.id];
+    assert.equal(livelihood.primary, 'undecided');
+    assert.equal(livelihood.totalPractice, 0);
+
+    const mentor = assignedFoundingMentorV1(world, spark.id)!;
+    assert.equal(mentor.locationId, spark.locationId);
+    assert.equal(mentorTeachingPlaceV1(world, mentor, spark.life.ageYears), 'commons');
+  }
+
+  const agricultureMentor = world.iskorkaMentorsV1!.mentorsById.mentor_alexey;
+  assert.equal(mentorTeachingPlaceV1(world, agricultureMentor, 5.1), 'commons');
+  assert.equal(mentorTeachingPlaceV1(world, agricultureMentor, 8), 'resource_field');
+});
+
+test('older founding children may visit teaching sites only as mentor-supervised learners', async () => {
+  const { runtime } = await create('mentor-supervised-outing', 'mentor-supervised-outing-world');
+  await runtime.advanceTo(YEAR * 9);
+  const world = runtime.snapshot();
+
+  for (const spark of Object.values(world.agents)) {
+    assert.ok(spark.life.ageYears >= 9);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    const mentor = assignedFoundingMentorV1(world, spark.id)!;
+    assert.equal(mentor.locationId, spark.locationId);
+  }
+});
+
 test('founding childhood stays mentor-led: no adult decisions, no births, real learning', async () => {
   const { runtime } = await create('mentor-childhood', 'mentor-childhood-world');
   await runtime.advanceTo(YEAR * 12);
@@ -145,6 +187,8 @@ test('founding childhood stays mentor-led: no adult decisions, no births, real l
   assert.ok(world.iskorkaMentorsV1!.totalLessons > 300);
 
   for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
     const k = world.v15!.knowledgeByAgentId[spark.id];
     assert.ok(k.agriculture + k.construction + k.household + k.survival > 0);
     const language = world.v18!.languageByAgentId[spark.id];
