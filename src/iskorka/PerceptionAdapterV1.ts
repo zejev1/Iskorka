@@ -311,28 +311,30 @@ function localObservationsV1(
   }
 
   if (result.length < MAX_LOCAL_OBSERVATIONS) {
-    const remains = Object.values(world.v16?.remainsById ?? {})
-      .filter((entry) => entry.currentPlaceId === agent.locationId)
-      .sort((a, b) => a.id.localeCompare(b.id));
-    for (const entry of remains) {
-      if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
-      const assessment = visualAssessmentV1(
-        noise,
-        entry.id,
-        0,
-        vision.capacity,
-        Math.max(8, vision.reach),
-      );
-      if (!assessment.recognized) continue;
-      result.push({
-        objectId: entry.id,
-        kind: 'remains',
-        relation: 'co_located',
-        channel: 'vision',
-        confidence: assessment.confidence,
-        subjectObjectId: entry.agentId,
-        eventKind: 'apparent_death',
-      });
+    const remainsById = world.v16?.remainsById;
+    if (remainsById) {
+      for (const entryId in remainsById) {
+        if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+        const entry = remainsById[entryId];
+        if (entry.currentPlaceId !== agent.locationId) continue;
+        const assessment = visualAssessmentV1(
+          noise,
+          entry.id,
+          0,
+          vision.capacity,
+          Math.max(8, vision.reach),
+        );
+        if (!assessment.recognized) continue;
+        result.push({
+          objectId: entry.id,
+          kind: 'remains',
+          relation: 'co_located',
+          channel: 'vision',
+          confidence: assessment.confidence,
+          subjectObjectId: entry.agentId,
+          eventKind: 'apparent_death',
+        });
+      }
     }
   }
   return result;
