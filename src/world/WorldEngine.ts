@@ -5047,18 +5047,23 @@ export class WorldEngine {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const repaired = structuredClone(state);
       const before = stableJsonStringify(repaired);
+      const legacyBrainMigration = repaired.iskorkaBrainV1 === undefined;
       ensureWorldBrainRegistryV1(repaired);
       const ownersToPurge: string[] = [];
 
-      for (const agent of Object.values(repaired.agents)) {
-        if ((agent.race ?? 'human') !== 'human') continue;
-        const oldMemories = await options.store.historyForAgent(state.id, agent.id);
-        if (oldMemories.length === 0) continue;
-        ownersToPurge.push(agent.id);
-        if (!agent.life.alive) continue;
-        const brain = repaired.iskorkaBrainV1?.brainsByAgentId[agent.id];
-        if (!brain) throw new Error(`Missing BrainState while migrating ${agent.id}.`);
-        importLegacyPersistentMemoriesV1(brain, oldMemories);
+      // The old per-owner memory stream exists only before the BrainState
+      // migration. Avoid an O(population) IndexedDB probe on every later open.
+      if (legacyBrainMigration) {
+        for (const agent of Object.values(repaired.agents)) {
+          if ((agent.race ?? 'human') !== 'human') continue;
+          const oldMemories = await options.store.historyForAgent(state.id, agent.id);
+          if (oldMemories.length === 0) continue;
+          ownersToPurge.push(agent.id);
+          if (!agent.life.alive) continue;
+          const brain = repaired.iskorkaBrainV1?.brainsByAgentId[agent.id];
+          if (!brain) throw new Error(`Missing BrainState while migrating ${agent.id}.`);
+          importLegacyPersistentMemoriesV1(brain, oldMemories);
+        }
       }
 
       assertWorldBrainRegistryV1(repaired);
