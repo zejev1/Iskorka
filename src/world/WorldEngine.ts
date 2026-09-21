@@ -3511,6 +3511,43 @@ function createMindState(
 }
 
 
+function createFoundingInfantMindState(
+  worldId: string,
+  agentId: string,
+  personality: Readonly<AgentState['personality']>,
+  needs: Readonly<AgentState['needs']>,
+): AgentState['mind'] {
+  const identity = createMindState(worldId, agentId, personality, needs);
+  return {
+    ...identity,
+    continuity: 1,
+    autonomy: 0.04,
+    memoryCoherence: 0.03,
+    emotions: {
+      joy: clamp01(0.28 + needs.belonging * 0.16),
+      fear: clamp01(0.18 + (1 - personality.resilience) * 0.18),
+      grief: 0,
+      awe: 0.02,
+      hope: 0.18,
+    },
+    // Acquired values and beliefs begin empty. Temperament remains in
+    // personality; mentors and lived experience can shape these later.
+    values: {
+      care: 0,
+      freedom: 0,
+      knowledge: 0,
+      tradition: 0,
+      ambition: 0,
+    },
+    beliefs: {
+      worldTrust: 0,
+      divinePresence: 0,
+      fate: 0,
+      afterlife: 0,
+    },
+  };
+}
+
 function v15KnowledgeForAgent(agent: Readonly<AgentState>): WorldV15State['knowledgeByAgentId'][string] {
   const curiosity = clamp01(agent.personality.curiosity);
   const diligence = clamp01(agent.personality.diligence);
@@ -3548,6 +3585,13 @@ function v15KnowledgeForAgent(agent: Readonly<AgentState>): WorldV15State['knowl
 }
 
 function v15FamilyAgencyForAgent(agent: Readonly<AgentState>): WorldV15State['familyAgencyByAgentId'][string] {
+  if (agent.life.ageYears < 18) {
+    return {
+      physicalIntimacyInclination: 0,
+      childDesire: 0,
+      autonomy: clamp01(agent.mind.autonomy),
+    };
+  }
   return {
     physicalIntimacyInclination: clamp01(
       0.18 + agent.personality.sociability * 0.34 + agent.personality.riskTolerance * 0.18 + agent.mind.values.freedom * 0.12,
@@ -3592,7 +3636,7 @@ function createWorldV15State(
   for (const agent of Object.values(agents)) {
     knowledgeByAgentId[agent.id] = v15KnowledgeForAgent(agent);
     familyAgencyByAgentId[agent.id] = v15FamilyAgencyForAgent(agent);
-    smithingByAgentId[agent.id] = emptySmithingProfile();
+    smithingByAgentId[agent.id] = emptySmithingProfile(agent.life.ageYears < 1);
     equipmentByAgentId[agent.id] = {};
   }
 
