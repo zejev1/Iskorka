@@ -36,3 +36,43 @@ export async function requestDurableBrowserStorage(
     return undefined;
   }
 }
+
+
+export interface BrowserStorageStatusV1 {
+  durability: 'durable' | 'best_effort' | 'unknown';
+  usageBytes?: number;
+  quotaBytes?: number;
+}
+
+export async function browserStorageStatusV1(
+  storage: StorageManager | undefined,
+): Promise<BrowserStorageStatusV1> {
+  if (!storage) return { durability: 'unknown' };
+  let durability: BrowserStorageStatusV1['durability'] = 'unknown';
+  try {
+    if (storage.persisted) {
+      durability = (await storage.persisted()) ? 'durable' : 'best_effort';
+    }
+  } catch {
+    durability = 'unknown';
+  }
+
+  let usageBytes: number | undefined;
+  let quotaBytes: number | undefined;
+  try {
+    const estimate = await storage.estimate?.();
+    if (typeof estimate?.usage === 'number' && Number.isFinite(estimate.usage)) {
+      usageBytes = estimate.usage;
+    }
+    if (typeof estimate?.quota === 'number' && Number.isFinite(estimate.quota)) {
+      quotaBytes = estimate.quota;
+    }
+  } catch {
+    // Best-effort telemetry only. IndexedDB durability does not depend on it.
+  }
+  return {
+    durability,
+    ...(usageBytes === undefined ? {} : { usageBytes }),
+    ...(quotaBytes === undefined ? {} : { quotaBytes }),
+  };
+}
