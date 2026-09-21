@@ -44,6 +44,8 @@ export interface BodyPhenotypeV1 {
   painSensitivity: number;
   sweatSensitivity: number;
   motionSicknessSensitivity: number;
+  /** How clearly this body reports internal state; interpretation still belongs to the brain. */
+  interoceptionSensitivity: number;
 }
 
 export interface BodyHomeostasisV1 {
@@ -190,6 +192,8 @@ function phenotypeFor(
       stableBetween(`${key}:sweat-sensitivity`, 0.20, 0.90),
     motionSicknessSensitivity: existing?.motionSicknessSensitivity ??
       stableBetween(`${key}:motion-sickness`, 0.08, 0.86),
+    interoceptionSensitivity: existing?.interoceptionSensitivity ??
+      stableBetween(`${key}:interoception`, 0.52, 0.96),
   };
 }
 
@@ -504,6 +508,7 @@ export function assertBodyCoreV1(
   requireUnit(core.phenotype.painSensitivity, `BodyCore ${agent.id}.painSensitivity`);
   requireUnit(core.phenotype.sweatSensitivity, `BodyCore ${agent.id}.sweatSensitivity`);
   requireUnit(core.phenotype.motionSicknessSensitivity, `BodyCore ${agent.id}.motionSicknessSensitivity`);
+  requireUnit(core.phenotype.interoceptionSensitivity, `BodyCore ${agent.id}.interoceptionSensitivity`);
 
   const h = core.homeostasis;
   for (const key of [
