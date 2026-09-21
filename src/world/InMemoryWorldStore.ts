@@ -122,8 +122,13 @@ export class InMemoryWorldStore implements WorldStore {
       }
       retiredBrainOwners.add(agentId);
     }
-    if (batch.memories.some((memory) => retiredBrainOwners.has(memory.agentId))) {
-      throw new Error('World commit cannot append private memory for a retired brain owner.');
+    const personalMemoryOwnersToPurge = new Set<string>(retiredBrainOwners);
+    for (const agentId of batch.purgedPersonalMemoryOwnerIds ?? []) {
+      if (!agentId.trim()) throw new Error('Purged personal memory owner ID must not be empty.');
+      personalMemoryOwnersToPurge.add(agentId);
+    }
+    if (batch.memories.some((memory) => personalMemoryOwnersToPurge.has(memory.agentId))) {
+      throw new Error('World commit cannot append private memory for an owner being purged.');
     }
 
     const opKey = operationKey(batch.worldId, batch.operationId);
@@ -242,7 +247,7 @@ export class InMemoryWorldStore implements WorldStore {
       }
     }
 
-    for (const agentId of retiredBrainOwners) {
+    for (const agentId of personalMemoryOwnersToPurge) {
       this.purgeOwnedMemories(batch.worldId, agentId);
     }
 
