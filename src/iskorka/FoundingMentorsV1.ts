@@ -110,24 +110,60 @@ export function mentorTeachingPlaceV1(
   mentor: Readonly<FoundingMentorStateV1>,
   studentAgeYears: number,
 ): string {
-  // Young children are not sent to adult workplaces. Up to eight years old
-  // mentors demonstrate, talk and play-practice inside the settlement commons.
-  // Later a mentor may escort them to a real teaching site, but the site is a
-  // classroom-by-example, never a child labour assignment.
-  if (studentAgeYears < 8) return 'commons';
-  switch (mentor.role) {
-    case 'agriculture_nature':
-      return world.places.resource_field ? 'resource_field' : 'commons';
-    case 'construction_craft':
-      return world.places.workshop ? 'workshop' : 'commons';
-    case 'household_health':
-      return 'commons';
-    case 'survival_navigation':
-      return studentAgeYears >= 13 && world.places.outskirts ? 'outskirts' : 'quiet_space';
-    case 'care_language':
-    default:
-      return world.places.quiet_space ? 'quiet_space' : 'commons';
+  // The destination belongs to the guardian's schedule, not to a task in the
+  // child's brain. The same caregiver raises the same two children and takes
+  // them on age-appropriate outings to learn by watching and helping.
+  const candidates: string[] = ['commons'];
+  const add = (id: string): void => {
+    if (world.places[id] && !candidates.includes(id)) candidates.push(id);
+  };
+
+  if (studentAgeYears >= 2) add('quiet_space');
+  if (studentAgeYears >= 5) {
+    add('resource_field');
+    add('workshop');
+    add('shore');
   }
+  if (studentAgeYears >= 8) {
+    add('meadow');
+    add('forest');
+  }
+  if (studentAgeYears >= 12) {
+    add('outskirts');
+    add('river');
+    add('lake');
+  }
+
+  const mentorIndex = Math.max(
+    0,
+    MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id),
+  );
+  const outingSlot = Math.floor(
+    world.calendar.elapsedWorldMinutes / (SEMANTIC_QUANTUM * 2),
+  );
+  return candidates[(outingSlot + mentorIndex) % candidates.length] ?? 'commons';
+}
+
+function mentorDomainAtCurrentPlaceV1(
+  mentor: Readonly<FoundingMentorStateV1>,
+  placeId: string,
+  studentAgeYears: number,
+): GenesisDomain | 'language' {
+  if (studentAgeYears < 3) return 'language';
+  if (placeId === 'resource_field') return 'agriculture';
+  if (placeId === 'workshop') return 'construction';
+  if (
+    placeId === 'outskirts' ||
+    placeId === 'forest' ||
+    placeId === 'meadow' ||
+    placeId === 'shore' ||
+    placeId === 'river' ||
+    placeId === 'lake'
+  ) return 'survival';
+  if (placeId === 'commons') {
+    return mentor.role === 'care_language' ? 'language' : 'household';
+  }
+  return roleDomain(mentor.role) ?? 'language';
 }
 
 function placePosition(world: Readonly<WorldState>, placeId: string, index: number): { x: number; y: number } {
@@ -222,10 +258,29 @@ export function assignedFoundingMentorV1(
   if (!state?.active) return undefined;
   const studentIndex = state.cohortStudentIds.indexOf(agentId);
   if (studentIndex < 0) return undefined;
-  const agent = world.agents[agentId];
-  const yearRotation = Math.max(0, Math.floor((agent?.life.ageYears ?? 0) - FOUNDING_SPARK_START_AGE_YEARS_V1));
-  const mentorIndex = (studentIndex + yearRotation) % MENTOR_SPECS.length;
+  // Permanent family-like guardianship: exactly one mentor for every two
+  // founding children. The caregiver never rotates annually.
+  const mentorIndex = Math.min(
+    MENTOR_SPECS.length - 1,
+    Math.floor(studentIndex / 2),
+  );
   return state.mentorsById[MENTOR_SPECS[mentorIndex].id];
+}
+
+export function foundingMentorStudentsV1(
+  world: Readonly<WorldState>,
+  mentorId: string,
+): AgentState[] {
+  const state = world.iskorkaMentorsV1;
+  if (!state?.active) return [];
+  return state.cohortStudentIds
+    .map((id) => world.agents[id])
+    .filter((agent): agent is AgentState =>
+      Boolean(
+        agent?.life.alive &&
+        assignedFoundingMentorV1(world, agent.id)?.id === mentorId,
+      ),
+    );
 }
 
 function pushStudentMessage(
@@ -385,9 +440,14 @@ export function applyFoundingMentorLessonV1(
   const now = world.calendar.elapsedWorldMinutes;
   let gained = 0;
   let domain: GenesisDomain | 'language' = 'language';
-  const primaryDomain = roleDomain(mentor.role);
+  const lessonDomain = mentorDomainAtCurrentPlaceV1(
+    mentor,
+    mentor.locationId,
+    student.life.ageYears,
+  );
+  const primaryDomain = lessonDomain === 'language' ? undefined : lessonDomain;
 
-  if (mentor.role === 'care_language' || student.life.ageYears < 5) {
+  if (lessonDomain === 'language') {
     gained = teachLanguageV1(world, student, mentor);
     domain = 'language';
     rememberMentorSourceV1(world, student, mentor, 'language');
@@ -560,48 +620,31 @@ export function applyFoundingMentorCareV1(
 export function updateMentorTeachingPositionsV1(world: WorldState): void {
   const state = ensureFoundingMentorWorldV1(world);
   if (!state.active) return;
-  const livingStudents = state.cohortStudentIds
-    .map((id) => world.agents[id])
-    .filter((agent): agent is AgentState => Boolean(agent?.life.alive));
-  if (!livingStudents.length) return;
-  const representativeAge = livingStudents.reduce((sum, agent) => sum + agent.life.ageYears, 0) / livingStudents.length;
 
   Object.values(state.mentorsById).forEach((mentor, index) => {
     if (mentor.status !== 'caregiving') return;
+    const students = foundingMentorStudentsV1(world, mentor.id);
+    if (students.length === 0) return;
 
-    const assignedStudents = livingStudents.filter(
-      (student) => assignedFoundingMentorV1(world, student.id)?.id === mentor.id,
+    // The guardian is physically with the pair. The mentor never teleports to
+    // a workplace and leaves the children behind merely because a lesson is
+    // scheduled there.
+    const anchor =
+      students.find((student) => Boolean(student.movement)) ??
+      students[0];
+    const together = students.filter(
+      (student) => student.locationId === anchor.locationId,
     );
-    const escortedStudent =
-      assignedStudents.find((student) => Boolean(student.movement)) ??
-      assignedStudents.find(
-        (student) =>
-          student.locationId !==
-          mentorTeachingPlaceV1(world, mentor, student.life.ageYears),
-      );
+    const group = together.length > 0 ? together : [anchor];
+    const baseX = group.reduce((sum, student) => sum + student.position.x, 0) / group.length;
+    const baseY = group.reduce((sum, student) => sum + student.position.y, 0) / group.length;
+    const angle = (Math.PI * 2 * index) / MENTOR_SPECS.length;
 
-    if (escortedStudent) {
-      // The caregiver stays physically with the children while a scripted
-      // mentor-led outing is in progress. The child never receives an
-      // independent "go to work" order.
-      const together = assignedStudents.filter(
-        (student) => student.locationId === escortedStudent.locationId,
-      );
-      const group = together.length > 0 ? together : [escortedStudent];
-      const baseX = group.reduce((sum, student) => sum + student.position.x, 0) / group.length;
-      const baseY = group.reduce((sum, student) => sum + student.position.y, 0) / group.length;
-      const angle = (Math.PI * 2 * index) / MENTOR_SPECS.length;
-      mentor.locationId = escortedStudent.locationId;
-      mentor.position = {
-        x: baseX + Math.cos(angle) * 0.35,
-        y: baseY + Math.sin(angle) * 0.35,
-      };
-      return;
-    }
-
-    const placeId = mentorTeachingPlaceV1(world, mentor, representativeAge);
-    mentor.locationId = placeId;
-    mentor.position = placePosition(world, placeId, index);
+    mentor.locationId = anchor.locationId;
+    mentor.position = {
+      x: baseX + Math.cos(angle) * 0.35,
+      y: baseY + Math.sin(angle) * 0.35,
+    };
   });
 }
 
