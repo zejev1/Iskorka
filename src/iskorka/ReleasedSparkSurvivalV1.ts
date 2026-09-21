@@ -44,7 +44,12 @@ export function isReleasedFoundingSparkV1(
   agent: Readonly<AgentState>,
 ): boolean {
   const mentors = world.iskorkaMentorsV1;
-  if (!mentors || mentors.active) return false;
+  if (
+    !mentors ||
+    mentors.active ||
+    mentors.farewellStartedWorldMinute === undefined ||
+    mentors.departureStartedWorldMinute === undefined
+  ) return false;
   return (
     agent.life.alive &&
     agent.life.ageYears >= mentors.releaseAgeYears &&
