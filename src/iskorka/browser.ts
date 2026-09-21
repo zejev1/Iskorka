@@ -8,9 +8,12 @@ import type { AgentState, WorldState } from '../world/types';
 import { ISKORKA_VERSION, ISKORKA_DATABASE, ISKORKA_WORLD_ID } from './Profile';
 import { MINUTES_PER_SECOND, type WorldCommand, type WorldMessage, type Speed, type WorldFrame } from './protocol';
 import {
+  browserStorageStatusV1,
   canonicalIskorkaProductionUrl,
   requestDurableBrowserStorage,
+  type BrowserStorageStatusV1,
 } from './BrowserPersistence';
+import { buildAgentAnalyticsV1 } from './AgentAnalyticsV1';
 import './style.css';
 
 // Host operation IDs only; simulation randomness remains the persisted F2 RNG.
@@ -35,6 +38,8 @@ let ready = false;
 let focused = false;
 let raf = 0;
 let worker: Worker | undefined;
+let storageStatus: BrowserStorageStatusV1 = { durability: 'unknown' };
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
 $('app').innerHTML = `
   <header class="topbar">
@@ -63,12 +68,18 @@ $('app').innerHTML = `
     <div class="time-controls"><button id="pause" class="primary" disabled>▶ Запустить</button><label class="speed-label" for="speed">Скорость</label><select id="speed" aria-label="Скорость времени"><option value="realtime">Минута = минута</option><option value="slow">День / мин</option><option value="normal" selected>Год / мин</option><option value="fast">10 лет / мин</option></select><button id="step" title="Продвинуть мир на один сохранённый квант F2" disabled>Один шаг</button></div>
     <div class="reset-controls"><span id="pace" class="pace">Время не пропускается</span><button id="reset" disabled>Новый мир</button></div>
   </footer>
-  <div id="notice" role="status" class="notice" hidden></div>
+  <div id="notice" role="status" class="notice" hidden><span id="notice-text"></span><button id="notice-close" type="button" aria-label="Закрыть сообщение">×</button></div>
   <dialog id="reset-dialog"><form method="dialog"><span class="eyebrow">НОВОЕ НАЧАЛО</span><h2>Создать новый мир?</h2><p>Текущая эпоха завершится. Начнут жизнь десять новых Искр. Название поселения останется «Основание».</p><label>Ключ генерации<input id="seed" maxlength="128" required autocomplete="off"></label><div class="dialog-buttons"><button value="cancel">Отмена</button><button value="create" class="primary">Создать мир</button></div></form></dialog>`;
 
 const camera = new WorldMapCamera();
 const atlas = new WorldAtlasRenderer($('ground'), document.getElementById('roads') as unknown as SVGSVGElement, $('towns'));
-function notice(text:string):void { $('notice').textContent=text; $('notice').hidden=false; }
+function notice(text:string, autoHideMs?:number):void {
+  if(noticeTimer)clearTimeout(noticeTimer);
+  $('notice-text').textContent=text;
+  $('notice').hidden=false;
+  if(autoHideMs)noticeTimer=setTimeout(()=>{$('notice').hidden=true;noticeTimer=undefined;},autoHideMs);
+}
+$('notice-close').onclick=()=>{if(noticeTimer)clearTimeout(noticeTimer);noticeTimer=undefined;$('notice').hidden=true;};
 function send(command:WorldCommand):void { worker?.postMessage(command); }
 function requestRender():void { if (!raf) raf=requestAnimationFrame(() => { raf=0; drawMap(); }); }
 function center():void {
