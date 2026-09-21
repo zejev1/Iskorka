@@ -459,10 +459,11 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
   assert.equal(probeAfter.lastDecision, undefined);
   assert.equal(probeAfter.plan, undefined);
 
-  await runtime.advanceTo(adulthoodFromStart + YEAR * 2);
+  // Before fatal deprivation, acquired mentor knowledge remains intact and
+  // no hidden adult task engine appears.
   world = runtime.snapshot();
   assert.equal(world.population.births, birthsAtRelease);
-  for (const spark of Object.values(world.agents)) {
+  for (const spark of Object.values(world.agents).filter((candidate) => candidate.life.alive)) {
     assert.equal(spark.lastDecision, undefined);
     assert.equal(spark.lastAction, undefined);
     assert.equal(spark.plan, undefined);
@@ -471,6 +472,19 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
       world.v15!.knowledgeByAgentId[spark.id],
       knowledgeAtRelease[spark.id],
     );
+  }
+
+  // With no native adult agency yet, doing literally nothing must now have a
+  // physical consequence. This assertion is intentionally temporary until the
+  // native brain can choose survival actions from learned knowledge.
+  await runtime.advanceTo(releasedAt + 40 * DAY);
+  world = runtime.snapshot();
+  assert.ok(world.population.deaths > 0);
+  assert.equal(world.population.births, birthsAtRelease);
+  for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.plan, undefined);
+    assert.equal(spark.agencyCadence, undefined);
   }
 });
 
