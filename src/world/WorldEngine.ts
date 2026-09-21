@@ -7002,11 +7002,18 @@ export class WorldEngine {
     if (!canResidentAct(agent)) return;
     if (advanceBodySleepV21(this.state, agent)) return;
 
+    // Founding childhood has no resident task script. Only the caregiver
+    // schedule is scripted; the child's old adult action/plan fields stay
+    // empty until adulthood.
+    delete agent.lastAction;
+    delete agent.lastDecision;
+    delete agent.plan;
+
     this.refreshSparkPerception(agent);
     if (agent.movement) {
-      // Mentor-led travel is real continuous movement. No adult decision
-      // engine is invoked while the child is en route.
-      agent.lastAction = 'walk';
+      // The route exists because a mentor initiated a supervised outing.
+      // Movement is physical, but it is not persisted as the child's chosen
+      // work/task action.
       return;
     }
 
@@ -7040,21 +7047,12 @@ export class WorldEngine {
     if (!lesson.taught) return;
 
     observeLocalPlacesV20(this.state, agent);
-    agent.lastAction =
-      lesson.domain === 'agriculture' || lesson.domain === 'construction'
-        ? 'work'
-        : lesson.domain === 'survival'
-          ? 'walk'
-          : 'socialize';
     agent.lastMeaningfulEventAt = now;
     agent.energy = clamp01(
-      agent.energy - (agent.life.ageYears < 5 ? 0.002 : 0.006),
+      agent.energy - (agent.life.ageYears < 8 ? 0.002 : 0.006),
     );
     agent.stress = clamp01(
       agent.stress - (agent.life.ageYears < 8 ? 0.006 : 0.003),
-    );
-    agent.needs.purpose = clamp01(
-      agent.needs.purpose + Math.min(0.006, lesson.gained * 0.18),
     );
 
     this.recordAgentEvent(agent, now, 'agent.education.mentor_lesson', {
@@ -7062,10 +7060,13 @@ export class WorldEngine {
       mentorName: mentor.name,
       mentorRole: mentor.role,
       domain: lesson.domain ?? 'language',
+      teachingMode: lesson.mode ?? 'demonstration',
       gained: lesson.gained,
       ageYears: agent.life.ageYears,
       worldMinutes: this.state.calendar.elapsedWorldMinutes,
       physicallyCoLocated: true,
+      supervisedByMentor: true,
+      childLabor: false,
       autonomousAdultDecisionEngineUsed: false,
     });
   }
@@ -8609,10 +8610,24 @@ export class WorldEngine {
     const mentor = isMentoredMinorV1(this.state, agent)
       ? assignedFoundingMentorV1(this.state, agent.id)
       : undefined;
+    const mentorDistance = mentor
+      ? Math.hypot(
+          mentor.position.x - agent.position.x,
+          mentor.position.y - agent.position.y,
+        )
+      : Number.POSITIVE_INFINITY;
     const mentorGuided =
       mentor !== undefined &&
       mentor.status === 'caregiving' &&
+      mentor.locationId === agent.locationId &&
+      mentorDistance <= 2 &&
       destinationId === mentorTeachingPlaceV1(this.state, mentor, agent.life.ageYears);
+    if (!mentorGuided && isMentoredMinorV1(this.state, agent)) {
+      // A founding child never starts a trip because an inherited resident
+      // task script wants a destination. No nearby caregiver = no outing.
+      recordDeferredChildTripV21(this.state, agent);
+      return true;
+    }
     if (!mentorGuided && !mayKnowPlaceV20(agent, destinationId, this.state)) return true;
     if (!this.youngChildMayTravelTo(agent, destinationId, mentorGuided)) {
       recordDeferredChildTripV21(this.state, agent);
@@ -8634,7 +8649,7 @@ export class WorldEngine {
     const leavesHomeSettlement =
       this.canAccessHomeSettlementStores(agent) &&
       destination?.settlementId !== homeSettlementId;
-    if (leavesHomeSettlement && agent.resources < 0.42) {
+    if (leavesHomeSettlement && agent.resources < 0.42 && !mentorGuided) {
       const drawn = this.drawV15HomeSettlementRation(agent, 0.42 - agent.resources);
       if (intendedAction === 'explore') explorationEvidence(this.state, agent).provisionsTaken += drawn;
     }
