@@ -4,6 +4,7 @@ import type {
   V21BodyState,
   WorldState,
 } from '../world/types';
+import { humanGrowthScalesV1 } from './HumanGrowthV1';
 
 export const BODY_CORE_VERSION_V1 = 1 as const;
 const ISKORKA_PROFILE = 'iskorka-human-lab-v1';
@@ -33,11 +34,6 @@ function stableBetween(key: string, min: number, max: number): number {
 
 function seedFor(world: Readonly<WorldState>, agent: Readonly<AgentState>): string {
   return `${world.bootstrapSeed ?? `${world.id}:epoch:${world.epoch ?? 1}`}:${agent.id}:${agent.sex ?? 'unknown'}`;
-}
-
-function growthFraction(ageYears: number): number {
-  if (ageYears >= 18) return 1;
-  return clamp01(Math.max(0, ageYears) / 18);
 }
 
 export interface BodyPhenotypeV1 {
@@ -178,13 +174,7 @@ function phenotypeFor(
     : stableBetween(`${key}:height`, 1.45, 1.82);
   const adultBmi = stableBetween(`${key}:bmi`, 19.2, 28.5);
   const adultMassKg = adultBmi * adultHeightM * adultHeightM;
-  const growth = growthFraction(agent.life.ageYears);
-  const heightScale = agent.life.ageYears >= 18
-    ? 1
-    : 0.29 + 0.71 * Math.pow(growth, 0.58);
-  const massScale = agent.life.ageYears >= 18
-    ? 1
-    : 0.045 + 0.955 * Math.pow(growth, 2.05);
+  const { heightScale, massScale } = humanGrowthScalesV1(agent.life.ageYears);
   const bodyFatFraction = agent.sex === 'male'
     ? stableBetween(`${key}:body-fat`, 0.10, 0.29)
     : stableBetween(`${key}:body-fat`, 0.17, 0.39);
