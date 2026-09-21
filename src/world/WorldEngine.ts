@@ -7202,40 +7202,49 @@ export class WorldEngine {
         youngestAge,
         worldMinute,
       );
-      const homeId = foundingMentorHomeIdV1(this.state, mentor.id);
-      const hour = (Math.max(0, worldMinute) % (24 * 60)) / 60;
-
-      if (
-        homeId &&
-        destinationId === homeId &&
-        (hour >= 20 || hour < 7) &&
-        students.every((child) => child.locationId === homeId && !child.movement)
-      ) {
-        for (const child of students) {
-          if (!isBodySleepingV21(this.state, child.id)) {
-            startBodySleepV21(this.state, child, false);
-          }
-        }
-        updateMentorTeachingPositionsV1(this.state);
-        continue;
-      }
-
       if (students.some((child) => Boolean(child.movement))) {
         updateMentorTeachingPositionsV1(this.state);
         continue;
       }
 
+      const fromPlaceId = students[0]?.locationId;
+      let startedOuting = false;
+      const carriedStudentIds: string[] = [];
       for (const child of students) {
         if (child.locationId === destinationId) continue;
         this.moveAgent(child, destinationId, mentor.id);
         if (child.movement) {
           child.movement.purpose = 'walk';
+          startedOuting = true;
+          if (child.movement.carriedByFoundingMentorId) {
+            carriedStudentIds.push(child.id);
+          }
           delete child.lastAction;
           delete child.lastDecision;
           delete child.plan;
         }
       }
       updateMentorTeachingPositionsV1(this.state);
+      if (startedOuting) {
+        this.stageEvent({
+          eventId: this.nextId('mentor-outing'),
+          worldId: this.state.id,
+          kind: 'mentor.guardian.outing.started',
+          source: 'world',
+          occurredAt: this.state.now,
+          occurredWorldMinutes: worldMinute,
+          payload: {
+            mentorId: mentor.id,
+            studentIds: students.map((child) => child.id).join(','),
+            carriedStudentIds: carriedStudentIds.join(','),
+            fromPlaceId: fromPlaceId ?? '',
+            destinationId,
+            worldMinutes: worldMinute,
+            childTaskScriptUsed: false,
+            initiatedByGuardian: true,
+          },
+        });
+      }
     }
   }
 
