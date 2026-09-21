@@ -5568,6 +5568,10 @@ export class WorldEngine {
       this.advanceWildlife(effectiveEnvironment, now);
       // Monster ecology is absent; ordinary wildlife advances above.
       this.advanceAgingAndMortality(now, elapsedWorldMinutes);
+      if (this.state.iskorkaMentorsV1) {
+        advanceFoundingMentorLifecycleV1(this.state);
+        updateMentorTeachingPositionsV1(this.state);
+      }
       advanceEmbodiedWorldV21(this.state);
       // Dungeon ecology/discovery is a world service, not a side effect of
       // repeatedly looking up a resident wallet at every local trade.
@@ -5591,7 +5595,10 @@ export class WorldEngine {
       // indexes/caches optimize work without dropping resident opportunities.
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
-        if (!sleeping) this.applyPassiveNeeds(agent, effectiveEnvironment);
+        const mentoredMinor = isMentoredMinorV1(this.state, agent);
+        if (!sleeping && !mentoredMinor) {
+          this.applyPassiveNeeds(agent, effectiveEnvironment);
+        }
         const body = this.state.v21?.bodiesByAgentId[agent.id];
         const pendingPhysiology = body?.bodyCore
           ? Math.max(
@@ -5616,17 +5623,28 @@ export class WorldEngine {
             resolveBodyEliminationV1(this.state, agent);
           }
         }
+        if (!sleeping && mentoredMinor) {
+          const care = applyFoundingMentorCareV1(this.state, agent);
+          if (care.resourcesChanged) this.resourceProjectionDirty = true;
+        }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
-      this.beginSecretLibraryYearV18(livingAgents, now);
+      this.beginSecretLibraryYearV18(
+        livingAgents.filter((agent) => !isMentoredMinorV1(this.state, agent)),
+        now,
+      );
       const residentsStudyingInLibrary = this.advanceSecretLibraryVisitorsV18(now);
       for (const agent of agents) {
         if (residentsStudyingInLibrary.has(agent.id)) {
           recordResidentActionEvidenceV16(this.state, agent);
           continue;
         }
-        this.stepAgent(agent, agents, effectiveEnvironment, now);
+        if (isMentoredMinorV1(this.state, agent)) {
+          this.stepMentoredFoundingStudent(agent, now);
+        } else {
+          this.stepAgent(agent, agents, effectiveEnvironment, now);
+        }
         recordResidentActionEvidenceV16(this.state, agent);
       }
       this.advanceBirths(now, elapsedWorldMinutes);
