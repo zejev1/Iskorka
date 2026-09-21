@@ -13188,6 +13188,10 @@ export class WorldEngine {
     agent.lastDecision = undefined;
     agent.plan = undefined;
     this.state.population.deaths += 1;
+    if (isIskorkaWorld(this.state) && (agent.race ?? 'human') === 'human') {
+      retireBrainOwnerV1(this.state, agent, worldMinutes);
+      this.stagedRetiredBrainOwnerIds?.add(agent.id);
+    }
     stopDeceasedActions(this.state, agent);
     if (this.state.v21) {
       delete this.state.v21.bodiesByAgentId[agent.id];
@@ -13215,48 +13219,54 @@ export class WorldEngine {
       },
     });
 
-    const relatives = new Set([
-      ...agent.life.parentIds,
-      ...agent.life.childIds,
-    ]);
-    for (const relationship of Object.values(this.state.relationships)) {
-      const otherId =
-        relationship.agentA === agent.id
-          ? relationship.agentB
-          : relationship.agentB === agent.id
-            ? relationship.agentA
-            : undefined;
-      if (!otherId) continue;
-      const bondStrength =
-        relationship.trust +
-        relationship.affinity +
-        relationship.respect -
-        relationship.conflict;
-      if (bondStrength >= 1.45) relatives.add(otherId);
-    }
-    for (const relativeId of relatives) {
-      const relative = this.state.agents[relativeId];
-      if (!relative?.life.alive) continue;
-      relative.mind.emotions.grief = clamp01(
-        relative.mind.emotions.grief + 0.46,
-      );
-      relative.mind.emotions.joy = clamp01(
-        relative.mind.emotions.joy - 0.24,
-      );
-      relative.mind.beliefs.afterlife = clamp01(
-        relative.mind.beliefs.afterlife + 0.035,
-      );
-      this.stageMemory({
-        memoryId: this.nextId('memory'),
-        worldId: this.state.id,
-        agentId: relative.id,
-        createdAt: now,
-        kind: 'death',
-        summary: `${relative.name} lost ${agent.name}.`,
-        importance: 0.96,
-        valence: -0.92,
-        relatedAgentIds: [agent.id],
-      });
+    // Stage 2 removes the legacy omniscient death channel from Iskorka.
+    // Living people may keep memories they already own, but new knowledge of a
+    // death must later arrive through perception, discovery or communication.
+    if (!isIskorkaWorld(this.state)) {
+      const relatives = new Set([
+        ...agent.life.parentIds,
+        ...agent.life.childIds,
+      ]);
+      for (const relationship of Object.values(this.state.relationships)) {
+        const otherId =
+          relationship.agentA === agent.id
+            ? relationship.agentB
+            : relationship.agentB === agent.id
+              ? relationship.agentA
+              : undefined;
+        if (!otherId) continue;
+        const bondStrength =
+          relationship.trust +
+          relationship.affinity +
+          relationship.respect -
+          relationship.conflict;
+        if (bondStrength >= 1.45) relatives.add(otherId);
+      }
+      for (const relativeId of relatives) {
+        const relative = this.state.agents[relativeId];
+        if (!relative?.life.alive) continue;
+        relative.mind.emotions.grief = clamp01(
+          relative.mind.emotions.grief + 0.46,
+        );
+        relative.mind.emotions.joy = clamp01(
+          relative.mind.emotions.joy - 0.24,
+        );
+        relative.mind.beliefs.afterlife = clamp01(
+          relative.mind.beliefs.afterlife + 0.035,
+        );
+        this.stageMemory({
+          memoryId: this.nextId('memory'),
+          worldId: this.state.id,
+          agentId: relative.id,
+          createdAt: now,
+          kind: 'death',
+          summary: `${relative.name} lost ${agent.name}.`,
+          importance: 0.96,
+          valence: -0.92,
+          relatedAgentIds: [agent.id],
+        });
+      }
+  
     }
   }
 
