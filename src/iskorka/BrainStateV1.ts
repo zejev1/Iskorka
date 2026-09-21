@@ -81,42 +81,11 @@ export interface BrainPerceivedMessageV1 {
   eventKind?: 'death_report';
 }
 
-export const BRAIN_BODY_SIGNAL_ORDER_V1 = [
-  'thirst',
-  'hunger',
-  'breathlessness',
-  'weakness',
-  'coldStress',
-  'heatStress',
-  'sweating',
-  'tremor',
-  'heartPounding',
-  'bladderUrge',
-  'bowelUrge',
-  'physicalDiscomfort',
-  'cryingDrive',
-  'tears',
-  'blushing',
-  'goosebumps',
-  'dryMouth',
-  'startle',
-  'physicalPleasure',
-  'sexualArousal',
-  'postPleasureRelaxation',
-] as const;
-
-/**
- * Fixed-order subjective body values. -1 means unavailable/unknown; 0..1 is
- * an available intensity. Signal names live in shared code, not per-person RAM.
- */
-export type BrainCurrentBodySignalsV1 = number[];
-
 export interface BrainPerceptionStateV1 {
   nextRefSequence: number;
   references: BrainPerceptionReferenceV1[];
   lastPerceptWorldMinute?: number;
-  currentBodySignals: BrainCurrentBodySignalsV1;
-  currentObservations: BrainCurrentObservationV1[];
+  /** Bounded acquired messages; current body/vision input stays transient. */
   recentMessages: BrainPerceivedMessageV1[];
 }
 
@@ -149,9 +118,7 @@ const BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 = 24;
 const BRAIN_WORKING_STEP_FIXED_LOGICAL_BYTES_V1 = 32;
 const BRAIN_PERCEPTION_FIXED_LOGICAL_BYTES_V1 = 48;
 const BRAIN_PERCEPTION_REFERENCE_FIXED_LOGICAL_BYTES_V1 = 32;
-const BRAIN_CURRENT_OBSERVATION_FIXED_LOGICAL_BYTES_V1 = 20;
 const BRAIN_MESSAGE_FIXED_LOGICAL_BYTES_V1 = 28;
-const BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1 = 4;
 const BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 = 4;
 
 const utf8BytesV1 = (value: string): number => encoder.encode(value).byteLength;
@@ -199,20 +166,6 @@ function perceptionLogicalBytesV1(
       utf8BytesV1(ref.worldObjectId) +
       utf8BytesV1(ref.kind) +
       utf8BytesV1(ref.subjectWorldObjectId ?? '');
-  }
-  bytes +=
-    perception.currentBodySignals.length *
-    BRAIN_BODY_SIGNAL_FIXED_LOGICAL_BYTES_V1;
-  for (const observation of perception.currentObservations) {
-    bytes +=
-      BRAIN_CURRENT_OBSERVATION_FIXED_LOGICAL_BYTES_V1 +
-      utf8BytesV1(observation.refId) +
-      utf8BytesV1(observation.kind) +
-      utf8BytesV1(observation.relation) +
-      utf8BytesV1(observation.channel) +
-      utf8BytesV1(observation.observedAction ?? '') +
-      utf8BytesV1(observation.eventKind ?? '') +
-      utf8BytesV1(observation.subjectRefId ?? '');
   }
   for (const message of perception.recentMessages) {
     bytes +=
@@ -354,17 +307,6 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
       ) {
         throw new Error(`Brain perception reference ${ref.refId} confidence is invalid.`);
       }
-    }
-    if (
-      brain.perception.currentBodySignals.length !== BRAIN_BODY_SIGNAL_ORDER_V1.length ||
-      brain.perception.currentBodySignals.some(
-        (value) => !Number.isFinite(value) || value < -1 || value > 1,
-      )
-    ) {
-      throw new Error('Brain current body signals are invalid.');
-    }
-    if (brain.perception.currentObservations.length > 24) {
-      throw new Error('Brain current perception exceeds observation bound.');
     }
     if (brain.perception.recentMessages.length > 8) {
       throw new Error('Brain recent perception exceeds message bound.');
