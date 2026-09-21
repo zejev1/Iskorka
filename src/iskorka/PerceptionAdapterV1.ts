@@ -64,6 +64,63 @@ function stableUnit(value: string): number {
   return (hash >>> 0) / 0xffffffff;
 }
 
+interface PerceptionNoiseCacheV1 {
+  interoceptionUnitByKey: Map<string, number>;
+  visionNoiseByKey: Map<string, { biasUnit: number; thresholdUnit: number }>;
+}
+
+const perceptionNoiseByWorldV1 = new WeakMap<object, PerceptionNoiseCacheV1>();
+
+function noiseCacheV1(world: Readonly<WorldState>): PerceptionNoiseCacheV1 {
+  let cache = perceptionNoiseByWorldV1.get(world as object);
+  if (!cache) {
+    cache = {
+      interoceptionUnitByKey: new Map(),
+      visionNoiseByKey: new Map(),
+    };
+    perceptionNoiseByWorldV1.set(world as object, cache);
+  }
+  return cache;
+}
+
+function perceptionEpochKeyV1(
+  world: Readonly<WorldState>,
+  agentId: string,
+): string {
+  return `${world.bootstrapSeed ?? world.id}:${world.epoch ?? 1}:${agentId}`;
+}
+
+function cachedInteroceptionUnitV1(
+  world: Readonly<WorldState>,
+  agentId: string,
+  signal: string,
+): number {
+  const cache = noiseCacheV1(world).interoceptionUnitByKey;
+  const key = `${perceptionEpochKeyV1(world, agentId)}:${signal}`;
+  const prior = cache.get(key);
+  if (prior !== undefined) return prior;
+  const value = stableUnit(`${key}:interoception`);
+  cache.set(key, value);
+  return value;
+}
+
+function cachedVisionNoiseV1(
+  world: Readonly<WorldState>,
+  agentId: string,
+  objectId: string,
+): { biasUnit: number; thresholdUnit: number } {
+  const cache = noiseCacheV1(world).visionNoiseByKey;
+  const key = `${perceptionEpochKeyV1(world, agentId)}:${objectId}`;
+  const prior = cache.get(key);
+  if (prior) return prior;
+  const value = {
+    biasUnit: stableUnit(`${key}:vision`),
+    thresholdUnit: stableUnit(`${key}:recognition`),
+  };
+  cache.set(key, value);
+  return value;
+}
+
 function subjectiveSignalV1(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
@@ -73,7 +130,7 @@ function subjectiveSignalV1(
 ): SubjectiveSignalV1 {
   const sensitivity = core.phenotype.interoceptionSensitivity;
   const stableBias =
-    (stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:${key}:interoception`) - 0.5) *
+    (cachedInteroceptionUnitV1(world, agent.id, key) - 0.5) *
     (1 - sensitivity) *
     0.22;
   const gain = 0.72 + sensitivity * 0.32;
@@ -158,7 +215,7 @@ function visualConfidenceV1(
   if (!(capacity > 0) || !(reach > 0)) return 0;
   const distanceFactor = clamp01(1 - distance / Math.max(1, reach));
   const stableBias =
-    (stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:${objectId}:vision`) - 0.5) *
+    (cachedVisionNoiseV1(world, agent.id, objectId).biasUnit - 0.5) *
     0.16;
   return clamp01(capacity * 0.64 + distanceFactor * 0.3 + stableBias);
 }
@@ -171,8 +228,7 @@ function recognizedVisuallyV1(
 ): boolean {
   const threshold =
     0.22 +
-    stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:${objectId}:recognition`) *
-      0.22;
+    cachedVisionNoiseV1(world, agent.id, objectId).thresholdUnit * 0.22;
   return confidence >= threshold;
 }
 
@@ -232,15 +288,13 @@ function localObservationsV1(
   }
 
   if (result.length < MAX_LOCAL_OBSERVATIONS) {
-    const people = (localAgents ?? Object.values(world.agents))
-      .filter(
-        (other) =>
-          other.id !== agent.id &&
-          other.life.alive &&
-          other.locationId === agent.locationId,
-      )
-      .sort((a, b) => a.id.localeCompare(b.id));
+    const people = localAgents ?? Object.values(world.agents);
     for (const other of people) {
+      if (
+        other.id === agent.id ||
+        !other.life.alive ||
+        other.locationId !== agent.locationId
+      ) continue;
       if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
       const distance = Math.hypot(
         other.position.x - agent.position.x,
@@ -351,6 +405,39 @@ export interface PerceptionAdapterOptionsV1 {
   receivedMessages?: readonly ReceivedMessageV1[];
 }
 
+function directReceivedMessagesForAgentV1(
+  world: Readonly<WorldState>,
+  agentId: string,
+): ReceivedMessageV1[] {
+  const records = world.v18?.recentConversations;
+  if (!records?.length) return [];
+  const now = world.calendar.elapsedWorldMinutes;
+  const messages: ReceivedMessageV1[] = [];
+  for (let index = records.length - 1; index >= 0 && messages.length < MAX_RECEIVED_MESSAGES; index -= 1) {
+    const record = records[index];
+    if (record.worldMinute > now || now - record.worldMinute > MESSAGE_WINDOW_WORLD_MINUTES) continue;
+    if (record.listenerId === agentId) {
+      messages.push({
+        messageId: `${record.id}:utterance`,
+        senderObjectId: record.speakerId,
+        symbols: [record.utterance],
+        channel: 'hearing',
+        confidence: 1,
+      });
+    } else if (record.speakerId === agentId) {
+      messages.push({
+        messageId: `${record.id}:reply`,
+        senderObjectId: record.listenerId,
+        symbols: [record.reply],
+        channel: 'hearing',
+        confidence: 1,
+      });
+    }
+  }
+  return messages.reverse();
+}
+
+
 /**
  * Iskorka adapter may read the world, but it emits only the resident's bounded
  * current perception. No WorldState, hidden emotion, remote stock or foreign
@@ -377,7 +464,6 @@ export function perceptBatchForAgentV1(
     ),
     receivedMessages:
       options.receivedMessages ??
-      buildReceivedMessageIndexV1(world).get(agent.id) ??
-      [],
+      directReceivedMessagesForAgentV1(world, agent.id),
   };
 }
