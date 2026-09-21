@@ -132,12 +132,26 @@ function interpolate(ageYears: number): Anchor {
   return last;
 }
 
+const DEFAULT_PROFILE_CACHE = new Map<number, BrainDevelopmentProfileV1>();
+
 export function brainDevelopmentProfileV1(
   ageYears: number,
   options: BrainLifecycleOptionsV1 = {},
 ): BrainDevelopmentProfileV1 {
   if (!Number.isFinite(ageYears) || ageYears < 0) {
     throw new Error('ageYears must be finite and non-negative.');
+  }
+  // The normal runtime asks for the same resident age many times while scoring
+  // candidate actions. Month-resolution is enough for human development and
+  // bounds the shared cache to 1201 entries through age 100.
+  const defaultOptions =
+    options.neurologicalIntegrity === undefined &&
+    options.memoryIntegrity === undefined;
+  const cacheMonth = Math.min(1200, Math.floor(ageYears * 12 + 1e-9));
+  if (defaultOptions) {
+    const cached = DEFAULT_PROFILE_CACHE.get(cacheMonth);
+    if (cached) return cached;
+    ageYears = cacheMonth / 12;
   }
   const neurologicalIntegrity = options.neurologicalIntegrity ?? 1;
   const memoryIntegrity = options.memoryIntegrity ?? 1;
@@ -173,6 +187,10 @@ export function brainDevelopmentProfileV1(
     profile.expressiveLanguage >= 0.90 &&
     profile.symbolicReasoning >= 0.78 &&
     profile.planning >= 0.65;
+  if (defaultOptions) {
+    Object.freeze(profile);
+    DEFAULT_PROFILE_CACHE.set(cacheMonth, profile);
+  }
   return profile;
 }
 
