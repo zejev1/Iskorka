@@ -3,6 +3,10 @@ import type { BodyCoreV1 } from './BodyCoreV1';
 import { bodySignalsV1, type BodySignalsV1 } from './BodyCoreV1';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 import {
+  humanVisualCapacityV1,
+  humanVisionDevelopmentV1,
+} from './HumanVisionDevelopmentV1';
+import {
   PORTABLE_HUMAN_CONTRACT_VERSION_V1,
   availableSignalV1,
   unavailableSignalV1,
@@ -39,6 +43,8 @@ const BODY_SIGNAL_KEYS: readonly HumanBodySignalKindV1[] = [
 
 const LOCAL_VISIBILITY_RADIUS = 45;
 const MAX_LOCAL_OBSERVATIONS = 24;
+const MAX_RECEIVED_MESSAGES = 8;
+const MESSAGE_WINDOW_WORLD_MINUTES = 8_760;
 
 function unavailableInteroception(): Record<HumanBodySignalKindV1, SubjectiveSignalV1> {
   return Object.fromEntries(
@@ -118,34 +124,109 @@ export function humanBodyPerceptV1(
   };
 }
 
+function visionCapacityV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): { capacity: number; reach: number } {
+  const body = world.v21?.bodiesByAgentId[agent.id];
+  const core = body?.bodyCore;
+  if (!body || !core) return { capacity: 0, reach: 0 };
+  const development = humanVisionDevelopmentV1(agent.life.ageYears);
+  const capacity = humanVisualCapacityV1(
+    agent.life.ageYears,
+    core.phenotype.visualAcuityBaseline,
+    body.systems.nervous,
+  );
+  return {
+    capacity,
+    reach:
+      LOCAL_VISIBILITY_RADIUS *
+      development.recognitionReachScale *
+      (0.72 + core.phenotype.visualAcuityBaseline * 0.28),
+  };
+}
+
+function visualConfidenceV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  objectId: string,
+  distance: number,
+  capacity: number,
+  reach: number,
+): number {
+  if (!(capacity > 0) || !(reach > 0)) return 0;
+  const distanceFactor = clamp01(1 - distance / Math.max(1, reach));
+  const stableBias =
+    (stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:${objectId}:vision`) - 0.5) *
+    0.16;
+  return clamp01(capacity * 0.64 + distanceFactor * 0.3 + stableBias);
+}
+
+function recognizedVisuallyV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  objectId: string,
+  confidence: number,
+): boolean {
+  const threshold =
+    0.22 +
+    stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:${objectId}:recognition`) *
+      0.22;
+  return confidence >= threshold;
+}
+
 function localObservationsV1(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
 ): LocalObservationV1[] {
   const result: LocalObservationV1[] = [];
   const current = world.places[agent.locationId];
-  if (current) {
+  const vision = visionCapacityV1(world, agent);
+  if (!current || vision.capacity <= 0) return result;
+
+  const hereConfidence = visualConfidenceV1(
+    world,
+    agent,
+    current.id,
+    0,
+    vision.capacity,
+    vision.reach,
+  );
+  if (recognizedVisuallyV1(world, agent, current.id, hereConfidence)) {
     result.push({
       objectId: current.id,
       kind: 'place',
       relation: 'here',
+      channel: 'vision',
+      confidence: hereConfidence,
     });
-    for (const id of current.connectedPlaceIds) {
-      if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
-      const place = world.places[id];
-      if (!place) continue;
-      if (
-        Math.hypot(
-          place.mapX - agent.position.x,
-          place.mapY - agent.position.y,
-        ) > LOCAL_VISIBILITY_RADIUS
-      ) continue;
-      result.push({
-        objectId: place.id,
-        kind: 'place',
-        relation: 'connected_visible',
-      });
-    }
+  }
+
+  for (const id of current.connectedPlaceIds) {
+    if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+    const place = world.places[id];
+    if (!place) continue;
+    const distance = Math.hypot(
+      place.mapX - agent.position.x,
+      place.mapY - agent.position.y,
+    );
+    if (distance > vision.reach) continue;
+    const confidence = visualConfidenceV1(
+      world,
+      agent,
+      place.id,
+      distance,
+      vision.capacity,
+      vision.reach,
+    );
+    if (!recognizedVisuallyV1(world, agent, place.id, confidence)) continue;
+    result.push({
+      objectId: place.id,
+      kind: 'place',
+      relation: 'connected_visible',
+      channel: 'vision',
+      confidence,
+    });
   }
 
   if (result.length < MAX_LOCAL_OBSERVATIONS) {
@@ -154,20 +235,119 @@ function localObservationsV1(
         (other) =>
           other.id !== agent.id &&
           other.life.alive &&
-          !other.movement &&
           other.locationId === agent.locationId,
       )
       .sort((a, b) => a.id.localeCompare(b.id));
     for (const other of people) {
       if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+      const distance = Math.hypot(
+        other.position.x - agent.position.x,
+        other.position.y - agent.position.y,
+      );
+      const confidence = visualConfidenceV1(
+        world,
+        agent,
+        other.id,
+        distance,
+        vision.capacity,
+        Math.max(8, vision.reach),
+      );
+      if (!recognizedVisuallyV1(world, agent, other.id, confidence)) continue;
+      const observedAction =
+        other.movement?.purpose ??
+        (other.lastMeaningfulEventAt === world.now ? other.lastAction : undefined);
       result.push({
         objectId: other.id,
         kind: 'person',
         relation: 'co_located',
+        channel: 'vision',
+        confidence,
+        ...(observedAction ? { observedAction } : {}),
+      });
+    }
+  }
+
+  if (result.length < MAX_LOCAL_OBSERVATIONS) {
+    const remains = Object.values(world.v16?.remainsById ?? {})
+      .filter((entry) => entry.currentPlaceId === agent.locationId)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    for (const entry of remains) {
+      if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+      const confidence = visualConfidenceV1(
+        world,
+        agent,
+        entry.id,
+        0,
+        vision.capacity,
+        Math.max(8, vision.reach),
+      );
+      if (!recognizedVisuallyV1(world, agent, entry.id, confidence)) continue;
+      result.push({
+        objectId: entry.id,
+        kind: 'remains',
+        relation: 'co_located',
+        channel: 'vision',
+        confidence,
+        subjectObjectId: entry.agentId,
+        eventKind: 'apparent_death',
       });
     }
   }
   return result;
+}
+
+function receivedMessagesV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): PerceptBatchV1['receivedMessages'] {
+  const now = world.calendar.elapsedWorldMinutes;
+  const records = world.v18?.recentConversations ?? [];
+  const messages: Array<PerceptBatchV1['receivedMessages'][number]> = [];
+
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    if (messages.length >= MAX_RECEIVED_MESSAGES) break;
+    const record = records[index];
+    if (record.worldMinute > now || now - record.worldMinute > MESSAGE_WINDOW_WORLD_MINUTES) {
+      continue;
+    }
+
+    if (record.listenerId === agent.id) {
+      messages.push({
+        messageId: `${record.id}:utterance`,
+        senderObjectId: record.speakerId,
+        symbols: [record.utterance],
+        channel: 'hearing',
+        confidence: 1,
+      });
+      continue;
+    }
+    if (record.speakerId === agent.id) {
+      messages.push({
+        messageId: `${record.id}:reply`,
+        senderObjectId: record.listenerId,
+        symbols: [record.reply],
+        channel: 'hearing',
+        confidence: 1,
+      });
+      continue;
+    }
+    if (
+      record.observerAudible &&
+      record.placeId === agent.locationId &&
+      record.speakerId !== agent.id &&
+      record.listenerId !== agent.id
+    ) {
+      messages.push({
+        messageId: `${record.id}:overheard`,
+        senderObjectId: record.speakerId,
+        symbols: [record.utterance],
+        channel: 'hearing',
+        confidence: clamp01(record.audibility),
+      });
+    }
+  }
+
+  return messages.reverse();
 }
 
 /**
@@ -189,6 +369,6 @@ export function perceptBatchForAgentV1(
     worldMinute: world.calendar.elapsedWorldMinutes,
     body: humanBodyPerceptV1(world, agent),
     localObservations: localObservationsV1(world, agent),
-    receivedMessages: [],
+    receivedMessages: receivedMessagesV1(world, agent),
   };
 }
