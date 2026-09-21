@@ -447,8 +447,7 @@ function directReceivedMessagesForAgentV1(
   world: Readonly<WorldState>,
   agentId: string,
 ): ReceivedMessageV1[] {
-  const records = world.v18?.recentConversations;
-  if (!records?.length) return [];
+  const records = world.v18?.recentConversations ?? [];
   const now = world.calendar.elapsedWorldMinutes;
   const messages: ReceivedMessageV1[] = [];
   for (let index = records.length - 1; index >= 0 && messages.length < MAX_RECEIVED_MESSAGES; index -= 1) {
