@@ -53,6 +53,10 @@ export interface MedievalPlaceInfrastructureV1 {
   target: 'home' | 'workshop' | 'community_nursery';
   rooms: MedievalRoomV1[];
   fixtures: Record<string, MedievalFixtureV1>;
+  /** Stored drinking/washing water physically held in household containers. */
+  waterCapacityLitres?: number;
+  waterReserveLitres?: number;
+  lastWaterFetchWorldMinute?: number;
 }
 
 const REQUIREMENTS: Readonly<Record<MedievalCapabilityV1, readonly string[]>> = {
@@ -112,6 +116,8 @@ function homeInfrastructure(place: Readonly<WorldPlace>): MedievalPlaceInfrastru
     era: 'pre_electric_medieval',
     target: 'home',
     rooms,
+    waterCapacityLitres: Math.max(24, place.capacity * 10),
+    waterReserveLitres: Math.max(16, place.capacity * 6),
     fixtures: fixtureMap([
       fixture(place.id, byKind.bedroom, 'bed_frame', 'Деревянная кровать', beds),
       fixture(place.id, byKind.bedroom, 'mattress', 'Соломенный или шерстяной тюфяк', beds),
@@ -196,6 +202,8 @@ function nurseryInfrastructure(place: Readonly<WorldPlace>): MedievalPlaceInfras
     era: 'pre_electric_medieval',
     target: 'community_nursery',
     rooms,
+    waterCapacityLitres: 90,
+    waterReserveLitres: 54,
     fixtures: fixtureMap([
       fixture(place.id, byKind.nursery, 'bed_frame', 'Детская койка', beds),
       fixture(place.id, byKind.nursery, 'mattress', 'Соломенный тюфяк', beds),
@@ -271,16 +279,41 @@ export function equipFoundingNurseryV1(place: WorldPlace): void {
 export function ensureMedievalPlaceInfrastructureV1(world: WorldState): boolean {
   let changed = false;
   for (const place of Object.values(world.places)) {
-    if (place.medievalInfrastructureV1) continue;
+    if (!place.medievalInfrastructureV1) {
+      if (place.kind === 'home') {
+        equipMedievalHomeV1(place);
+        changed = true;
+      } else if (place.kind === 'workshop') {
+        equipMedievalWorkshopV1(place);
+        changed = true;
+      } else if (place.id === 'commons') {
+        equipFoundingNurseryV1(place);
+        changed = true;
+      }
+      continue;
+    }
+    const infrastructure = place.medievalInfrastructureV1;
     if (place.kind === 'home') {
-      equipMedievalHomeV1(place);
-      changed = true;
-    } else if (place.kind === 'workshop') {
-      equipMedievalWorkshopV1(place);
-      changed = true;
-    } else if (place.id === 'commons') {
-      equipFoundingNurseryV1(place);
-      changed = true;
+      if (!(infrastructure.waterCapacityLitres! > 0)) {
+        infrastructure.waterCapacityLitres = Math.max(24, place.capacity * 10);
+        changed = true;
+      }
+      if (infrastructure.waterReserveLitres === undefined) {
+        infrastructure.waterReserveLitres = Math.min(
+          infrastructure.waterCapacityLitres!,
+          Math.max(16, place.capacity * 6),
+        );
+        changed = true;
+      }
+    } else if (place.id === 'commons' && infrastructure.target === 'community_nursery') {
+      if (!(infrastructure.waterCapacityLitres! > 0)) {
+        infrastructure.waterCapacityLitres = 90;
+        changed = true;
+      }
+      if (infrastructure.waterReserveLitres === undefined) {
+        infrastructure.waterReserveLitres = 54;
+        changed = true;
+      }
     }
   }
   return changed;
@@ -303,6 +336,13 @@ export function assertMedievalPlaceInfrastructureV1(world: Readonly<WorldState>)
       if (!Number.isFinite(item.quantity) || item.quantity < 0 ||
           !Number.isFinite(item.condition) || item.condition < 0 || item.condition > 1) {
         throw new Error(`Fixture ${item.id} has invalid physical state.`);
+      }
+    }
+    if (place.kind === 'home') {
+      const capacity = infrastructure.waterCapacityLitres ?? 0;
+      const reserve = infrastructure.waterReserveLitres ?? -1;
+      if (!(capacity > 0) || reserve < 0 || reserve > capacity) {
+        throw new Error(`Home ${place.id} has invalid physical water storage.`);
       }
     }
   }

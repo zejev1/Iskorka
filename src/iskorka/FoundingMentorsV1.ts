@@ -14,6 +14,13 @@ import { consumeStoredResources, harvestRenewably } from '../v15/RenewableAgricu
 import { ensureRussianKnowledgeV18 } from '../v18/UnderworldFoundationV18';
 import { ensureLifeRhythmV18, recordMealV18 } from '../v18/LivelihoodAndRhythmV18';
 import { placeSupportsCapabilityV1 } from './MedievalPlaceInfrastructureV1';
+import {
+  consumeHomeWaterLitresV1,
+  drawWellWaterLitresV1,
+  homeWaterReserveFractionV1,
+  nearestFoundationWellIdV1,
+  refillHomeWaterFromWellV1,
+} from './FoundationWaterV1';
 
 export const FOUNDING_SPARK_START_AGE_YEARS_V1 = 0.5;
 export const FOUNDING_MENTOR_RELEASE_AGE_YEARS_V1 = 18;
@@ -274,7 +281,14 @@ export function foundingMentorRoutineDestinationAtV1(
 ): string {
   const homeId = foundingMentorHomeIdV1(world, mentor.id) ?? 'commons';
   const phase = routinePhaseAtMinuteV1(worldMinute);
-  if (phase === 'home_sleep' || phase === 'home_care') return homeId;
+  if (phase === 'home_sleep') return homeId;
+  if (phase === 'home_care') {
+    const reserve = homeWaterReserveFractionV1(world, homeId);
+    if (reserve < 0.35) {
+      return nearestFoundationWellIdV1(world, homeId) ?? homeId;
+    }
+    return homeId;
+  }
 
   const day = Math.floor(Math.max(0, worldMinute) / DAY);
   const mentorIndex = Math.max(0, MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id));
@@ -285,7 +299,12 @@ export function foundingMentorRoutineDestinationAtV1(
   };
 
   if (phase === 'fresh_air') {
-    const nearby = ['quiet_space', 'commons'];
+    const nearby = [
+      'quiet_space',
+      'commons',
+      'foundation_well_west',
+      'foundation_well_east',
+    ];
     if (studentAgeYears >= 1.5) nearby.push('foundation_lake');
     return pick(nearby);
   }
@@ -341,6 +360,10 @@ export function placeFoundingMentorHouseholdsV1(world: WorldState): void {
   });
 }
 
+function worldPlaceIsFoundationWellV1(placeId: string): boolean {
+  return placeId === 'foundation_well_west' || placeId === 'foundation_well_east';
+}
+
 function mentorDomainAtCurrentPlaceV1(
   mentor: Readonly<FoundingMentorStateV1>,
   placeId: string,
@@ -352,6 +375,7 @@ function mentorDomainAtCurrentPlaceV1(
   if (studentAgeYears < 5) return 'language';
   if (placeId === 'resource_field') return 'agriculture';
   if (placeId === 'workshop') return 'construction';
+  if (worldPlaceIsFoundationWellV1(placeId)) return 'household';
   if (
     placeId === 'outskirts' ||
     placeId === 'forest' ||
@@ -770,6 +794,17 @@ export function applyFoundingMentorCareV1(
   if (!isMentoredMinorV1(world, student)) return { cared: false, resourcesChanged: false };
   const mentor = assignedFoundingMentorV1(world, student.id);
   if (!mentor) return { cared: false, resourcesChanged: false };
+  const mentorDistance = Math.hypot(
+    mentor.position.x - student.position.x,
+    mentor.position.y - student.position.y,
+  );
+  if (
+    mentor.locationId !== student.locationId ||
+    mentorDistance > 2 ||
+    student.movement
+  ) {
+    return { cared: false, resourcesChanged: false };
+  }
   const body = world.v21?.bodiesByAgentId[student.id];
   const core = body?.bodyCore;
   if (!body || !core) return { cared: false, resourcesChanged: false };
@@ -814,10 +849,33 @@ export function applyFoundingMentorCareV1(
     state.totalMeals += 1;
     mentor.feedingCount += 1;
   }
-  // Founding settlement access supplies potable water by the same physical
-  // assumption already used by the ordinary settlement-water path.
-  recordBodyDrinkV1(world, student, drinkAmount);
-  state.totalDrinks += 1;
+  const physicalDrinkLitres =
+    age < 1 ? 0.16 : age < 5 ? 0.22 : age < 12 ? 0.28 : 0.34;
+  let suppliedWaterLitres = 0;
+  const currentPlace = world.places[mentor.locationId];
+  if (currentPlace?.kind === 'well') {
+    refillHomeWaterFromWellV1(
+      world,
+      student.homeId,
+      currentPlace.id,
+      18,
+    );
+    suppliedWaterLitres = drawWellWaterLitresV1(
+      world,
+      currentPlace.id,
+      physicalDrinkLitres,
+    );
+  } else {
+    suppliedWaterLitres = consumeHomeWaterLitresV1(
+      world,
+      student.homeId,
+      physicalDrinkLitres,
+    );
+  }
+  if (suppliedWaterLitres >= physicalDrinkLitres * 0.95) {
+    recordBodyDrinkV1(world, student, drinkAmount);
+    state.totalDrinks += 1;
+  }
 
   const rhythm = ensureLifeRhythmV18(world, student);
   if (hasFood) {

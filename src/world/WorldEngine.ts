@@ -50,6 +50,11 @@ import {
   placeSupportsCapabilityV1,
 } from '../iskorka/MedievalPlaceInfrastructureV1';
 import {
+  assertFoundationWellsV1,
+  ensureFoundationWellsV1,
+  refillHomeWaterFromWellV1,
+} from '../iskorka/FoundationWaterV1';
+import {
   FOUNDING_SPARK_START_AGE_YEARS_V1,
   advanceFoundingMentorLifecycleV1,
   applyFoundingMentorCareV1,
@@ -5112,6 +5117,7 @@ export class WorldEngine {
     repairSecretLibraryPlacementV18(state);
     repairCompactSettlementLayout(state);
     addFoundationLakeV1(state.places, now);
+    ensureFoundationWellsV1(state);
     makeConnectionsReciprocal(state.places);
     state.routes = rebuildWorldRoutes(state.places, state.routes);
     markFoundationLakeTrailV1(state.routes);
@@ -5128,6 +5134,7 @@ export class WorldEngine {
     initializeIskorkaWorld(state, options.seed);
     ensureMedievalPlaceInfrastructureV1(state);
     assertMedievalPlaceInfrastructureV1(state);
+    assertFoundationWellsV1(state);
     for (const resident of Object.values(state.agents)) observeLocalPlacesV20(state, resident);
     ensureWorldBrainRegistryV1(state);
     assertWorldBrainRegistryV1(state);
@@ -5292,9 +5299,21 @@ export class WorldEngine {
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const repaired = structuredClone(state);
-      const changed = ensureMedievalPlaceInfrastructureV1(repaired);
+      const infrastructureChanged = ensureMedievalPlaceInfrastructureV1(repaired);
+      const wellsChanged = ensureFoundationWellsV1(repaired);
+      if (wellsChanged) {
+        makeConnectionsReciprocal(repaired.places);
+        repaired.routes = rebuildWorldRoutes(repaired.places, repaired.routes);
+        repaired.settlements = rebuildSettlementProjection(
+          repaired.places,
+          repaired.settlements,
+          repaired.now,
+        );
+      }
+      const changed = infrastructureChanged || wellsChanged;
       if (!changed) break;
       assertMedievalPlaceInfrastructureV1(repaired);
+      assertFoundationWellsV1(repaired);
       await options.store.checkpointWorld?.(
         state.id,
         state.revision,
@@ -5327,6 +5346,7 @@ export class WorldEngine {
               migrationMode: 'iskorka_medieval_infrastructure_v1_additive_repair',
               equippedHomes: Object.values(repaired.places).filter((place) => place.kind === 'home').length,
               equippedWorkshops: Object.values(repaired.places).filter((place) => place.kind === 'workshop').length,
+              foundationWells: Object.values(repaired.places).filter((place) => place.kind === 'well').length,
               preservedRngState: state.determinism.rngState,
             },
           }],
@@ -5343,6 +5363,7 @@ export class WorldEngine {
     }
 
     assertMedievalPlaceInfrastructureV1(state);
+    assertFoundationWellsV1(state);
     assertWorldBrainRegistryV1(state);
     assertWorldState(state);
     return new WorldEngine(options.store, state);
@@ -5532,6 +5553,7 @@ export class WorldEngine {
         repairSecretLibraryPlacementV18(this.state);
         repairCompactSettlementLayout(this.state);
         addFoundationLakeV1(this.state.places, resetAt);
+        ensureFoundationWellsV1(this.state);
         makeConnectionsReciprocal(this.state.places);
         this.state.routes = rebuildWorldRoutes(this.state.places, this.state.routes);
         markFoundationLakeTrailV1(this.state.routes);
@@ -5545,6 +5567,7 @@ export class WorldEngine {
         initializeIskorkaWorld(this.state, seed);
         ensureMedievalPlaceInfrastructureV1(this.state);
         assertMedievalPlaceInfrastructureV1(this.state);
+        assertFoundationWellsV1(this.state);
         for (const resident of Object.values(this.state.agents)) {
           observeLocalPlacesV20(this.state, resident);
         }
@@ -7194,6 +7217,44 @@ export class WorldEngine {
       const students = foundingMentorStudentsV1(this.state, mentor.id)
         .filter((child) => child.life.ageYears < mentorWorld.releaseAgeYears);
       if (students.length === 0) continue;
+
+      const currentPlaceId = students[0]?.locationId;
+      if (
+        currentPlaceId &&
+        this.state.places[currentPlaceId]?.kind === 'well' &&
+        students.every(
+          (child) => child.locationId === currentPlaceId && !child.movement,
+        )
+      ) {
+        const homeId = foundingMentorHomeIdV1(this.state, mentor.id);
+        if (homeId) {
+          const fetchedLitres = refillHomeWaterFromWellV1(
+            this.state,
+            homeId,
+            currentPlaceId,
+            18,
+          );
+          if (fetchedLitres > 0) {
+            this.stageEvent({
+              eventId: this.nextId('mentor-water'),
+              worldId: this.state.id,
+              kind: 'mentor.guardian.water_fetched',
+              source: 'world',
+              occurredAt: this.state.now,
+              occurredWorldMinutes: worldMinute,
+              payload: {
+                mentorId: mentor.id,
+                studentIds: students.map((child) => child.id).join(','),
+                homeId,
+                wellId: currentPlaceId,
+                fetchedLitres,
+                worldMinutes: worldMinute,
+                childTaskScriptUsed: false,
+              },
+            });
+          }
+        }
+      }
 
       const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
       const destinationId = foundingMentorRoutineDestinationAtV1(

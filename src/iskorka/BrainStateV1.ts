@@ -46,7 +46,7 @@ export interface BrainWorkingStepV1 {
   targetObjectId?: string;
 }
 
-export type BrainPerceivedObjectKindV1 = 'place' | 'person' | 'remains';
+export type BrainPerceivedObjectKindV1 = 'place' | 'person' | 'remains' | 'fixture';
 
 export interface BrainPerceptionReferenceV1 {
   refId: string;
