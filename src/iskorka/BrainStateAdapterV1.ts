@@ -315,7 +315,14 @@ function neutralizeLegacyAgentMindV1(agent: AgentState): void {
   delete agent.cartography;
   delete agent.knownPlaceIds;
   delete agent.knownDungeonIds;
-  delete agent.progression;
+  agent.progression = {
+    level: 1,
+    experience: 0,
+    objectControlAuthority: 0,
+    systemControlAuthority: 0,
+    combatMastery: 0,
+    sacredArts: 0,
+  };
   delete agent.privateDivineCalling;
   delete agent.agencyCadence;
   delete agent.lastDecision;
