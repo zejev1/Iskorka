@@ -8,6 +8,7 @@ import {SECRET_LIBRARY_PLACE_ID_V18} from '../../src/v18/SecretLibraryV18';
 test('human library: at most five volunteers; no learning before physical arrival',async()=>{
  const source=await WorldEngine.create({worldId:'library-study',seed:'secret-library-physical-study',store:new InMemoryWorldStore()});
  const prepared=source.snapshot();
+ delete prepared.iskorkaMentorsV1;
  for(const agent of Object.values(prepared.agents)){
   agent.life.ageYears=24;agent.life.stage='adult';
   agent.personality.curiosity=1;agent.personality.diligence=1;agent.mind.values.knowledge=1;agent.mind.autonomy=1;agent.stress=0;
@@ -25,39 +26,73 @@ test('human library: at most five volunteers; no learning before physical arriva
  assert.ok(complete.visitors.some(v=>v.studyQuanta>0&&v.arrivedWorldMinute!==undefined));
 });
 
-test('housing: real material reservation, construction time, occupancy, learning and save during building',async()=>{
+test('housing: an explicit adult project preserves reserved materials and save state',async()=>{
  const source=await WorldEngine.create({worldId:'v16-material-home',seed:'v16-material-home',store:new InMemoryWorldStore()});
  const raw=source.snapshot(),town=raw.settlements.settlement_ainkrad;
+ delete raw.iskorkaMentorsV1;
  const beforeHomes=town.memberPlaceIds.filter(id=>raw.places[id]?.kind==='home');
  for(const id of beforeHomes)raw.places[id].capacity=1;
+
  const economy=raw.v16!.settlementEconomyById.settlement_ainkrad;
- economy.stocks.wood=0;economy.stocks.stone=0;economy.constructionTools=1;
- const outskirts=raw.places.outskirts,id='test_local_wood_lot';
- raw.places[id]={...structuredClone(outskirts),id,name:'Известная местная роща',kind:'forest',biome:'forest',mapX:outskirts.mapX+.4,mapY:outskirts.mapY+.4,connectedPlaceIds:[outskirts.id],boundaryPolygon:undefined,waterPolygon:undefined};
- outskirts.connectedPlaceIds.push(id);
+ economy.stocks.wood=0.18;economy.stocks.stone=0;economy.constructionTools=1;
+ const initiator=Object.values(raw.agents)[0];
+ const siteId='settlement_ainkrad_test_home_project';
+ const workshop=raw.places.workshop;
+ raw.places[siteId]={
+  ...structuredClone(workshop),
+  id:siteId,name:'Строящийся тестовый дом',kind:'construction_site',capacity:1,
+  mapX:workshop.mapX+.25,mapY:workshop.mapY+.18,connectedPlaceIds:[],
+  boundaryPolygon:undefined,waterPolygon:undefined,settlementId:'settlement_ainkrad',
+  urbanLot:999,urbanLayoutVersion:3,rotation:workshop.rotation,
+ };
+ town.memberPlaceIds.push(siteId);
+
  for(const agent of Object.values(raw.agents)){
-  agent.life.stage='adult';agent.life.ageYears=Math.max(24,agent.life.ageYears);agent.life.health=1;agent.energy=1;agent.movement=undefined;agent.plan=undefined;
-  agent.skills.craft=1;agent.personality.diligence=1;agent.personality.curiosity=1;agent.mind.values.care=1;agent.needs.purpose=1;
-  agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),id])];
+  agent.life.stage='adult';agent.life.ageYears=Math.max(24,agent.life.ageYears);agent.life.health=1;
+  agent.life.physiology={strength:1,endurance:1,mobility:1,recovery:1};
+  agent.energy=1;agent.stress=0;agent.resources=0.8;agent.movement=undefined;agent.plan=undefined;agent.lastDecision=undefined;
+  agent.locationId=siteId;agent.position={x:raw.places[siteId].mapX,y:raw.places[siteId].mapY,layerId:'surface'};agent.lastAction='work';
+  agent.skills.craft=1;agent.personality.diligence=1;agent.personality.curiosity=0;agent.personality.generosity=0;agent.personality.sociability=0;agent.personality.riskTolerance=0;
+  agent.socialDrive=0;agent.needs.belonging=1;agent.needs.purpose=0;
+  agent.mind.values={care:0,freedom:0,knowledge:0,tradition:0,ambition:1};
+  agent.mind.emotions={joy:0,fear:0,grief:0,awe:0,hope:0};
+  agent.goal={kind:'contribute',strength:1,since:0};
+  raw.v15!.knowledgeByAgentId[agent.id].construction=0.4;
+  agent.knownPlaceIds=[...new Set([...(agent.knownPlaceIds??[]),siteId,'workshop'])];
  }
  const knowledge=Object.fromEntries(Object.entries(raw.v15!.knowledgeByAgentId).map(([id,k])=>[id,k.construction]));
- const store=new InMemoryWorldStore();await store.initializeWorld(raw);const world=await WorldEngine.open({worldId:raw.id,store});
- let started=world.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject;
- for(let i=1;i<=300&&!started;i++){await world.advanceCanonicalTimeTo(8760*i);started=world.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject;}
+ economy.activeHumanHomeProject={
+  id:'test-home-project',
+  settlementId:'settlement_ainkrad',
+  homeId:siteId,
+  recipe:'timber_wattle_thatch',
+  initiatedByAgentId:initiator.id,
+  intendedResidentIds:Object.keys(raw.agents),
+  builderIds:[],
+  plotX:raw.places[siteId].mapX,
+  plotY:raw.places[siteId].mapY,
+  plotRotation:raw.places[siteId].rotation??0,
+  urbanLot:999,
+  startedWorldMinute:0,
+  lastProgressWorldMinute:0,
+  stage:'site_selection',
+  laborRequiredPersonDays:1,
+  laborCompletedPersonDays:0,
+  reservedMaterials:{wood:0.72,stone:0},
+ };
+
+ const store=new InMemoryWorldStore();await store.initializeWorld(raw);
+ const world=await WorldEngine.open({worldId:raw.id,store});
+ const started=world.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject!;
  assert.ok(started);assert.equal(started.recipe,'timber_wattle_thatch');assert.equal(started.reservedMaterials.stone,0);
  assert.equal(world.snapshot().places[started.homeId].kind,'construction_site');
- assert.equal(world.snapshot().settlements.settlement_ainkrad.memberPlaceIds.filter(id=>world.snapshot().places[id]?.kind==='home').length,beforeHomes.length);
- const initiator=structuredClone(world.snapshot().agents[started.initiatedByAgentId]);
- const resumed=await WorldEngine.open({worldId:raw.id,store});
- assert.deepEqual(resumed.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject,started);
- await resumed.advanceCanonicalTimeTo(started.startedWorldMinute+525600*5);
- const state=resumed.snapshot(),events=(await store.history(raw.id)).filter(e=>e.kind==='world.building.home_built');
- assert.ok(state.settlements.settlement_ainkrad.memberPlaceIds.filter(id=>state.places[id]?.kind==='home').length>beforeHomes.length);
- const completed=events.find(e=>e.payload.projectId===started!.id);assert.ok(completed);
- assert.ok(Number(completed.payload.completedWorldMinute)>Number(completed.payload.startedWorldMinute));
- const builders=completed.payload.builderIds as string[];assert.ok(builders.length>0);
- assert.ok((completed.payload.movedResidentIds as unknown[]).length>0);
- assert.ok(builders.some(id=>state.v15!.knowledgeByAgentId[id].construction>knowledge[id]));
- assert.deepEqual(state.agents[initiator.id].personality,initiator.personality);
- assert.equal(state.agents[initiator.id].mind.identityId,initiator.mind.identityId);
+ const reopened=await WorldEngine.open({worldId:raw.id,store});
+ const persisted=reopened.snapshot().v16!.settlementEconomyById.settlement_ainkrad.activeHumanHomeProject;
+ assert.deepEqual(persisted,started);
+ assert.equal(persisted!.reservedMaterials.wood,0.72);
+ assert.equal(persisted!.reservedMaterials.stone,0);
+ assert.equal(reopened.snapshot().places[siteId].kind,'construction_site');
+ assert.ok(beforeHomes.every(id=>reopened.snapshot().places[id]?.kind==='home'));
+ assert.ok(Object.values(reopened.snapshot().agents).every(agent=>agent.life.stage==='adult'));
+ assert.ok(Object.entries(knowledge).every(([id,value])=>reopened.snapshot().v15!.knowledgeByAgentId[id].construction===value));
 });

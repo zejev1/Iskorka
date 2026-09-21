@@ -49,7 +49,9 @@ import {
   applyFoundingMentorCareV1,
   applyFoundingMentorLessonV1,
   assignedFoundingMentorV1,
+  foundingMentorStudentsV1,
   ensureFoundingMentorWorldV1,
+  isFoundingCohortStudentV1,
   isMentoredMinorV1,
   mentorTeachingPlaceV1,
   updateMentorTeachingPositionsV1,
@@ -3102,6 +3104,89 @@ function createPlace(
   };
 }
 
+function addFoundationLakeV1(
+  places: Record<string, WorldPlace>,
+  discoveredAt: number,
+): void {
+  const commons = places.commons;
+  const outskirts = places.outskirts;
+  if (!commons || !outskirts) return;
+
+  const dx = outskirts.mapX - commons.mapX;
+  const dy = outskirts.mapY - commons.mapY;
+  const length = Math.max(0.001, Math.hypot(dx, dy));
+  const ux = dx / length;
+  const uy = dy / length;
+  const px = -uy;
+  const py = ux;
+
+  // A small natural lake just beyond the settlement edge. The place point is
+  // the dry bank; the water body sits farther outward so the footpath ends at
+  // the shore instead of crossing water.
+  const bank = {
+    x: outskirts.mapX + ux * 5.5 + px * 1.6,
+    y: outskirts.mapY + uy * 5.5 + py * 1.6,
+  };
+  const waterCenter = {
+    x: bank.x + ux * 3.8,
+    y: bank.y + uy * 3.8,
+  };
+  const waterPolygon = Array.from({ length: 20 }, (_, index) => {
+    const angle = (Math.PI * 2 * index) / 20;
+    const along = Math.cos(angle) * 3.0;
+    const across = Math.sin(angle) * 2.2;
+    return {
+      x: waterCenter.x + ux * along + px * across,
+      y: waterCenter.y + uy * along + py * across,
+    };
+  });
+
+  const existing = places.foundation_lake;
+  const lake = existing ?? createPlace(
+    'foundation_lake',
+    'Озеро у Основания',
+    'lake',
+    18,
+    {
+      biome: 'lake',
+      mapX: bank.x,
+      mapY: bank.y,
+      connectedPlaceIds: ['outskirts'],
+      fertility: 0.72,
+      danger: 0.04,
+      surface: 'shore',
+      discoveredAt,
+    },
+  );
+  lake.name = 'Озеро у Основания';
+  lake.kind = 'lake';
+  lake.biome = 'lake';
+  lake.mapX = bank.x;
+  lake.mapY = bank.y;
+  lake.surface = 'shore';
+  lake.fertility = 0.72;
+  lake.danger = 0.04;
+  lake.connectedPlaceIds = ['outskirts'];
+  lake.waterPolygon = waterPolygon;
+  lake.discoveredAt ??= discoveredAt;
+  places[lake.id] = lake;
+
+  if (!outskirts.connectedPlaceIds.includes(lake.id)) {
+    outskirts.connectedPlaceIds.push(lake.id);
+  }
+}
+
+function markFoundationLakeTrailV1(
+  routes: Record<string, WorldRouteState>,
+): void {
+  const trail = routes[routeIdBetween('outskirts', 'foundation_lake')];
+  if (!trail) return;
+  // The user asked for an existing footpath, not a road that magically appears
+  // only after the first traversal.
+  trail.completedTraversals = Math.max(1, trail.completedTraversals ?? 0);
+  trail.widthMetres = 1.5;
+}
+
 function makeConnectionsReciprocal(places: Record<string, WorldPlace>): void {
   for (const place of Object.values(places)) {
     place.connectedPlaceIds = [...new Set(place.connectedPlaceIds)];
@@ -4831,6 +4916,7 @@ export class WorldEngine {
       ),
       ocean_ainkrad: createFoundingOcean(now),
     };
+    addFoundationLakeV1(places, now);
     for (const spec of humanSeedSettlements.slice(1)) {
       addSecondaryHumanSettlementPlaces(places, spec, now, 10);
     }
@@ -4933,6 +5019,7 @@ export class WorldEngine {
     makeConnectionsReciprocal(places);
     const settlements = rebuildSettlementProjection(places, {}, now);
     const routes = rebuildWorldRoutes(places);
+    markFoundationLakeTrailV1(routes);
 
     const state: WorldState = {
       id: options.worldId,
@@ -5015,6 +5102,11 @@ export class WorldEngine {
     }
     repairSecretLibraryPlacementV18(state);
     repairCompactSettlementLayout(state);
+    addFoundationLakeV1(state.places, now);
+    makeConnectionsReciprocal(state.places);
+    state.routes = rebuildWorldRoutes(state.places, state.routes);
+    markFoundationLakeTrailV1(state.routes);
+    state.settlements = rebuildSettlementProjection(state.places, state.settlements, now);
     if (useThreeHumanSeeds && repairRulidCoastalBank(state)) {
       makeConnectionsReciprocal(state.places);
       state.routes = rebuildWorldRoutes(state.places, state.routes);
@@ -5203,12 +5295,15 @@ export class WorldEngine {
     // Human-scale current intention is a pure observation projection. It is
     // deliberately not persisted as causal history.
     for (const agent of Object.values(snapshot.agents)) {
-      if (agent.life.alive && !isMentoredMinorV1(snapshot, agent)) {
+      if (
+        agent.life.alive &&
+        !isFoundingCohortStudentV1(snapshot, agent.id)
+      ) {
         agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
       } else {
-        // Founding children are living through mentor care/lessons, not the
-        // old adult intention projector. Their observable state comes from
-        // body, perception and mentor activity until adulthood.
+        // Founding Sparks never receive the inherited Ainkrad intention
+        // projector, including after their guardians leave at 18. Their future
+        // autonomy must come from the native finite-brain stage only.
         delete agent.agencyCadence;
       }
     }
@@ -5267,6 +5362,7 @@ export class WorldEngine {
           outskirts: createPlace('outskirts', 'Окраина Основания', 'outskirts', Math.max(16, names.length * 2), initialPlace('outskirts', 'outskirts')),
           ocean_ainkrad: createFoundingOcean(resetAt),
         };
+        addFoundationLakeV1(places, resetAt);
         for (const spec of humanSeedSettlements.slice(1)) addSecondaryHumanSettlementPlaces(places, spec, resetAt, 10);
         const agents: Record<string, AgentState> = {};
         names.forEach((name, index) => {
@@ -5334,6 +5430,7 @@ export class WorldEngine {
         this.state.cartography = undefined;
         this.state.geography = undefined;
         this.state.routes = rebuildWorldRoutes(places);
+        markFoundationLakeTrailV1(this.state.routes);
         this.state.settlements = rebuildSettlementProjection(places, {}, resetAt);
         this.state.wildlife = {};
         this.state.agents = agents;
@@ -5370,6 +5467,11 @@ export class WorldEngine {
         }
         repairSecretLibraryPlacementV18(this.state);
         repairCompactSettlementLayout(this.state);
+        addFoundationLakeV1(this.state.places, resetAt);
+        makeConnectionsReciprocal(this.state.places);
+        this.state.routes = rebuildWorldRoutes(this.state.places, this.state.routes);
+        markFoundationLakeTrailV1(this.state.routes);
+        this.state.settlements = rebuildSettlementProjection(this.state.places, this.state.settlements, resetAt);
         if (useThreeHumanSeeds && repairRulidCoastalBank(this.state)) {
           makeConnectionsReciprocal(this.state.places);
           this.state.routes = rebuildWorldRoutes(this.state.places, this.state.routes);
@@ -5599,7 +5701,8 @@ export class WorldEngine {
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
         const mentoredMinor = isMentoredMinorV1(this.state, agent);
-        if (!sleeping && !mentoredMinor) {
+        const foundingSpark = isFoundingCohortStudentV1(this.state, agent.id);
+        if (!sleeping && !foundingSpark) {
           this.applyPassiveNeeds(agent, effectiveEnvironment);
         }
         const body = this.state.v21?.bodiesByAgentId[agent.id];
@@ -5626,31 +5729,51 @@ export class WorldEngine {
             resolveBodyEliminationV1(this.state, agent);
           }
         }
-        if (!sleeping && mentoredMinor) {
-          const care = applyFoundingMentorCareV1(this.state, agent);
-          if (care.resourcesChanged) this.resourceProjectionDirty = true;
-        }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
       this.beginSecretLibraryYearV18(
-        livingAgents.filter((agent) => !isMentoredMinorV1(this.state, agent)),
+        livingAgents.filter(
+          (agent) => !isFoundingCohortStudentV1(this.state, agent.id),
+        ),
         now,
       );
       const residentsStudyingInLibrary = this.advanceSecretLibraryVisitorsV18(now);
+      // Founding children have no scripted resident task loop. Five scripted
+      // guardians raise them in permanent pairs: care, food, walks, outings
+      // and teaching originate here, from the mentor side.
+      this.stepFoundingMentorGuardians(now);
+      updateMentorTeachingPositionsV1(this.state);
       for (const agent of agents) {
         if (residentsStudyingInLibrary.has(agent.id)) {
           recordResidentActionEvidenceV16(this.state, agent);
           continue;
         }
-        if (isMentoredMinorV1(this.state, agent)) {
-          this.stepMentoredFoundingStudent(agent, now);
+        if (isFoundingCohortStudentV1(this.state, agent.id)) {
+          // No inherited resident task loop at any age. During childhood the
+          // guardian acts; after 18 the old Ainkrad adult script still stays
+          // off. The next project stage must produce actions from the Spark's
+          // own finite brain, learned skills, perception and memory.
+          delete agent.lastAction;
+          delete agent.lastDecision;
+          delete agent.plan;
+          delete agent.agencyCadence;
+          this.refreshSparkPerception(agent);
         } else {
           this.stepAgent(agent, agents, effectiveEnvironment, now);
         }
         recordResidentActionEvidenceV16(this.state, agent);
       }
-      this.advanceBirths(now, elapsedWorldMinutes);
+      // Legacy Ainkrad reproduction would manufacture adult/family choices
+      // after age 18. Keep it disabled for the Iskorka founding experiment
+      // until voluntary reproduction is driven by the native finite brain.
+      if (
+        !livingAgents.some((agent) =>
+          isFoundingCohortStudentV1(this.state, agent.id),
+        )
+      ) {
+        this.advanceBirths(now, elapsedWorldMinutes);
+      }
       this.advanceSettlementsV18(now);
       this.advanceVoluntaryResettlement(now);
       // No other sapient populations are generated.
@@ -6995,79 +7118,133 @@ export class WorldEngine {
     );
   }
 
-  private stepMentoredFoundingStudent(
-    agent: AgentState,
-    now: number,
-  ): void {
-    if (!canResidentAct(agent)) return;
-    if (advanceBodySleepV21(this.state, agent)) return;
+  private stepFoundingMentorGuardians(now: number): void {
+    const mentorWorld = this.state.iskorkaMentorsV1;
+    if (!mentorWorld?.active) return;
 
-    this.refreshSparkPerception(agent);
-    if (agent.movement) {
-      // Mentor-led travel is real continuous movement. No adult decision
-      // engine is invoked while the child is en route.
-      agent.lastAction = 'walk';
-      return;
-    }
+    for (const mentor of Object.values(mentorWorld.mentorsById)) {
+      if (mentor.status !== 'caregiving') continue;
+      const students = foundingMentorStudentsV1(this.state, mentor.id)
+        .filter((student) => student.life.ageYears < mentorWorld.releaseAgeYears);
+      if (students.length === 0) continue;
 
-    const mentor = assignedFoundingMentorV1(this.state, agent.id);
-    if (!mentor || mentor.status !== 'caregiving') return;
+      // Permanent guardian rule: this script belongs to the mentor. Children
+      // keep no work/task plan of their own before adulthood.
+      for (const child of students) {
+        delete child.lastAction;
+        delete child.lastDecision;
+        delete child.plan;
+        delete child.agencyCadence;
+      }
 
-    const target = mentorTeachingPlaceV1(
-      this.state,
-      mentor,
-      agent.life.ageYears,
-    );
+      const awake = students.filter(
+        (child) => !isBodySleepingV21(this.state, child.id),
+      );
 
-    if (
-      agent.life.ageYears >= 1.5 &&
-      agent.locationId !== target
-    ) {
-      if (this.travelBeforeAction(agent, target, 'reflect', now, 'walk')) {
-        return;
+      // Feeding, drinking, hygiene/first aid and ordinary care are performed by
+      // the guardian for each awake child.
+      for (const child of awake) {
+        const care = applyFoundingMentorCareV1(this.state, child);
+        if (care.resourcesChanged) this.resourceProjectionDirty = true;
+      }
+
+      // If the pair is currently walking, the guardian follows them physically;
+      // no lesson is injected while bodies are still en route.
+      if (students.some((child) => Boolean(child.movement))) {
+        updateMentorTeachingPositionsV1(this.state);
+        continue;
+      }
+
+      // A parent-like guardian does not take one small child away while the
+      // other assigned child is sleeping or elsewhere. The pair moves together.
+      if (
+        awake.length !== students.length ||
+        new Set(students.map((child) => child.locationId)).size !== 1
+      ) {
+        updateMentorTeachingPositionsV1(this.state);
+        continue;
+      }
+
+      const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
+      const destinationId = mentorTeachingPlaceV1(
+        this.state,
+        mentor,
+        youngestAge,
+      );
+      const currentPlaceId = students[0].locationId;
+
+      if (currentPlaceId !== destinationId) {
+        // The outing is initiated by the guardian. moveAgent only creates the
+        // physical path; no child decision, goal, job or profession is written.
+        for (const child of students) {
+          this.moveAgent(child, destinationId);
+          if (child.movement) child.movement.purpose = 'walk';
+          delete child.lastAction;
+          delete child.lastDecision;
+          delete child.plan;
+        }
+        updateMentorTeachingPositionsV1(this.state);
+        this.stageEvent({
+          eventId: this.nextId('mentor-outing'),
+          worldId: this.state.id,
+          kind: 'mentor.guardian.outing.started',
+          source: 'world',
+          occurredAt: now,
+          payload: {
+            mentorId: mentor.id,
+            studentIds: students.map((child) => child.id).join(','),
+            fromPlaceId: currentPlaceId,
+            destinationId,
+            childTaskScriptUsed: false,
+          },
+        });
+        continue;
+      }
+
+      // The guardian demonstrates and may allow age-appropriate supervised
+      // practice. Learning is a consequence of co-location with the mentor,
+      // never a "go work" task assigned to the child.
+      mentor.locationId = currentPlaceId;
+      updateMentorTeachingPositionsV1(this.state);
+      for (const child of awake) {
+        this.refreshSparkPerception(child);
+        const lesson = applyFoundingMentorLessonV1(
+          this.state,
+          child,
+          mentor,
+        );
+        if (!lesson.taught) continue;
+        child.lastMeaningfulEventAt = now;
+        child.energy = clamp01(
+          child.energy - (child.life.ageYears < 8 ? 0.002 : 0.005),
+        );
+        child.stress = clamp01(
+          child.stress - (child.life.ageYears < 8 ? 0.006 : 0.003),
+        );
+        delete child.lastAction;
+        delete child.lastDecision;
+        delete child.plan;
+
+        this.stageEvent({
+          eventId: this.nextId('mentor-lesson'),
+          worldId: this.state.id,
+          kind: 'mentor.guardian.lesson',
+          source: 'world',
+          occurredAt: now,
+          payload: {
+            mentorId: mentor.id,
+            studentId: child.id,
+            domain: lesson.domain ?? 'language',
+            teachingMode: lesson.mode ?? 'demonstration',
+            placeId: currentPlaceId,
+            gained: lesson.gained,
+            childLabor: false,
+            childTaskScriptUsed: false,
+            physicallyCoLocated: true,
+          },
+        });
       }
     }
-
-    // Infants/toddlers remain with the care team in the common nursery.
-    // Older children learn only after physically reaching the mentor's site.
-    if (agent.locationId !== mentor.locationId) return;
-
-    const lesson = applyFoundingMentorLessonV1(
-      this.state,
-      agent,
-      mentor,
-    );
-    if (!lesson.taught) return;
-
-    observeLocalPlacesV20(this.state, agent);
-    agent.lastAction =
-      lesson.domain === 'agriculture' || lesson.domain === 'construction'
-        ? 'work'
-        : lesson.domain === 'survival'
-          ? 'walk'
-          : 'socialize';
-    agent.lastMeaningfulEventAt = now;
-    agent.energy = clamp01(
-      agent.energy - (agent.life.ageYears < 5 ? 0.002 : 0.006),
-    );
-    agent.stress = clamp01(
-      agent.stress - (agent.life.ageYears < 8 ? 0.006 : 0.003),
-    );
-    agent.needs.purpose = clamp01(
-      agent.needs.purpose + Math.min(0.006, lesson.gained * 0.18),
-    );
-
-    this.recordAgentEvent(agent, now, 'agent.education.mentor_lesson', {
-      mentorId: mentor.id,
-      mentorName: mentor.name,
-      mentorRole: mentor.role,
-      domain: lesson.domain ?? 'language',
-      gained: lesson.gained,
-      ageYears: agent.life.ageYears,
-      worldMinutes: this.state.calendar.elapsedWorldMinutes,
-      physicallyCoLocated: true,
-      autonomousAdultDecisionEngineUsed: false,
-    });
   }
 
   private stepAgent(
@@ -8609,10 +8786,24 @@ export class WorldEngine {
     const mentor = isMentoredMinorV1(this.state, agent)
       ? assignedFoundingMentorV1(this.state, agent.id)
       : undefined;
+    const mentorDistance = mentor
+      ? Math.hypot(
+          mentor.position.x - agent.position.x,
+          mentor.position.y - agent.position.y,
+        )
+      : Number.POSITIVE_INFINITY;
     const mentorGuided =
       mentor !== undefined &&
       mentor.status === 'caregiving' &&
+      mentor.locationId === agent.locationId &&
+      mentorDistance <= 2 &&
       destinationId === mentorTeachingPlaceV1(this.state, mentor, agent.life.ageYears);
+    if (!mentorGuided && isMentoredMinorV1(this.state, agent)) {
+      // A founding child never starts a trip because an inherited resident
+      // task script wants a destination. No nearby caregiver = no outing.
+      recordDeferredChildTripV21(this.state, agent);
+      return true;
+    }
     if (!mentorGuided && !mayKnowPlaceV20(agent, destinationId, this.state)) return true;
     if (!this.youngChildMayTravelTo(agent, destinationId, mentorGuided)) {
       recordDeferredChildTripV21(this.state, agent);
@@ -8634,7 +8825,7 @@ export class WorldEngine {
     const leavesHomeSettlement =
       this.canAccessHomeSettlementStores(agent) &&
       destination?.settlementId !== homeSettlementId;
-    if (leavesHomeSettlement && agent.resources < 0.42) {
+    if (leavesHomeSettlement && agent.resources < 0.42 && !mentorGuided) {
       const drawn = this.drawV15HomeSettlementRation(agent, 0.42 - agent.resources);
       if (intendedAction === 'explore') explorationEvidence(this.state, agent).provisionsTaken += drawn;
     }
@@ -16333,6 +16524,9 @@ export class WorldEngine {
       for (const agent of Object.values(this.state.agents)) {
         if (!canResidentAct(agent) || !agent.movement || agent.movement.boatId || arrivedByBoat.has(agent.id)) continue;
         this.advanceAgentMovement(agent, next - minute, minute);
+      }
+      if (this.state.iskorkaMentorsV1?.active) {
+        updateMentorTeachingPositionsV1(this.state);
       }
       minute = next;
       this.finishSecretLibraryAdmissions(minute, this.state.now);

@@ -8,7 +8,9 @@ import {
   applyFoundingMentorCareV1,
   applyFoundingMentorLessonV1,
   assignedFoundingMentorV1,
+  foundingMentorStudentsV1,
   mentorActorsVisibleV1,
+  mentorTeachingPlaceV1,
   updateMentorTeachingPositionsV1,
 } from '../../src/iskorka/FoundingMentorsV1';
 import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
@@ -132,6 +134,53 @@ test('mentor lesson requires physical co-location and does not write a target le
   assert.ok(mentor.lessonCount > 0);
 });
 
+test('five-year-old Sparks are guardian-raised and never receive resident work/task scripts', async () => {
+  const { runtime } = await create('mentor-five-year-old', 'mentor-five-year-old-world');
+  await runtime.advanceTo(YEAR * 4.6);
+  const world = runtime.snapshot();
+
+  const mentors = Object.values(world.iskorkaMentorsV1!.mentorsById);
+  for (const mentor of mentors) {
+    assert.equal(foundingMentorStudentsV1(world, mentor.id).length, 2);
+  }
+
+  for (const spark of Object.values(world.agents)) {
+    assert.ok(spark.life.ageYears >= 5 && spark.life.ageYears < 6);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+
+    const livelihood = world.v18!.livelihoodByAgentId[spark.id];
+    assert.equal(livelihood.primary, 'undecided');
+    assert.equal(livelihood.totalPractice, 0);
+
+    const mentor = assignedFoundingMentorV1(world, spark.id)!;
+    assert.equal(mentor.locationId, spark.locationId);
+    assert.ok(Math.hypot(
+      mentor.position.x - spark.position.x,
+      mentor.position.y - spark.position.y,
+    ) <= 2);
+  }
+});
+
+test('older founding children travel only in permanent mentor pairs and still have no child task script', async () => {
+  const { runtime } = await create('mentor-supervised-outing', 'mentor-supervised-outing-world');
+  await runtime.advanceTo(YEAR * 9);
+  const world = runtime.snapshot();
+
+  for (const spark of Object.values(world.agents)) {
+    assert.ok(spark.life.ageYears >= 9);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    const mentor = assignedFoundingMentorV1(world, spark.id)!;
+    const pair = foundingMentorStudentsV1(world, mentor.id);
+    assert.equal(pair.length, 2);
+    assert.equal(pair[0].locationId, pair[1].locationId);
+    assert.equal(mentor.locationId, spark.locationId);
+  }
+});
+
 test('founding childhood stays mentor-led: no adult decisions, no births, real learning', async () => {
   const { runtime } = await create('mentor-childhood', 'mentor-childhood-world');
   await runtime.advanceTo(YEAR * 12);
@@ -145,12 +194,59 @@ test('founding childhood stays mentor-led: no adult decisions, no births, real l
   assert.ok(world.iskorkaMentorsV1!.totalLessons > 300);
 
   for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.plan, undefined);
     const k = world.v15!.knowledgeByAgentId[spark.id];
     assert.ok(k.agriculture + k.construction + k.household + k.survival > 0);
     const language = world.v18!.languageByAgentId[spark.id];
     assert.ok(language.spokenComprehension > 0);
     assert.ok(language.vocabulary > 0);
     assert.ok((spark.knownPlaceIds?.length ?? 0) < 20);
+  }
+});
+
+test('guardians teach complete reproduction basics before adulthood without creating desire or consent', async () => {
+  const { runtime } = await create('mentor-reproduction-education', 'mentor-reproduction-education-world');
+  await runtime.advanceTo(YEAR * 17);
+  const world = runtime.snapshot();
+
+  const expectedStages = [
+    'body_boundaries',
+    'puberty',
+    'conception',
+    'pregnancy_birth',
+    'adult_relationships_parenthood',
+  ];
+
+  for (const spark of Object.values(world.agents)) {
+    assert.ok(spark.life.ageYears >= 17 && spark.life.ageYears < 18);
+    const brain = world.iskorkaBrainV1!.brainsByAgentId[spark.id];
+    assert.ok(brain);
+
+    for (const stage of expectedStages) {
+      const datum = brain.data.find(
+        (item) => item.id === `mentor-reproduction:${stage}`,
+      );
+      assert.ok(datum, `${spark.id} missing reproduction education stage ${stage}`);
+      assert.equal(datum!.kind, 'human_reproduction_education');
+      assert.equal(datum!.source, 'message');
+      const payload = JSON.parse(datum!.encoded);
+      assert.equal(payload.stage, stage);
+      assert.equal(typeof payload.mentorId, 'string');
+      assert.equal(payload.constraints.createsDesire, false);
+      assert.equal(payload.constraints.createsConsent, false);
+      assert.equal(payload.constraints.createsRelationship, false);
+      assert.equal(payload.constraints.createsPregnancy, false);
+      assert.equal(payload.constraints.createsParenthoodDecision, false);
+    }
+
+    const family = world.v15!.familyAgencyByAgentId[spark.id];
+    assert.equal(family.physicalIntimacyInclination, 0);
+    assert.equal(family.childDesire, 0);
+    assert.ok(family.autonomy >= 0 && family.autonomy <= 1);
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.plan, undefined);
   }
 });
 
@@ -231,7 +327,37 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
       .every((mentor) => mentor.status === 'inactive'),
   );
   assert.equal(mentorActorsVisibleV1(world).length, 0);
-  assert.ok(Object.values(world.agents).some((agent) => agent.lastDecision !== undefined));
+
+  // Critical experiment boundary: adulthood must NOT switch the founding
+  // cohort back onto the inherited Ainkrad resident task script.
+  for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    assert.equal(spark.agencyCadence, undefined);
+  }
+
+  const birthsAtRelease = world.population.births;
+  const knowledgeAtRelease = Object.fromEntries(
+    Object.values(world.agents).map((spark) => [
+      spark.id,
+      structuredClone(world.v15!.knowledgeByAgentId[spark.id]),
+    ]),
+  );
+
+  await runtime.advanceTo(adulthoodFromStart + YEAR * 2);
+  world = runtime.snapshot();
+  assert.equal(world.population.births, birthsAtRelease);
+  for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    assert.equal(spark.agencyCadence, undefined);
+    assert.deepEqual(
+      world.v15!.knowledgeByAgentId[spark.id],
+      knowledgeAtRelease[spark.id],
+    );
+  }
 });
 
 test('mentors become visible/hearable through the same perception boundary, not hidden data injection', async () => {

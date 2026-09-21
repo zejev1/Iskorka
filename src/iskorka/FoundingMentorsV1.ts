@@ -41,7 +41,7 @@ export interface FoundingMentorMessageV1 {
   studentId: string;
   worldMinute: number;
   symbols: string[];
-  kind: 'care' | 'lesson' | 'farewell';
+  kind: 'care' | 'lesson' | 'body_education' | 'farewell';
 }
 
 export interface FoundingMentorStateV1 {
@@ -95,6 +95,131 @@ const MENTOR_SPECS: ReadonlyArray<{
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
+type ReproductiveEducationStageV1 =
+  | 'body_boundaries'
+  | 'puberty'
+  | 'conception'
+  | 'pregnancy_birth'
+  | 'adult_relationships_parenthood';
+
+interface ReproductiveEducationSpecV1 {
+  stage: ReproductiveEducationStageV1;
+  minAgeYears: number;
+  minComprehension: number;
+  facts: readonly string[];
+  spokenSummary: string;
+}
+
+const REPRODUCTIVE_EDUCATION_V1: readonly ReproductiveEducationSpecV1[] = [
+  {
+    stage: 'body_boundaries',
+    minAgeYears: 6,
+    minComprehension: 0.28,
+    facts: [
+      'У каждого человека есть личные границы тела.',
+      'Интимное прикосновение требует согласия; отказ нужно уважать.',
+      'Состояние тела и любопытство не создают обязанность вступать в близость.',
+    ],
+    spokenSummary: 'Твоё тело принадлежит тебе. У близости всегда должны быть границы и согласие.',
+  },
+  {
+    stage: 'puberty',
+    minAgeYears: 10,
+    minComprehension: 0.45,
+    facts: [
+      'Во время взросления мужское и женское тело постепенно становится способным к размножению.',
+      'Половое созревание меняет тело, но не создаёт любовь, согласие или желание ребёнка.',
+      'Фертильность зависит от возраста, здоровья и состояния тела.',
+    ],
+    spokenSummary: 'По мере взросления тело меняется и становится способным к размножению, но решения о близости остаются личными.',
+  },
+  {
+    stage: 'conception',
+    minAgeYears: 13,
+    minComprehension: 0.62,
+    facts: [
+      'Беременность может начаться после полового акта, если сперматозоид оплодотворит яйцеклетку.',
+      'Половой акт не гарантирует зачатие, а зачатие не является автоматическим следствием любви или желания ребёнка.',
+      'Взаимное согласие необходимо независимо от возможности зачатия.',
+    ],
+    spokenSummary: 'Я объясню биологию зачатия: половая близость может привести к оплодотворению, но это не происходит автоматически.',
+  },
+  {
+    stage: 'pregnancy_birth',
+    minAgeYears: 15,
+    minComprehension: 0.72,
+    facts: [
+      'После зачатия развивающийся ребёнок растёт в матке во время беременности.',
+      'Беременность длится много месяцев и создаёт дополнительную нагрузку и риски для организма матери.',
+      'Роды завершают беременность; после них матери нужно восстановление, а новорождённому нужен постоянный уход.',
+    ],
+    spokenSummary: 'После зачатия начинается беременность, затем роды и долгий уход за новорождённым. Это серьёзная ответственность, а не просто событие.',
+  },
+  {
+    stage: 'adult_relationships_parenthood',
+    minAgeYears: 17,
+    minComprehension: 0.82,
+    facts: [
+      'Сексуальное влечение, любовь, согласие, половой акт, желание ребёнка и фертильность — разные вещи.',
+      'Половой акт взрослых людей возможен только по взаимному согласию.',
+      'Решение о ребёнке требует учитывать здоровье, отношения, жильё, пищу, время и готовность заботиться о нём.',
+      'Ни знание о размножении, ни половое созревание не создают обязанности вступать в отношения или заводить детей.',
+    ],
+    spokenSummary: 'Перед взрослой жизнью запомни: влечение, любовь, согласие, близость и желание ребёнка — не одно и то же. Решение всегда остаётся вашим.',
+  },
+] as const;
+
+function teachReproductiveEducationV1(
+  world: WorldState,
+  student: AgentState,
+  mentor: FoundingMentorStateV1,
+): ReproductiveEducationStageV1 | undefined {
+  const language = ensureRussianKnowledgeV18(world, student);
+  const brain = ensureBrainForAgentV1(world, student);
+  if (!brain) return undefined;
+
+  const spec = REPRODUCTIVE_EDUCATION_V1.find((candidate) =>
+    student.life.ageYears >= candidate.minAgeYears &&
+    language.spokenComprehension >= candidate.minComprehension &&
+    !brain.data.some((datum) => datum.id === `mentor-reproduction:${candidate.stage}`),
+  );
+  if (!spec) return undefined;
+
+  const stored = tryStoreBrainDatumV1(brain, {
+    id: `mentor-reproduction:${spec.stage}`,
+    section: 'knowledge',
+    kind: 'human_reproduction_education',
+    source: 'message',
+    encoded: JSON.stringify({
+      stage: spec.stage,
+      mentorId: mentor.id,
+      mentorName: mentor.name,
+      learnedWorldMinute: world.calendar.elapsedWorldMinutes,
+      facts: [...spec.facts],
+      constraints: {
+        createsDesire: false,
+        createsConsent: false,
+        createsRelationship: false,
+        createsPregnancy: false,
+        createsParenthoodDecision: false,
+      },
+    }),
+  });
+  if (!stored) return undefined;
+
+  const state = ensureFoundingMentorWorldV1(world);
+  pushStudentMessage(state, {
+    id: `mentor-body-education:${mentor.id}:${student.id}:${spec.stage}`,
+    mentorId: mentor.id,
+    studentId: student.id,
+    worldMinute: world.calendar.elapsedWorldMinutes,
+    symbols: [`${mentor.name}: ${spec.spokenSummary}`],
+    kind: 'body_education',
+  });
+  rememberMentorSourceV1(world, student, mentor, `human-reproduction:${spec.stage}`);
+  return spec.stage;
+}
+
 function roleDomain(role: FoundingMentorRoleV1): GenesisDomain | undefined {
   switch (role) {
     case 'agriculture_nature': return 'agriculture';
@@ -110,20 +235,65 @@ export function mentorTeachingPlaceV1(
   mentor: Readonly<FoundingMentorStateV1>,
   studentAgeYears: number,
 ): string {
-  if (studentAgeYears < 5) return 'commons';
-  switch (mentor.role) {
-    case 'agriculture_nature':
-      return world.places.resource_field ? 'resource_field' : 'commons';
-    case 'construction_craft':
-      return world.places.workshop ? 'workshop' : 'commons';
-    case 'household_health':
-      return 'commons';
-    case 'survival_navigation':
-      return studentAgeYears >= 12 && world.places.outskirts ? 'outskirts' : 'quiet_space';
-    case 'care_language':
-    default:
-      return world.places.quiet_space ? 'quiet_space' : 'commons';
+  // The destination belongs to the guardian's schedule, not to a task in the
+  // child's brain. The same caregiver raises the same two children and takes
+  // them on age-appropriate outings to learn by watching and helping.
+  const candidates: string[] = ['commons'];
+  const add = (id: string): void => {
+    if (world.places[id] && !candidates.includes(id)) candidates.push(id);
+  };
+
+  if (studentAgeYears >= 2) add('quiet_space');
+  if (studentAgeYears >= 5) {
+    add('resource_field');
+    add('workshop');
+    add('foundation_lake');
+    add('shore');
   }
+  if (studentAgeYears >= 8) {
+    add('meadow');
+    add('forest');
+  }
+  if (studentAgeYears >= 12) {
+    add('outskirts');
+    add('river');
+    add('lake');
+  }
+
+  const mentorIndex = Math.max(
+    0,
+    MENTOR_SPECS.findIndex((spec) => spec.id === mentor.id),
+  );
+  const outingSlot = Math.floor(
+    world.calendar.elapsedWorldMinutes / (SEMANTIC_QUANTUM * 2),
+  );
+  return candidates[(outingSlot + mentorIndex) % candidates.length] ?? 'commons';
+}
+
+function mentorDomainAtCurrentPlaceV1(
+  mentor: Readonly<FoundingMentorStateV1>,
+  placeId: string,
+  studentAgeYears: number,
+): GenesisDomain | 'language' {
+  // Before the existing knowledge-transfer system's minimum learning age,
+  // mentors still talk, demonstrate and let children observe, but no adult
+  // agriculture/construction/household/survival lesson is written.
+  if (studentAgeYears < 5) return 'language';
+  if (placeId === 'resource_field') return 'agriculture';
+  if (placeId === 'workshop') return 'construction';
+  if (
+    placeId === 'outskirts' ||
+    placeId === 'forest' ||
+    placeId === 'meadow' ||
+    placeId === 'shore' ||
+    placeId === 'river' ||
+    placeId === 'lake' ||
+    placeId === 'foundation_lake'
+  ) return 'survival';
+  if (placeId === 'commons') {
+    return mentor.role === 'care_language' ? 'language' : 'household';
+  }
+  return roleDomain(mentor.role) ?? 'language';
 }
 
 function placePosition(world: Readonly<WorldState>, placeId: string, index: number): { x: number; y: number } {
@@ -218,10 +388,29 @@ export function assignedFoundingMentorV1(
   if (!state?.active) return undefined;
   const studentIndex = state.cohortStudentIds.indexOf(agentId);
   if (studentIndex < 0) return undefined;
-  const agent = world.agents[agentId];
-  const yearRotation = Math.max(0, Math.floor((agent?.life.ageYears ?? 0) - FOUNDING_SPARK_START_AGE_YEARS_V1));
-  const mentorIndex = (studentIndex + yearRotation) % MENTOR_SPECS.length;
+  // Permanent family-like guardianship: exactly one mentor for every two
+  // founding children. The caregiver never rotates annually.
+  const mentorIndex = Math.min(
+    MENTOR_SPECS.length - 1,
+    Math.floor(studentIndex / 2),
+  );
   return state.mentorsById[MENTOR_SPECS[mentorIndex].id];
+}
+
+export function foundingMentorStudentsV1(
+  world: Readonly<WorldState>,
+  mentorId: string,
+): AgentState[] {
+  const state = world.iskorkaMentorsV1;
+  if (!state?.active) return [];
+  return state.cohortStudentIds
+    .map((id) => world.agents[id])
+    .filter((agent): agent is AgentState =>
+      Boolean(
+        agent?.life.alive &&
+        assignedFoundingMentorV1(world, agent.id)?.id === mentorId,
+      ),
+    );
 }
 
 function pushStudentMessage(
@@ -359,10 +548,17 @@ function skillPracticeFromDomain(
   }
 }
 
+export type FoundingMentorEducationDomainV1 =
+  | GenesisDomain
+  | 'language'
+  | 'human_reproduction';
+
 export interface FoundingMentorLessonResultV1 {
   taught: boolean;
   mentorId?: string;
-  domain?: GenesisDomain | 'language';
+  domain?: FoundingMentorEducationDomainV1;
+  reproductiveEducationStage?: ReproductiveEducationStageV1;
+  mode?: 'demonstration' | 'guided_practice';
   gained: number;
 }
 
@@ -378,11 +574,36 @@ export function applyFoundingMentorLessonV1(
   if (mentor.locationId !== student.locationId) return { taught: false, gained: 0 };
 
   const now = world.calendar.elapsedWorldMinutes;
-  let gained = 0;
-  let domain: GenesisDomain | 'language' = 'language';
-  const primaryDomain = roleDomain(mentor.role);
+  const reproductiveEducationStage = teachReproductiveEducationV1(
+    world,
+    student,
+    mentor,
+  );
+  if (reproductiveEducationStage) {
+    mentor.lessonCount += 1;
+    mentor.lastLessonWorldMinute = now;
+    const state = ensureFoundingMentorWorldV1(world);
+    state.totalLessons += 1;
+    return {
+      taught: true,
+      mentorId: mentor.id,
+      domain: 'human_reproduction',
+      reproductiveEducationStage,
+      mode: 'demonstration',
+      gained: 0.01,
+    };
+  }
 
-  if (mentor.role === 'care_language' || student.life.ageYears < 5) {
+  let gained = 0;
+  let domain: FoundingMentorEducationDomainV1 = 'language';
+  const lessonDomain = mentorDomainAtCurrentPlaceV1(
+    mentor,
+    mentor.locationId,
+    student.life.ageYears,
+  );
+  const primaryDomain = lessonDomain === 'language' ? undefined : lessonDomain;
+
+  if (lessonDomain === 'language') {
     gained = teachLanguageV1(world, student, mentor);
     domain = 'language';
     rememberMentorSourceV1(world, student, mentor, 'language');
@@ -402,21 +623,31 @@ export function applyFoundingMentorLessonV1(
           activityVerified: true,
         },
       );
-      const practice = applyIndependentPractice(
-        learner,
-        {
-          practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
-          personId: student.id,
-          domain: primaryDomain,
-          worldMinutes: now,
-          durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 60,
-          activityVerified: true,
-          challenge: student.life.ageYears >= 12 ? 0.52 : 0.28,
-        },
-      );
-      gained = lesson.gained + practice.gained;
+      let practiceGained = 0;
+      if (student.life.ageYears >= 8) {
+        // This is an optional supervised try after the mentor's demonstration.
+        // It changes only the student's learning state; it does not harvest,
+        // build, earn resources or satisfy settlement labour demand.
+        const practice = applyIndependentPractice(
+          learner,
+          {
+            practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
+            personId: student.id,
+            domain: primaryDomain,
+            worldMinutes: now,
+            durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 45,
+            activityVerified: true,
+            challenge: student.life.ageYears >= 12 ? 0.52 : 0.18,
+          },
+        );
+        practiceGained = practice.gained;
+      }
+      gained = lesson.gained + practiceGained;
       domain = primaryDomain;
-      skillPracticeFromDomain(student, primaryDomain, gained);
+      if (student.life.ageYears >= 8) {
+        const ageScale = student.life.ageYears < 12 ? 0.35 : 1;
+        skillPracticeFromDomain(student, primaryDomain, gained * ageScale);
+      }
       rememberMentorSourceV1(world, student, mentor, primaryDomain);
     }
     gained += teachLanguageV1(world, student, mentor) * 0.25;
@@ -426,18 +657,22 @@ export function applyFoundingMentorLessonV1(
   mentor.lastLessonWorldMinute = now;
   const state = ensureFoundingMentorWorldV1(world);
   state.totalLessons += 1;
+  const mode: FoundingMentorLessonResultV1['mode'] =
+    student.life.ageYears < 8 ? 'demonstration' : 'guided_practice';
   pushStudentMessage(state, {
     id: `mentor-message:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
     mentorId: mentor.id,
     studentId: student.id,
     worldMinute: now,
     symbols: domain === 'language'
-      ? [`${mentor.name}: слушай, смотри, повторяй и спрашивай, если не понял.`]
-      : [`${mentor.name}: сегодня учимся через пример и собственную попытку — ${domain}.`],
+      ? [`${mentor.name}: я рядом. Слушай, смотри, повторяй и спрашивай, если не понял.`]
+      : mode === 'demonstration'
+        ? [`${mentor.name}: сначала я покажу сам. Ты смотри и спрашивай — это урок, не работа.`]
+        : [`${mentor.name}: сначала я покажу. Если хочешь — попробуй рядом со мной; это обучение, не обязанность работать.`],
     kind: 'lesson',
   });
 
-  return { taught: true, mentorId: mentor.id, domain, gained };
+  return { taught: true, mentorId: mentor.id, domain, mode, gained };
 }
 
 export interface FoundingMentorCareResultV1 {
@@ -459,7 +694,14 @@ export function applyFoundingMentorCareV1(
 
   const resources = world.v15?.renewableResources;
   let resourcesChanged = false;
-  if (resources && resources.storedResources < 0.35) {
+  if (
+    resources &&
+    resources.storedResources < 0.35 &&
+    mentor.locationId === 'resource_field'
+  ) {
+    // Provisioning is a real mentor action at the field. Caregivers no longer
+    // harvest magically from the nursery or make children provide for
+    // themselves.
     const harvested = harvestRenewably(
       resources,
       {
@@ -468,7 +710,7 @@ export function applyFoundingMentorCareV1(
         diligence: 0.95,
       },
       {
-        eventId: `mentor-harvest:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
+        eventId: `mentor-harvest:${mentor.id}:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
         worldMinutes: world.calendar.elapsedWorldMinutes,
         effort: 0.48,
       },
@@ -502,8 +744,8 @@ export function applyFoundingMentorCareV1(
 
   student.energy = Math.max(student.energy, age < 3 ? 0.78 : 0.7);
   student.stress = clamp01(student.stress - (age < 5 ? 0.045 : 0.025));
-  student.resources = Math.max(student.resources, 0.12);
-  student.needs.belonging = Math.max(student.needs.belonging, age < 8 ? 0.76 : 0.62);
+  // Do not grant a child carried provisions, a profession motive or any
+  // scripted mental need. Food/water/care come from the guardian's actions.
 
   // Scripted caregivers can clean/tend injuries and support ordinary recovery,
   // but they do not erase wounds or diseases instantly.
@@ -541,16 +783,31 @@ export function applyFoundingMentorCareV1(
 export function updateMentorTeachingPositionsV1(world: WorldState): void {
   const state = ensureFoundingMentorWorldV1(world);
   if (!state.active) return;
-  const livingStudents = state.cohortStudentIds
-    .map((id) => world.agents[id])
-    .filter((agent): agent is AgentState => Boolean(agent?.life.alive));
-  if (!livingStudents.length) return;
-  const representativeAge = livingStudents.reduce((sum, agent) => sum + agent.life.ageYears, 0) / livingStudents.length;
+
   Object.values(state.mentorsById).forEach((mentor, index) => {
     if (mentor.status !== 'caregiving') return;
-    const placeId = mentorTeachingPlaceV1(world, mentor, representativeAge);
-    mentor.locationId = placeId;
-    mentor.position = placePosition(world, placeId, index);
+    const students = foundingMentorStudentsV1(world, mentor.id);
+    if (students.length === 0) return;
+
+    // The guardian is physically with the pair. The mentor never teleports to
+    // a workplace and leaves the children behind merely because a lesson is
+    // scheduled there.
+    const anchor =
+      students.find((student) => Boolean(student.movement)) ??
+      students[0];
+    const together = students.filter(
+      (student) => student.locationId === anchor.locationId,
+    );
+    const group = together.length > 0 ? together : [anchor];
+    const baseX = group.reduce((sum, student) => sum + student.position.x, 0) / group.length;
+    const baseY = group.reduce((sum, student) => sum + student.position.y, 0) / group.length;
+    const angle = (Math.PI * 2 * index) / MENTOR_SPECS.length;
+
+    mentor.locationId = anchor.locationId;
+    mentor.position = {
+      x: baseX + Math.cos(angle) * 0.35,
+      y: baseY + Math.sin(angle) * 0.35,
+    };
   });
 }
 

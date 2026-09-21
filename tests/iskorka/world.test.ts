@@ -8,6 +8,8 @@ import { assertIskorkaProfile, ISKORKA_PROFILE, ISKORKA_FOUNDER_NAMES } from '..
 import { validateCommand } from '../../src/iskorka/protocol';
 import { worldWeatherV21 } from '../../src/v21/WeatherV21';
 import { worldCalendarAtMinutes } from '../../src/world/WorldClock';
+import { routeIdBetween } from '../../src/world/WorldNavigation';
+import { pathCrossesWater } from '../../src/world/WaterNavigation';
 import type { WorldState } from '../../src/world/types';
 
 const YEAR=525600;
@@ -55,11 +57,39 @@ test('founding town retains pinned F2 coordinates, buildings, connections and te
  const {world:w}=await create();const golden=JSON.parse(readFileSync('tests/iskorka/donor-geometry.json','utf8'));
  for(const [id,p]of Object.entries(golden.places) as [string,Record<string,unknown>][]){
   const actual=w.places[id];assert.ok(actual,id);
-  for(const [key,value]of Object.entries(p))assert.deepEqual((actual as any)[key],value,id+'.'+key);
+  for(const [key,value]of Object.entries(p)){
+   if(key==='connectedPlaceIds'){
+    for(const expectedId of value as string[])assert.ok(actual.connectedPlaceIds.includes(expectedId),id+'.connectedPlaceIds missing '+expectedId);
+    continue;
+   }
+   assert.deepEqual((actual as any)[key],value,id+'.'+key);
+  }
  }
- assert.deepEqual(w.terrain,golden.terrain);assert.deepEqual(w.v18!.planetaryGeography,golden.planetaryGeography);
+ assert.equal(w.terrain?.version,golden.terrain.version);
+ assert.equal(w.terrain?.epoch,golden.terrain.epoch);
+ assert.equal(w.terrain?.seed,golden.terrain.seed);
+ for(const expectedAnchor of golden.terrain.anchors){
+  const actualAnchor=w.terrain!.anchors.find((anchor:any)=>anchor.id===expectedAnchor.id);
+  assert.deepEqual(actualAnchor,expectedAnchor,'terrain anchor '+expectedAnchor.id);
+ }
+ assert.equal(w.terrain!.anchors.filter((anchor:any)=>anchor.id==='foundation_lake').length,1);
+ assert.deepEqual(w.v18!.planetaryGeography,golden.planetaryGeography);
  assert.equal(w.settlements.settlement_ainkrad.name,'Основание');
  assert.notEqual(w.places.commons.mapX,0);
+});
+test('Foundation has one nearby physical lake with a walkable pre-existing footpath',async()=>{
+ const {world:w}=await create('foundation-lake','foundation-lake-world');
+ const lake=w.places.foundation_lake,outskirts=w.places.outskirts;
+ assert.ok(lake);assert.equal(lake.kind,'lake');assert.equal(lake.biome,'lake');assert.equal(lake.surface,'shore');
+ assert.ok((lake.waterPolygon?.length??0)>=16);
+ assert.ok(Math.hypot(lake.mapX-outskirts.mapX,lake.mapY-outskirts.mapY)<10);
+ assert.ok(lake.connectedPlaceIds.includes('outskirts'));
+ assert.ok(outskirts.connectedPlaceIds.includes('foundation_lake'));
+ const route=w.routes[routeIdBetween('outskirts','foundation_lake')];
+ assert.ok(route);assert.equal(route.traversal,'walk');
+ assert.ok((route.completedTraversals??0)>=1);
+ assert.equal(route.widthMetres,1.5);
+ assert.equal(pathCrossesWater(route.waypoints,w.places),false);
 });
 test('same seed produces byte-equivalent initial worlds',async()=>{
  const a=await create(),b=await create();assert.deepEqual(a.world,b.world);
