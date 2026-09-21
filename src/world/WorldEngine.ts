@@ -21,6 +21,19 @@ import {
   agencyIntentAtWorldTimeV1,
   projectResidentAgencyCadenceV1,
 } from '../iskorka/ResidentAgencyCadenceV1';
+import {
+  assertWorldBrainRegistryV1,
+  brainForLiveOwnerV1,
+  ensureBrainForAgentV1,
+  ensureWorldBrainRegistryV1,
+  importLegacyPersistentMemoriesV1,
+  retireBrainOwnerV1,
+} from '../iskorka/BrainStateAdapterV1';
+import { tryStoreBrainDatumV1 } from '../iskorka/BrainStateV1';
+import {
+  applyHumanMotorActionEnvelopeV1,
+  humanMotorMobilityScaleV1,
+} from '../iskorka/HumanMotorDevelopmentV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -370,6 +383,16 @@ const WILDLIFE_VIABLE_RESERVE_SHARE = 0.25;
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const clampSigned = (value: number) => Math.max(-1, Math.min(1, value));
+
+function allowedActionsForResidentV1(agent: Readonly<AgentState>): ReadonlySet<AgentActionKind> {
+  const base = allowedActionsForAgeV16(
+    agent.race ?? 'human',
+    agent.life.ageYears,
+  );
+  return (agent.race ?? 'human') === 'human'
+    ? applyHumanMotorActionEnvelopeV1(agent.life.ageYears, base)
+    : base;
+}
 const ROUTINE_EVENT_SAMPLE_INTERVAL = 1800;
 const SAPIENT_RACES = SAPIENT_RACES_V16;
 
@@ -4645,6 +4668,8 @@ export class WorldEngine {
   private operationTail: Promise<void> = Promise.resolve();
   private stagedEvents: WorldEvent[] | undefined;
   private stagedMemories: MemoryRecord[] | undefined;
+  private stagedRetiredBrainOwnerIds: Set<string> | undefined;
+  private stagedPurgedPersonalMemoryOwnerIds: Set<string> | undefined;
   private committedSignalCache: WorldEvent[] | undefined;
   private routePathCache:
     | Map<string, Map<string, string[]>>
@@ -4932,6 +4957,8 @@ export class WorldEngine {
 
     initializeIskorkaWorld(state, options.seed);
     for (const resident of Object.values(state.agents)) observeLocalPlacesV20(state, resident);
+    ensureWorldBrainRegistryV1(state);
+    assertWorldBrainRegistryV1(state);
     assertWorldState(state);
     await options.store.initializeWorld(state);
     return new WorldEngine(options.store, state);
