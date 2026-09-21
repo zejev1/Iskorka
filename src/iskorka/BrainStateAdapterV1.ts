@@ -115,6 +115,114 @@ function importLegacyOwnedStateV1(
   assertBrainStateV1(brain);
 }
 
+const SYNCHRONIZED_LEGACY_DATUM_IDS_V1 = new Set([
+  'legacy:mind',
+  'legacy:skills',
+  'legacy:learning',
+  'legacy:map',
+  'legacy:v15-knowledge',
+  'legacy:v18-language',
+  'legacy:v18-livelihood',
+  'legacy:v18-secret-library',
+  'legacy:v19-divine',
+  'legacy:v21-applied-knowledge',
+]);
+
+function makeLegacyDatumV1(
+  id: string,
+  section: BrainBudgetSectionV1,
+  kind: string,
+  value: unknown,
+): import('./BrainStateV1').BrainDatumV1 | undefined {
+  if (value === undefined) return undefined;
+  const encoded = stableJsonStringify(value);
+  if (encoded === '{}' || encoded === '[]' || encoded === 'null') return undefined;
+  return {
+    id,
+    section,
+    kind,
+    source: 'unknown_legacy',
+    encoded,
+  };
+}
+
+/**
+ * Stage-2 compatibility bridge. The old runtime still reads its established
+ * fields, but their current acquired content is mirrored into the finite
+ * BrainState before every commit and therefore counted against the same cap.
+ * Later brain stages replace these mirrors with native structures.
+ */
+export function synchronizeLegacyOwnedStateV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  brain: BrainStateV1,
+): void {
+  const retained = brain.data.filter(
+    (datum) => !SYNCHRONIZED_LEGACY_DATUM_IDS_V1.has(datum.id),
+  );
+  const next = [
+    makeLegacyDatumV1('legacy:mind', 'identity', 'legacy_mind', {
+      values: agent.mind.values,
+      beliefs: agent.mind.beliefs,
+      needs: agent.needs,
+    }),
+    makeLegacyDatumV1('legacy:skills', 'identity', 'legacy_skill_levels', agent.skills),
+    makeLegacyDatumV1('legacy:learning', 'significant', 'legacy_learning', agent.learning),
+    makeLegacyDatumV1('legacy:map', 'knowledge', 'legacy_private_map', {
+      knownPlaceIds: agent.knownPlaceIds,
+      knownDungeonIds: agent.knownDungeonIds,
+      cartography: agent.cartography,
+    }),
+    makeLegacyDatumV1(
+      'legacy:v15-knowledge',
+      'knowledge',
+      'legacy_v15_knowledge',
+      world.v15?.knowledgeByAgentId[agent.id],
+    ),
+    makeLegacyDatumV1(
+      'legacy:v18-language',
+      'knowledge',
+      'legacy_language',
+      world.v18?.languageByAgentId[agent.id],
+    ),
+    makeLegacyDatumV1(
+      'legacy:v18-livelihood',
+      'identity',
+      'legacy_livelihood',
+      world.v18?.livelihoodByAgentId[agent.id],
+    ),
+    makeLegacyDatumV1(
+      'legacy:v18-secret-library',
+      'knowledge',
+      'legacy_read_knowledge',
+      world.v18?.secretLibrary.knowledgeByAgentId[agent.id],
+    ),
+    makeLegacyDatumV1(
+      'legacy:v19-divine',
+      'significant',
+      'legacy_personal_divine_state',
+      world.v19?.divineAgency.byAgentId[agent.id],
+    ),
+    makeLegacyDatumV1(
+      'legacy:v21-applied-knowledge',
+      'knowledge',
+      'legacy_applied_knowledge',
+      world.v21?.appliedKnowledgeByAgentId[agent.id],
+    ),
+  ].filter((datum): datum is NonNullable<typeof datum> => datum !== undefined);
+
+  brain.data = [...retained, ...next];
+  brain.rngState = world.determinism.rngState;
+  brain.migration.importedLegacy = true;
+  brain.migration.importedDatumIds = [
+    ...new Set([
+      ...brain.migration.importedDatumIds,
+      ...next.map((datum) => datum.id),
+    ]),
+  ];
+  assertBrainStateV1(brain);
+}
+
 export function importLegacyPersistentMemoriesV1(
   brain: BrainStateV1,
   memories: readonly Readonly<MemoryRecord>[],
