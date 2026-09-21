@@ -24,6 +24,7 @@ import type {
 const MAX_RECENT_MESSAGES_V1 = 8;
 const MAX_MESSAGE_SYMBOLS_V1 = 4;
 const MAX_MESSAGE_SYMBOL_CODE_UNITS_V1 = 128;
+const utf8EncoderV1 = new TextEncoder();
 /**
  * Stage-2 reserved 8 KiB for working memory/attention. Stage 3 spends that
  * reserve on the current sensory frame instead of persisting the frame in the
@@ -44,6 +45,7 @@ const referenceIndexByPerceptionV1 = new WeakMap<
   object,
   Map<string, BrainPerceptionReferenceV1>
 >();
+const knownDeathSubjectsByPerceptionV1 = new WeakMap<object, string[]>();
 
 function emptyPerceptionStateV1(): BrainPerceptionStateV1 {
   return {
@@ -137,6 +139,29 @@ function ensureReferenceV1(
   return reference;
 }
 
+function pendingReferenceStructuralDeltaV1(
+  context: PerceptionMutationContextV1,
+): number {
+  let delta = 0;
+  for (const pending of context.pendingByRefId.values()) {
+    const reference = pending.reference;
+    if (reference.kind !== pending.kind) {
+      delta +=
+        utf8EncoderV1.encode(pending.kind).byteLength -
+        utf8EncoderV1.encode(reference.kind).byteLength;
+    }
+    if (
+      pending.subjectWorldObjectId &&
+      pending.subjectWorldObjectId !== reference.subjectWorldObjectId
+    ) {
+      delta +=
+        utf8EncoderV1.encode(pending.subjectWorldObjectId).byteLength -
+        utf8EncoderV1.encode(reference.subjectWorldObjectId ?? '').byteLength;
+    }
+  }
+  return Math.max(0, delta);
+}
+
 function applyPendingReferenceUpdatesV1(
   context: PerceptionMutationContextV1,
 ): void {
@@ -172,6 +197,7 @@ function rollbackNewReferencesV1(
   }
   perception.nextRefSequence = priorNextRefSequence;
   referenceIndexByPerceptionV1.set(perception as object, context.byWorldObjectId);
+  knownDeathSubjectsByPerceptionV1.delete(perception as object);
 }
 
 function observationForBrainV1(
@@ -371,19 +397,17 @@ export function acceptPersonalPerceptBatchV1(
   const merged = mergedMessagesV1(priorMessages, receivedMessages);
   if (merged.structureChanged) perception.recentMessages = merged.messages;
 
+  const pendingStructuralDelta = pendingReferenceStructuralDeltaV1(context);
   const structureChanged =
     context.newReferences.length > 0 ||
     merged.structureChanged ||
-    [...context.pendingByRefId.values()].some(
-      (pending) =>
-        pending.reference.kind !== pending.kind ||
-        (!pending.reference.subjectWorldObjectId &&
-          Boolean(pending.subjectWorldObjectId)),
-    );
+    pendingStructuralDelta > 0;
 
   if (structureChanged) invalidateBrainPerceptionByteCacheV1(brain);
   if (
-    logicalBrainBytesV1(brain) + PERSONAL_PERCEPT_WORKING_BYTES_V1 >
+    logicalBrainBytesV1(brain) +
+      pendingStructuralDelta +
+      PERSONAL_PERCEPT_WORKING_BYTES_V1 >
     BRAIN_LOGICAL_BUDGET_BYTES_V1
   ) {
     rollbackNewReferencesV1(perception, context, priorNextRefSequence);
@@ -398,6 +422,12 @@ export function acceptPersonalPerceptBatchV1(
   }
 
   applyPendingReferenceUpdatesV1(context);
+  if (pendingStructuralDelta > 0) {
+    invalidateBrainPerceptionByteCacheV1(brain);
+    knownDeathSubjectsByPerceptionV1.delete(perception as object);
+  } else if (context.newReferences.some((reference) => reference.kind === 'remains')) {
+    knownDeathSubjectsByPerceptionV1.delete(perception as object);
+  }
   perception.lastPerceptWorldMinute = batch.worldMinute;
   const view: PersonalPerceptViewV1 = {
     worldMinute: batch.worldMinute,
@@ -427,17 +457,19 @@ export function perceptionReferenceForWorldObjectV1(
 export function knownDeathSubjectWorldIdsV1(
   brain: Readonly<BrainStateV1>,
 ): string[] {
-  return [
-    ...new Set(
-      (brain.perception?.references ?? [])
-        .filter(
-          (reference) =>
-            reference.kind === 'remains' &&
-            Boolean(reference.subjectWorldObjectId),
-        )
-        .map((reference) => reference.subjectWorldObjectId!),
-    ),
-  ];
+  const perception = brain.perception;
+  if (!perception) return [];
+  const cached = knownDeathSubjectsByPerceptionV1.get(perception as object);
+  if (cached) return cached;
+  const unique = new Set<string>();
+  for (const reference of perception.references) {
+    if (reference.kind === 'remains' && reference.subjectWorldObjectId) {
+      unique.add(reference.subjectWorldObjectId);
+    }
+  }
+  const result = [...unique];
+  knownDeathSubjectsByPerceptionV1.set(perception as object, result);
+  return result;
 }
 
 function queueMessageV1(
@@ -463,19 +495,17 @@ function queueMessageV1(
   const merged = mergedMessagesV1(priorMessages, [translated]);
   if (merged.structureChanged) perception.recentMessages = merged.messages;
 
+  const pendingStructuralDelta = pendingReferenceStructuralDeltaV1(context);
   const structureChanged =
     context.newReferences.length > 0 ||
     merged.structureChanged ||
-    [...context.pendingByRefId.values()].some(
-      (pending) =>
-        pending.reference.kind !== pending.kind ||
-        (!pending.reference.subjectWorldObjectId &&
-          Boolean(pending.subjectWorldObjectId)),
-    );
+    pendingStructuralDelta > 0;
   if (structureChanged) invalidateBrainPerceptionByteCacheV1(brain);
 
   if (
-    logicalBrainBytesV1(brain) + PERSONAL_PERCEPT_WORKING_BYTES_V1 >
+    logicalBrainBytesV1(brain) +
+      pendingStructuralDelta +
+      PERSONAL_PERCEPT_WORKING_BYTES_V1 >
     BRAIN_LOGICAL_BUDGET_BYTES_V1
   ) {
     rollbackNewReferencesV1(perception, context, priorNextRefSequence);
@@ -489,6 +519,10 @@ function queueMessageV1(
   }
 
   applyPendingReferenceUpdatesV1(context);
+  if (pendingStructuralDelta > 0) {
+    invalidateBrainPerceptionByteCacheV1(brain);
+    knownDeathSubjectsByPerceptionV1.delete(perception as object);
+  }
   perception.lastPerceptWorldMinute = Math.max(
     perception.lastPerceptWorldMinute ?? 0,
     worldMinute,
