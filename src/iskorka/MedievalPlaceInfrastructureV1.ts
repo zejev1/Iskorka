@@ -56,7 +56,6 @@ export interface MedievalPlaceInfrastructureV1 {
   /** Stored drinking/washing water physically held in household containers. */
   waterCapacityLitres?: number;
   waterReserveLitres?: number;
-  lastWaterFetchWorldMinute?: number;
 }
 
 const REQUIREMENTS: Readonly<Record<MedievalCapabilityV1, readonly string[]>> = {
