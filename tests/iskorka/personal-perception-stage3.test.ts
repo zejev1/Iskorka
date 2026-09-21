@@ -111,6 +111,13 @@ test('local remains create personal death knowledge; a remote relative learns on
   const relative = state.agents.agent_2;
   const subject = state.agents.agent_3;
 
+  // This test isolates adult causal reporting; founding infants have their own
+  // developmental perception tests.
+  witness.life.ageYears = 25;
+  witness.life.stage = 'adult';
+  relative.life.ageYears = 25;
+  relative.life.stage = 'adult';
+
   subject.life.alive = false;
   subject.life.health = 0;
   subject.life.diedAt = state.now;

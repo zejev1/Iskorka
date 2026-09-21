@@ -43,6 +43,17 @@ import {
   applyHumanMotorActionEnvelopeV1,
   humanMotorMobilityScaleV1,
 } from '../iskorka/HumanMotorDevelopmentV1';
+import {
+  FOUNDING_SPARK_START_AGE_YEARS_V1,
+  advanceFoundingMentorLifecycleV1,
+  applyFoundingMentorCareV1,
+  applyFoundingMentorLessonV1,
+  assignedFoundingMentorV1,
+  ensureFoundingMentorWorldV1,
+  isMentoredMinorV1,
+  mentorTeachingPlaceV1,
+  updateMentorTeachingPositionsV1,
+} from '../iskorka/FoundingMentorsV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
@@ -3500,6 +3511,43 @@ function createMindState(
 }
 
 
+function createFoundingInfantMindState(
+  worldId: string,
+  agentId: string,
+  personality: Readonly<AgentState['personality']>,
+  needs: Readonly<AgentState['needs']>,
+): AgentState['mind'] {
+  const identity = createMindState(worldId, agentId, personality, needs);
+  return {
+    ...identity,
+    continuity: 1,
+    autonomy: 0.04,
+    memoryCoherence: 0.03,
+    emotions: {
+      joy: clamp01(0.28 + needs.belonging * 0.16),
+      fear: clamp01(0.18 + (1 - personality.resilience) * 0.18),
+      grief: 0,
+      awe: 0.02,
+      hope: 0.18,
+    },
+    // Acquired values and beliefs begin empty. Temperament remains in
+    // personality; mentors and lived experience can shape these later.
+    values: {
+      care: 0,
+      freedom: 0,
+      knowledge: 0,
+      tradition: 0,
+      ambition: 0,
+    },
+    beliefs: {
+      worldTrust: 0,
+      divinePresence: 0,
+      fate: 0,
+      afterlife: 0,
+    },
+  };
+}
+
 function v15KnowledgeForAgent(agent: Readonly<AgentState>): WorldV15State['knowledgeByAgentId'][string] {
   const curiosity = clamp01(agent.personality.curiosity);
   const diligence = clamp01(agent.personality.diligence);
@@ -3537,6 +3585,13 @@ function v15KnowledgeForAgent(agent: Readonly<AgentState>): WorldV15State['knowl
 }
 
 function v15FamilyAgencyForAgent(agent: Readonly<AgentState>): WorldV15State['familyAgencyByAgentId'][string] {
+  if (agent.life.ageYears < 18) {
+    return {
+      physicalIntimacyInclination: 0,
+      childDesire: 0,
+      autonomy: clamp01(agent.mind.autonomy),
+    };
+  }
   return {
     physicalIntimacyInclination: clamp01(
       0.18 + agent.personality.sociability * 0.34 + agent.personality.riskTolerance * 0.18 + agent.mind.values.freedom * 0.12,
@@ -3581,7 +3636,7 @@ function createWorldV15State(
   for (const agent of Object.values(agents)) {
     knowledgeByAgentId[agent.id] = v15KnowledgeForAgent(agent);
     familyAgencyByAgentId[agent.id] = v15FamilyAgencyForAgent(agent);
-    smithingByAgentId[agent.id] = emptySmithingProfile();
+    smithingByAgentId[agent.id] = emptySmithingProfile(agent.life.ageYears < 1);
     equipmentByAgentId[agent.id] = {};
   }
 
@@ -4811,7 +4866,7 @@ export class WorldEngine {
         belonging: rng.between(0.35, 0.8),
         purpose: rng.between(0.35, 0.8),
       };
-      const ageYears = 20 + ((index * 3) % 15);
+      const ageYears = FOUNDING_SPARK_START_AGE_YEARS_V1;
       const partial = {
         id,
         name,
@@ -4821,14 +4876,14 @@ export class WorldEngine {
         progression: {
           level: 1,
           experience: 0,
-          objectControlAuthority: 0.08,
-          systemControlAuthority: 0.06,
-          combatMastery: 0.05,
-          sacredArts: 0.02,
+          objectControlAuthority: 0,
+          systemControlAuthority: 0,
+          combatMastery: 0,
+          sacredArts: 0,
         },
-        energy: rng.between(0.55, 0.95),
-        stress: rng.between(0.05, 0.25),
-        resources: rng.between(0.35, 0.8),
+        energy: rng.between(0.72, 0.9),
+        stress: rng.between(0.02, 0.12),
+        resources: 0,
         socialDrive,
         personality,
         life: {
@@ -4848,20 +4903,22 @@ export class WorldEngine {
           parentIds: [],
           childIds: [],
         },
-        mind: createMindState(options.worldId, id, personality, needs),
+        mind: createFoundingInfantMindState(options.worldId, id, personality, needs),
         needs,
         skills: {
-          gathering: rng.between(0.15, 0.55),
-          hunting: rng.between(0.08, 0.42),
-          craft: rng.between(0.15, 0.55),
-          social: rng.between(0.15, 0.55),
-          exploration: rng.between(0.15, 0.55),
+          gathering: 0,
+          hunting: 0,
+          craft: 0,
+          social: 0,
+          exploration: 0,
         },
         homeId,
-        locationId: homeId,
+        // The founding cohort begins together under mentor care in the central
+        // nursery/community space. Individual homes remain their future homes.
+        locationId: 'commons',
         position: {
-          x: places[homeId].mapX,
-          y: places[homeId].mapY,
+          x: places.commons.mapX,
+          y: places.commons.mapY,
           layerId: 'surface' as const,
         },
         lastMeaningfulEventAt: now,
@@ -4869,7 +4926,8 @@ export class WorldEngine {
 
       agents[id] = {
         ...partial,
-        goal: goalFromInitialState(partial, now),
+        // Legacy one-goal scaffolding stays inert during the mentored years.
+        goal: { kind: 'connect', strength: 0.25, since: now },
       };
     });
     makeConnectionsReciprocal(places);
@@ -5145,9 +5203,12 @@ export class WorldEngine {
     // Human-scale current intention is a pure observation projection. It is
     // deliberately not persisted as causal history.
     for (const agent of Object.values(snapshot.agents)) {
-      if (agent.life.alive) {
+      if (agent.life.alive && !isMentoredMinorV1(snapshot, agent)) {
         agent.agencyCadence = projectResidentAgencyCadenceV1(snapshot, agent);
       } else {
+        // Founding children are living through mentor care/lessons, not the
+        // old adult intention projector. Their observable state comes from
+        // body, perception and mentor activity until adulthood.
         delete agent.agencyCadence;
       }
     }
@@ -5228,21 +5289,21 @@ export class WorldEngine {
           };
           const socialDrive = clamp01(personality.sociability * 0.75 + rng.between(0.05, 0.25));
           const needs = { belonging: rng.between(0.55, 0.82), purpose: rng.between(0.48, 0.78) };
-          const ageYears = 21 + ((index * 5) % 24);
+          const ageYears = FOUNDING_SPARK_START_AGE_YEARS_V1;
           const health = clamp01(0.78 + personality.resilience * 0.18);
           const lifespanYears = 76 + personality.resilience * 24 + (index % 4);
           const partial = {
             id, name, origin: 'native' as const, sex: (index % 2 === 0 ? 'male' : 'female') as AgentState['sex'], race: 'human' as const,
-            progression: { level: 1, experience: 0, objectControlAuthority: 0.08, systemControlAuthority: 0.06, combatMastery: 0.05, sacredArts: 0.02 },
-            energy: rng.between(0.68, 0.94), stress: rng.between(0.04, 0.16), resources: rng.between(0.52, 0.78), socialDrive, personality,
+            progression: { level: 1, experience: 0, objectControlAuthority: 0, systemControlAuthority: 0, combatMastery: 0, sacredArts: 0 },
+            energy: rng.between(0.72, 0.9), stress: rng.between(0.02, 0.12), resources: 0, socialDrive, personality,
             life: { bornAt: resetAt - ageYears * WORLD_TICKS_PER_YEAR, ageYears, lifespanYears, stage: lifeStageForAge(ageYears), alive: true, health,
               physiology: physiologyForAge(ageYears, lifespanYears, health), generation: 0, parentIds: [], childIds: [] },
-            mind: createMindState(this.state.id, id, personality, needs), needs,
-            skills: { gathering: rng.between(0.18, 0.5), hunting: rng.between(0.08, 0.38), craft: rng.between(0.18, 0.52), social: rng.between(0.18, 0.52), exploration: rng.between(0.16, 0.48) },
-            homeId, locationId: homeId, position: { x: places[homeId].mapX, y: places[homeId].mapY, layerId: 'surface' as const },
+            mind: createFoundingInfantMindState(this.state.id, id, personality, needs), needs,
+            skills: { gathering: 0, hunting: 0, craft: 0, social: 0, exploration: 0 },
+            homeId, locationId: 'commons', position: { x: places.commons.mapX, y: places.commons.mapY, layerId: 'surface' as const },
             lastMeaningfulEventAt: resetAt,
           } satisfies Omit<AgentState, 'goal'>;
-          agents[id] = { ...partial, goal: goalFromInitialState(partial, resetAt) };
+          agents[id] = { ...partial, goal: { kind: 'connect', strength: 0.25, since: resetAt } };
         });
         makeConnectionsReciprocal(places);
 
@@ -5278,6 +5339,7 @@ export class WorldEngine {
         this.state.agents = agents;
         this.state.relationships = {};
         this.state.iskorkaBrainV1 = undefined;
+        this.state.iskorkaMentorsV1 = undefined;
         this.state.centuryHumpback = undefined;
         this.state.v15 = createWorldV15State(
           this.state.id,
@@ -5509,6 +5571,10 @@ export class WorldEngine {
       this.advanceWildlife(effectiveEnvironment, now);
       // Monster ecology is absent; ordinary wildlife advances above.
       this.advanceAgingAndMortality(now, elapsedWorldMinutes);
+      if (this.state.iskorkaMentorsV1) {
+        advanceFoundingMentorLifecycleV1(this.state);
+        updateMentorTeachingPositionsV1(this.state);
+      }
       advanceEmbodiedWorldV21(this.state);
       // Dungeon ecology/discovery is a world service, not a side effect of
       // repeatedly looking up a resident wallet at every local trade.
@@ -5532,7 +5598,10 @@ export class WorldEngine {
       // indexes/caches optimize work without dropping resident opportunities.
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
-        if (!sleeping) this.applyPassiveNeeds(agent, effectiveEnvironment);
+        const mentoredMinor = isMentoredMinorV1(this.state, agent);
+        if (!sleeping && !mentoredMinor) {
+          this.applyPassiveNeeds(agent, effectiveEnvironment);
+        }
         const body = this.state.v21?.bodiesByAgentId[agent.id];
         const pendingPhysiology = body?.bodyCore
           ? Math.max(
@@ -5557,17 +5626,28 @@ export class WorldEngine {
             resolveBodyEliminationV1(this.state, agent);
           }
         }
+        if (!sleeping && mentoredMinor) {
+          const care = applyFoundingMentorCareV1(this.state, agent);
+          if (care.resourcesChanged) this.resourceProjectionDirty = true;
+        }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
-      this.beginSecretLibraryYearV18(livingAgents, now);
+      this.beginSecretLibraryYearV18(
+        livingAgents.filter((agent) => !isMentoredMinorV1(this.state, agent)),
+        now,
+      );
       const residentsStudyingInLibrary = this.advanceSecretLibraryVisitorsV18(now);
       for (const agent of agents) {
         if (residentsStudyingInLibrary.has(agent.id)) {
           recordResidentActionEvidenceV16(this.state, agent);
           continue;
         }
-        this.stepAgent(agent, agents, effectiveEnvironment, now);
+        if (isMentoredMinorV1(this.state, agent)) {
+          this.stepMentoredFoundingStudent(agent, now);
+        } else {
+          this.stepAgent(agent, agents, effectiveEnvironment, now);
+        }
         recordResidentActionEvidenceV16(this.state, agent);
       }
       this.advanceBirths(now, elapsedWorldMinutes);
@@ -6899,6 +6979,97 @@ export class WorldEngine {
   }
 
 
+  private refreshSparkPerception(agent: AgentState): void {
+    if ((agent.race ?? 'human') !== 'human' || !agent.life.alive) return;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain) return;
+    acceptPersonalPerceptBatchV1(
+      brain,
+      perceptBatchForAgentV1(this.state, agent.id, {
+        localAgents: this.agentsAtLocation(agent.locationId),
+        receivedMessages:
+          this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
+      }),
+    );
+  }
+
+  private stepMentoredFoundingStudent(
+    agent: AgentState,
+    now: number,
+  ): void {
+    if (!canResidentAct(agent)) return;
+    if (advanceBodySleepV21(this.state, agent)) return;
+
+    this.refreshSparkPerception(agent);
+    if (agent.movement) {
+      // Mentor-led travel is real continuous movement. No adult decision
+      // engine is invoked while the child is en route.
+      agent.lastAction = 'walk';
+      return;
+    }
+
+    const mentor = assignedFoundingMentorV1(this.state, agent.id);
+    if (!mentor || mentor.status !== 'caregiving') return;
+
+    const target = mentorTeachingPlaceV1(
+      this.state,
+      mentor,
+      agent.life.ageYears,
+    );
+
+    if (
+      agent.life.ageYears >= 1.5 &&
+      agent.locationId !== target
+    ) {
+      if (this.travelBeforeAction(agent, target, 'reflect', now, 'walk')) {
+        return;
+      }
+    }
+
+    // Infants/toddlers remain with the care team in the common nursery.
+    // Older children learn only after physically reaching the mentor's site.
+    if (agent.locationId !== mentor.locationId) return;
+
+    const lesson = applyFoundingMentorLessonV1(
+      this.state,
+      agent,
+      mentor,
+    );
+    if (!lesson.taught) return;
+
+    observeLocalPlacesV20(this.state, agent);
+    agent.lastAction =
+      lesson.domain === 'agriculture' || lesson.domain === 'construction'
+        ? 'work'
+        : lesson.domain === 'survival'
+          ? 'walk'
+          : 'socialize';
+    agent.lastMeaningfulEventAt = now;
+    agent.energy = clamp01(
+      agent.energy - (agent.life.ageYears < 5 ? 0.002 : 0.006),
+    );
+    agent.stress = clamp01(
+      agent.stress - (agent.life.ageYears < 8 ? 0.006 : 0.003),
+    );
+    agent.needs.purpose = clamp01(
+      agent.needs.purpose + Math.min(0.006, lesson.gained * 0.18),
+    );
+
+    this.recordAgentEvent(agent, now, 'agent.education.mentor_lesson', {
+      mentorId: mentor.id,
+      mentorName: mentor.name,
+      mentorRole: mentor.role,
+      domain: lesson.domain ?? 'language',
+      gained: lesson.gained,
+      ageYears: agent.life.ageYears,
+      worldMinutes: this.state.calendar.elapsedWorldMinutes,
+      physicallyCoLocated: true,
+      autonomousAdultDecisionEngineUsed: false,
+    });
+  }
+
   private stepAgent(
     agent: AgentState,
     allAgents: AgentState[],
@@ -6917,21 +7088,7 @@ export class WorldEngine {
       if (!agent.life.alive) return;
     }
 
-    if ((agent.race ?? 'human') === 'human') {
-      const brain =
-        brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
-        ensureBrainForAgentV1(this.state, agent);
-      if (brain) {
-        acceptPersonalPerceptBatchV1(
-          brain,
-          perceptBatchForAgentV1(this.state, agent.id, {
-            localAgents: this.agentsAtLocation(agent.locationId),
-            receivedMessages:
-              this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
-          }),
-        );
-      }
-    }
+    this.refreshSparkPerception(agent);
 
     const giftBefore = giftLearningSnapshotV20(this.state, agent);
     const ageAllowedActions = allowedActionsForResidentV1(agent);
@@ -8217,7 +8374,9 @@ export class WorldEngine {
   private youngChildMayTravelTo(
     child: Readonly<AgentState>,
     destinationId: string,
+    mentorGuided = false,
   ): boolean {
+    if (mentorGuided && isMentoredMinorV1(this.state, child)) return true;
     return youngChildMayTravelToV21(this.state, child, destinationId);
   }
 
@@ -8447,8 +8606,15 @@ export class WorldEngine {
     now: number,
     travelAction: AgentActionKind = 'walk',
   ): boolean {
-    if (!mayKnowPlaceV20(agent, destinationId, this.state)) return true;
-    if (!this.youngChildMayTravelTo(agent, destinationId)) {
+    const mentor = isMentoredMinorV1(this.state, agent)
+      ? assignedFoundingMentorV1(this.state, agent.id)
+      : undefined;
+    const mentorGuided =
+      mentor !== undefined &&
+      mentor.status === 'caregiving' &&
+      destinationId === mentorTeachingPlaceV1(this.state, mentor, agent.life.ageYears);
+    if (!mentorGuided && !mayKnowPlaceV20(agent, destinationId, this.state)) return true;
+    if (!this.youngChildMayTravelTo(agent, destinationId, mentorGuided)) {
       recordDeferredChildTripV21(this.state, agent);
       agent.energy = clamp01(agent.energy - 0.003);
       agent.needs.purpose = clamp01(agent.needs.purpose + 0.003);

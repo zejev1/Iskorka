@@ -7,7 +7,7 @@ import {
   projectResidentAgencyCadenceV1,
 } from '../../src/iskorka/ResidentAgencyCadenceV1';
 
-test('human-scale agency projection changes before the legacy six-day world batch', async () => {
+test('founding infants do not receive the adult agency projection before mentor adulthood', async () => {
   const store = new InMemoryWorldStore();
   const runtime = await IskorkaRuntime.openOrCreate(
     store,
@@ -17,14 +17,7 @@ test('human-scale agency projection changes before the legacy six-day world batc
   const before = runtime.presentationSnapshot();
   assert.equal(before.v15!.simulationClock.quantumIndex, 0);
   assert.ok(Object.values(before.agents).every(agent => !agent.lastDecision));
-  assert.ok(Object.values(before.agents).every(agent => agent.agencyCadence?.currentIntent));
-
-  const beforeCounts = Object.fromEntries(
-    Object.values(before.agents).map(agent => [
-      agent.id,
-      agent.agencyCadence!.reviewCount,
-    ]),
-  );
+  assert.ok(Object.values(before.agents).every(agent => agent.agencyCadence === undefined));
 
   await runtime.advanceTo(12 * 60);
   const after = runtime.presentationSnapshot();
@@ -32,11 +25,7 @@ test('human-scale agency projection changes before the legacy six-day world batc
   assert.equal(after.v15!.simulationClock.quantumIndex, 0);
   assert.equal(after.v15!.simulationClock.pendingWorldMinutes, 12 * 60);
   for (const agent of Object.values(after.agents)) {
-    assert.ok(agent.agencyCadence?.currentIntent);
-    assert.ok(agent.agencyCadence?.innerThought);
-    assert.ok(agent.agencyCadence!.reviewCount > beforeCounts[agent.id]);
-    assert.ok(agent.agencyCadence!.nextReviewWorldMinute > after.calendar.elapsedWorldMinutes);
-    // Human-scale intention is not falsely recorded as a completed world action.
+    assert.equal(agent.agencyCadence, undefined);
     assert.equal(agent.lastDecision, undefined);
   }
 });

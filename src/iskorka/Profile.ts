@@ -1,4 +1,9 @@
 import type { WorldState, WildlifePopulation } from '../world/types';
+import {
+  FOUNDING_SPARK_START_AGE_YEARS_V1,
+  assertFoundingMentorsV1,
+  ensureFoundingMentorWorldV1,
+} from './FoundingMentorsV1';
 
 export const ISKORKA_PROFILE = 'iskorka-human-lab-v1' as const;
 export const ISKORKA_VERSION = '0.1.0-stage1';
@@ -42,6 +47,7 @@ export function initializeIskorkaWorld(world: WorldState, seed: string): void {
     threat: 0.02, isMonster: false, lastChangedAt: world.now,
   });
   for (const population of additions) world.wildlife[population.id] ??= population;
+  ensureFoundingMentorWorldV1(world);
   assertIskorkaProfile(world, true);
 }
 
@@ -56,10 +62,22 @@ export function assertIskorkaProfile(world: Readonly<WorldState>, fresh = false)
   if (world.centuryHumpback) throw new Error('В Искорке не должно быть цикла монстр-событий.');
   if (Object.values(world.places).some(p => /^(?:settlement_|race_)?(?:elf|dwarf|goblin|orc|ogre)(?:_|$)/.test(p.id))) throw new Error('В Искорке обнаружена локация другой расы.');
   if (Object.keys(world.v19?.adventureEconomy?.dungeonsById ?? {}).length) throw new Error('В Искорке обнаружено подземелье.');
-  if ((world.v15?.genesisTeachers.length ?? 0) !== 0) throw new Error('В полигоне не должно быть скрытых учителей Genesis.');
+  if ((world.v15?.genesisTeachers.length ?? 0) !== 0) throw new Error('Старые скрытые Genesis-учителя в Искорке отключены.');
+  if (world.iskorkaMentorsV1) assertFoundingMentorsV1(world);
   if (fresh) {
-    if (agents.length !== 10 || agents.filter(a => a.sex === 'male').length !== 5 || agents.filter(a => a.sex === 'female').length !== 5 || agents.some(a => !a.life.alive || a.life.ageYears < 18)) {
-      throw new Error('Старт Искорки требует десять взрослых людей: пять мужчин и пять женщин.');
+    if (!world.iskorkaMentorsV1) throw new Error('Новый мир Искорки требует пять наставников.');
+    if (
+      agents.length !== 10 ||
+      agents.filter(a => a.sex === 'male').length !== 5 ||
+      agents.filter(a => a.sex === 'female').length !== 5 ||
+      agents.some(
+        a =>
+          !a.life.alive ||
+          Math.abs(a.life.ageYears - FOUNDING_SPARK_START_AGE_YEARS_V1) > 1e-9 ||
+          a.life.generation !== 0,
+      )
+    ) {
+      throw new Error('Старт Искорки требует десять шестимесячных Искр: пять мальчиков и пять девочек.');
     }
     if (Object.keys(world.settlements).length !== 1) throw new Error('Старт Искорки требует одно поселение.');
     if (Object.values(world.places).filter(p => p.kind === 'library').length !== 1) throw new Error('Старт Искорки требует одну библиотеку.');

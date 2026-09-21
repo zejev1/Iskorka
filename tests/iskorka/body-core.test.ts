@@ -29,8 +29,17 @@ async function create(seed='body-core-seed', id='body-core-world') {
   const runtime = await IskorkaRuntime.openOrCreate(store, seed, id);
   return { store, runtime, world: runtime.snapshot() };
 }
+function makeAdult(world: Awaited<ReturnType<typeof create>>['world'], agentId: string, ageYears = 28) {
+  const agent = world.agents[agentId];
+  agent.life.ageYears = ageYears;
+  agent.life.stage = 'adult';
+  agent.life.health = Math.max(agent.life.health, 0.9);
+  const body = world.v21!.bodiesByAgentId[agent.id];
+  const core = ensureBodyCoreV1(world, agent, body)!;
+  return { agent, body, core };
+}
 
-test('BodyCore creates exactly sex-linked founder bodies: 5 male and 5 female', async () => {
+test('BodyCore creates exactly sex-linked founding infant bodies: 5 male and 5 female', async () => {
   const { world } = await create();
   const founders = Object.values(world.agents);
   const bodies = world.v21!.bodiesByAgentId;
@@ -39,21 +48,22 @@ test('BodyCore creates exactly sex-linked founder bodies: 5 male and 5 female', 
   assert.equal(founders.filter(agent => agent.sex === 'female').length, 5);
 
   for (const agent of founders) {
+    assert.equal(agent.life.ageYears, 0.5);
     const core = bodies[agent.id].bodyCore;
     assert.ok(core, agent.id);
     assert.equal(core.sex, agent.sex);
     assert.equal(core.phenotype.biologicalSex, agent.sex);
     assert.equal(core.reproductive.type, agent.sex);
     assertBodyCoreV1(agent, core);
-    assert.equal(typeof core.homeostasis.sexualArousal, 'number');
+    assert.equal(core.homeostasis.sexualArousal, undefined);
     if (agent.sex === 'male') {
       assert.equal(core.reproductive.type, 'male');
-      assert.equal(typeof core.reproductive.refractoryLoad, 'number');
+      assert.equal(core.reproductive.refractoryLoad, undefined);
       assert.ok(!('cyclePhase' in core.reproductive));
       assert.ok(!('pregnancy' in core.reproductive));
     } else {
       assert.equal(core.reproductive.type, 'female');
-      assert.equal(typeof core.reproductive.cyclePhase, 'number');
+      assert.equal(core.reproductive.cyclePhase, undefined);
       assert.ok(!('refractoryLoad' in core.reproductive));
     }
   }
@@ -118,8 +128,8 @@ test('derived body signals are bounded and do not mutate persisted physiology', 
 
 test('female postpartum recovery expires analytically without minute ticks', async () => {
   const { world } = await create('postpartum-seed', 'postpartum-world');
-  const mother = Object.values(world.agents).find(agent => agent.sex === 'female')!;
-  const body = world.v21!.bodiesByAgentId[mother.id];
+  const founder = Object.values(world.agents).find(agent => agent.sex === 'female')!;
+  const { agent: mother, body } = makeAdult(world, founder.id, 29);
   completeBodyCorePregnancyV1(world, mother.id, 2);
   assert.ok(body.bodyCore!.reproductive.type === 'female');
   if (body.bodyCore!.reproductive.type !== 'female') throw new Error('expected female BodyCore');
@@ -185,10 +195,10 @@ test('body signals feed back into stress, emotion and goal salience without choo
 
 test('voluntary adult intimacy creates sex-linked physical pleasure but not relationship meaning', async () => {
   const { world } = await create('intimacy-body-seed', 'intimacy-body-world');
-  const male = Object.values(world.agents).find(agent => agent.sex === 'male')!;
-  const female = Object.values(world.agents).find(agent => agent.sex === 'female')!;
-  const maleCore = world.v21!.bodiesByAgentId[male.id].bodyCore!;
-  const femaleCore = world.v21!.bodiesByAgentId[female.id].bodyCore!;
+  const maleFounder = Object.values(world.agents).find(agent => agent.sex === 'male')!;
+  const femaleFounder = Object.values(world.agents).find(agent => agent.sex === 'female')!;
+  const { agent: male, core: maleCore } = makeAdult(world, maleFounder.id, 27);
+  const { agent: female, core: femaleCore } = makeAdult(world, femaleFounder.id, 26);
   const maleJoy = male.mind.emotions.joy;
   const femaleJoy = female.mind.emotions.joy;
   const maleValues = structuredClone(male.mind.values);
@@ -340,18 +350,25 @@ test('BodyCore uses realistic infant mass growth instead of freezing near newbor
   const { world } = await create('infant-growth-seed', 'infant-growth-world');
   const infant = world.agents.agent_1;
   const body = world.v21!.bodiesByAgentId[infant.id];
-  const adultMass = body.bodyCore!.phenotype.massKg;
-  const adultHeight = body.bodyCore!.phenotype.heightM;
+  const massAtSixMonths = body.bodyCore!.phenotype.massKg;
+  const heightAtSixMonths = body.bodyCore!.phenotype.heightM;
 
   infant.life.ageYears = 0.75;
   infant.life.stage = 'child';
-  const core = ensureBodyCoreV1(world, infant, body)!;
+  const nineMonthCore = ensureBodyCoreV1(world, infant, body)!;
+  const massAtNineMonths = nineMonthCore.phenotype.massKg;
+  const heightAtNineMonths = nineMonthCore.phenotype.heightM;
+  assert.ok(massAtNineMonths > massAtSixMonths);
+  assert.ok(heightAtNineMonths > heightAtSixMonths);
+  assert.equal(nineMonthCore.homeostasis.sexualArousal, undefined);
 
-  const massRatio = core.phenotype.massKg / adultMass;
-  const heightRatio = core.phenotype.heightM / adultHeight;
+  infant.life.ageYears = 18;
+  infant.life.stage = 'adult';
+  const adultCore = ensureBodyCoreV1(world, infant, body)!;
+  const massRatio = massAtNineMonths / adultCore.phenotype.massKg;
+  const heightRatio = heightAtNineMonths / adultCore.phenotype.heightM;
   assert.ok(massRatio >= 0.11 && massRatio <= 0.13);
   assert.ok(heightRatio >= 0.40 && heightRatio <= 0.42);
-  assert.equal(core.homeostasis.sexualArousal, undefined);
 });
 
 

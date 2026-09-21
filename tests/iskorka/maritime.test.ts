@@ -10,6 +10,7 @@ import { assertBoatNavigation } from '../../src/v21/BoatValidation';
 import { worldWeatherV21 } from '../../src/v21/WeatherV21';
 import { BOAT_KNOWLEDGE_ID, workOnBoat, VESSEL_DESIGNS_V22,vesselDesignV22 } from '../../src/v21/MaritimePractice';
 import { recordPhysicalGoodsV21 } from '../../src/v21/EconomySystemV21';
+import { ensureBodyCoreV1 } from '../../src/iskorka/BodyCoreV1';
 
 // A controlled physical lake fixture, not a new location injected into the shipped world.
 async function setup(){
@@ -19,8 +20,9 @@ async function setup(){
  f.key='terrain-v1:'+hash(JSON.stringify({...f,key:''}));bindWorldTerrain(w);
  for(const [id,dx]of [['boat_west',-1.53],['boat_east',1.53]] as const)w.places[id]={id,name:'Озёрный берег',kind:'lake',biome:'lake',surface:'shore',mapX:center.x+dx,mapY:center.y,capacity:10,connectedPlaceIds:[],fertility:.4,danger:0,geographyVersion:1};
  for(const a of [w.agents.agent_1,w.agents.agent_2]){
-  a.life.ageYears=25;a.life.alive=true;a.life.health=1;a.energy=1;a.locationId='boat_west';delete a.movement;
+  a.life.ageYears=25;a.life.stage='adult';a.life.alive=true;a.life.health=1;a.energy=1;a.locationId='boat_west';delete a.movement;
   a.position={x:w.places.boat_west.mapX,y:center.y,layerId:'surface'};a.knownPlaceIds=['boat_west','boat_east'];a.skills.craft=.8;
+  ensureBodyCoreV1(w,a,w.v21!.bodiesByAgentId[a.id]);
   w.v18!.secretLibrary.knowledgeByAgentId[a.id]=[{id:'boat-theory',knowledgeId:BOAT_KNOWLEDGE_ID,title:'Корабль',category:'engineering',historicalSource:'ЭСБЕ',sourceTitle:'Корабль',sourceUrl:'https://ru.wikisource.org/wiki/ЭСБЕ/Корабль',acquiredWorldMinute:0,understanding:.8,summary:'Киль, шпангоуты, обшивка',concepts:['кораблестроение'],practiceCount:1,sharedCount:0}];
  }
  for(let d=0;worldWeatherV21(w).kind==='storm'&&d<20;d++)w.calendar.elapsedWorldMinutes+=2880;

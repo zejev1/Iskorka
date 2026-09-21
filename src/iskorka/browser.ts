@@ -14,6 +14,7 @@ import {
   type BrowserStorageStatusV1,
 } from './BrowserPersistence';
 import { buildAgentAnalyticsV1 } from './AgentAnalyticsV1';
+import { assignedFoundingMentorV1 } from './FoundingMentorsV1';
 import './style.css';
 
 // Host operation IDs only; simulation randomness remains the persisted F2 RNG.
@@ -137,6 +138,14 @@ function drawMap():void {
     b.style.left=p.x+'%';b.style.top=p.y+'%';b.dataset.agentId=a.id;b.title=a.name+' · '+activity(a,w);b.setAttribute('aria-label',a.name);
     b.innerHTML='<span class="person-dot"></span>'+(selected.type==='agent'&&selected.id===a.id?'<span class="person-name">'+escape(a.name)+'</span>':'');
     b.onclick=()=>selectAgent(a.id);inhabitants.append(b);
+  }
+  if(camera.pixelsPerUnit>=20)for(const mentor of Object.values(w.iskorkaMentorsV1?.mentorsById??{})){
+    if(mentor.status==='inactive'||!camera.visible(mentor.position.x,mentor.position.y,20))continue;
+    const p=camera.point(mentor.position.x,mentor.position.y);const marker=document.createElement('div');
+    marker.className='mentor-marker';marker.style.left=p.x+'%';marker.style.top=p.y+'%';
+    marker.title=mentor.name+' · наставник · '+mentor.status;
+    marker.innerHTML='<span class="mentor-dot"></span><span class="mentor-name">'+escape(mentor.name)+'</span>';
+    inhabitants.append(marker);
   }
   $('people-map').replaceChildren(inhabitants);
   const metres=100/camera.pixelsPerUnit*100;
@@ -263,7 +272,8 @@ function renderAgentAnalytics(a:AgentState,w:WorldState):string {
   const snapshot=buildAgentAnalyticsV1(w,a.id);
   const body=snapshot.body;
   const brain=snapshot.brain;
-  const quick=`${cell('Мозг',brain.present?bytes(brain.usedBytes)+' / '+bytes(brain.budgetBytes):'нет')}${cell('Ссылки восприятия',brain.referenceCount)}${cell('Гидратация',body.homeostasis?percentOrDash(body.homeostasis.hydration):'—')}${cell('Температура',body.homeostasis?precise(body.homeostasis.coreTemperatureC,2)+' °C':'—')}${cell('Жажда',body.signals?percentOrDash(body.signals.thirst):'—')}${cell('Голод',body.signals?percentOrDash(body.signals.hunger):'—')}`;
+  const foundingMentor=assignedFoundingMentorV1(w,a.id);
+  const quick=`${cell('Мозг',brain.present?bytes(brain.usedBytes)+' / '+bytes(brain.budgetBytes):'нет')}${cell('Наставник',foundingMentor?.name??'—')}${cell('Ссылки восприятия',brain.referenceCount)}${cell('Гидратация',body.homeostasis?percentOrDash(body.homeostasis.hydration):'—')}${cell('Температура',body.homeostasis?precise(body.homeostasis.coreTemperatureC,2)+' °C':'—')}${cell('Жажда',body.signals?percentOrDash(body.signals.thirst):'—')}${cell('Голод',body.signals?percentOrDash(body.signals.hunger):'—')}`;
   const brainMain=`<div class="metrics">${cell('Фаза',brain.phase)}${cell('Память использована',bytes(brain.usedBytes))}${cell('Осталось',bytes(brain.remainingBytes))}${cell('Загрузка бюджета',percent(brain.usageFraction))}${cell('Записей',brain.dataCount)}${cell('Сообщений',brain.recentMessageCount)}${cell('Последнее восприятие',brain.lastPerceptWorldMinute===undefined?'—':precise(brain.lastPerceptWorldMinute,2))}${cell('Рабочий шаг',brain.workingStep?.phase??'—')}</div>`;
   const relationHtml=snapshot.relationships.items.length?'<div class="analytics-list">'+snapshot.relationships.items.map(r=>{
     const other=r.agentA===a.id?r.agentB:r.agentA;const otherName=w.agents[other]?.name??other;
@@ -302,7 +312,7 @@ function renderPanel():void {
     panel.querySelectorAll<HTMLButtonElement>('[data-town]').forEach(b=>b.onclick=()=>{const t=w.settlements[b.dataset.town!];selected={type:'place',id:t.centerPlaceId};camera.x=t.centerX;camera.y=t.centerY;renderPanel();requestRender();});
   } else {
     const active=Object.values(w.agents).filter(a=>a.life.alive);
-    panel.innerHTML=`<span class="eyebrow">ЖИВОЙ МИР</span><h2>Состояние сборки</h2><div class="metrics">${cell('Люди',active.length)}${cell('Поселения',Object.keys(w.settlements).length)}${cell('Локации',Object.keys(w.places).length)}${cell('Ревизия',w.revision)}${cell('Дороги',Object.keys(w.routes).length)}${cell('Эпоха',w.epoch??1)}</div><p class="ok-line">Автономный движок · конечный BrainState · BodyCore · личное восприятие</p>${storagePanelHtml()}<h3>Ключ мира</h3><code class="seed-code">${escape(w.bootstrapSeed)}</code><h3>Сохранение</h3><p class="muted">${escape(ISKORKA_DATABASE)}<br>${escape(ISKORKA_WORLD_ID)}<br>Мир хранится в IndexedDB на постоянном адресе. Если браузер не выдаёт режим durable, сохранение всё равно работает, но браузер/ОС теоретически могут очистить данные сайта при нехватке места.</p><h3>Время</h3><p class="muted">При «Минута = минута» аналитический экран показывает последний полученный срез мира с точной мировой минутой. На ускорениях экран остаётся наблюдателем и не влияет на причинность.</p>`;
+    panel.innerHTML=`<span class="eyebrow">ЖИВОЙ МИР</span><h2>Состояние сборки</h2><div class="metrics">${cell('Люди',active.length)}${cell('Поселения',Object.keys(w.settlements).length)}${cell('Локации',Object.keys(w.places).length)}${cell('Ревизия',w.revision)}${cell('Дороги',Object.keys(w.routes).length)}${cell('Эпоха',w.epoch??1)}</div><p class="ok-line">Автономный движок · конечный BrainState · BodyCore · личное восприятие</p>${w.iskorkaMentorsV1?'<section class="storage-card"><div><span class="eyebrow">НАСТАВНИКИ ОСНОВАНИЯ</span><strong>'+escape(w.iskorkaMentorsV1.active?'5 наставников активны':'Наставники ушли')+'</strong><p>Уроков '+number(w.iskorkaMentorsV1.totalLessons)+' · действий ухода '+number(w.iskorkaMentorsV1.totalCareActions)+' · кормлений '+number(w.iskorkaMentorsV1.totalMeals)+'</p></div></section>':''}${storagePanelHtml()}<h3>Ключ мира</h3><code class="seed-code">${escape(w.bootstrapSeed)}</code><h3>Сохранение</h3><p class="muted">${escape(ISKORKA_DATABASE)}<br>${escape(ISKORKA_WORLD_ID)}<br>Мир хранится в IndexedDB на постоянном адресе. Если браузер не выдаёт режим durable, сохранение всё равно работает, но браузер/ОС теоретически могут очистить данные сайта при нехватке места.</p><h3>Время</h3><p class="muted">При «Минута = минута» аналитический экран показывает последний полученный срез мира с точной мировой минутой. На ускорениях экран остаётся наблюдателем и не влияет на причинность.</p>`;
     const retry=panel.querySelector<HTMLButtonElement>('#retry-storage');
     if(retry)retry.onclick=()=>void retryStorageProtection(retry);
   }
