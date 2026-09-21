@@ -273,7 +273,43 @@ function renderAgentAnalytics(a:AgentState,w:WorldState):string {
 }
 function renderPanel():void {
   const w=latest?.world;if(!w)return;
-  document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.onclick=()=>{mode=b.dataset.tab as typeof mode;renderPanel();});
+  document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===mode)));
+  const panel=$('panel');
+  const previousScroll=panel.scrollTop;
+  const openDetails=new Set([...panel.querySelectorAll<HTMLDetailsElement>('details[open][data-detail]')].map(d=>d.dataset.detail!));
+  if(mode==='people'){
+    const a=selected.type==='agent'?w.agents[selected.id]:undefined;
+    let html='';
+    if(a){
+      const body=w.v21?.bodiesByAgentId[a.id];
+      const evidence=w.v16?.residentEvidenceByAgentId[a.id];
+      const livelihood=w.v18?.livelihoodByAgentId[a.id];
+      html=`<section class="resident-detail"><div class="detail-heading"><div><span class="eyebrow">${a.sex==='male'?'МУЖЧИНА':'ЖЕНЩИНА'} · ${precise(a.life.ageYears,2)} лет</span><h2>${escape(a.name)}</h2></div><button id="follow" aria-label="Найти жителя на карте">⌖</button></div><p class="activity">${escape(activity(a,w))} · ${escape(w.places[a.locationId]?.name??a.locationId)}</p><span class="job">${escape(jobs[livelihood?.primary??'undecided']??'Развивает своё дело')}</span><div class="metrics">${cell('Здоровье',percent(a.life.health))}${cell('Энергия',percent(a.energy))}${cell('Стресс',percent(a.stress))}${cell('Действий',evidence?.recordedDecisionCount??0)}${cell('Раны / болезни',`${body?.wounds.length??0} / ${body?.diseases.length??0}`)}${cell('Ревизия мира',w.revision)}</div>${renderAgentAnalytics(a,w)}</section>`;
+    } else {
+      html='<p class="panel-intro">Нажмите на Искру. Здесь появится живой аналитический срез её мозга, тела, ощущений, памяти, навыков и текущего состояния.</p>';
+    }
+    html+='<div class="resident-list">'+Object.values(w.agents).filter(a=>a.life.alive).map(a=>`<button class="resident-card ${selected.type==='agent'&&selected.id===a.id?'active':''}" data-person="${escape(a.id)}"><span class="avatar">${escape(a.name.charAt(0))}</span><span><strong>${escape(a.name)}</strong><small>${number(Math.floor(a.life.ageYears))} лет · ${escape(activity(a,w))}</small></span><span class="arrow">›</span></button>`).join('')+'</div>';
+    panel.innerHTML=html;
+    panel.querySelectorAll<HTMLButtonElement>('[data-person]').forEach(b=>b.onclick=()=>selectAgent(b.dataset.person!));
+    const follow=panel.querySelector<HTMLButtonElement>('#follow');
+    if(follow)follow.onclick=()=>{if(a){camera.x=a.position.x;camera.y=a.position.y;requestRender();}};
+  } else if(mode==='place'){
+    const place=w.places[selected.type==='place'?selected.id:'commons']??w.places.commons;
+    const town=w.settlements[place.settlementId??'settlement_ainkrad'];
+    const people=Object.values(w.agents).filter(a=>a.life.alive&&a.locationId===place.id);
+    const wildlife=Object.values(w.wildlife).filter(a=>a.habitatId===place.id);
+    panel.innerHTML=`<span class="eyebrow">${place.kind==='library'?'БИБЛИОТЕКА':'ФИЗИЧЕСКОЕ МЕСТО'}</span><h2>${escape(place.name)}</h2><p class="panel-intro">${escape(town?.name??'За пределами поселения')}</p><div class="metrics">${cell('Жители здесь',people.length)}${cell('Связанные места',place.connectedPlaceIds.length)}${cell('Плодородие',percent(place.fertility))}${cell('Дома в мире',Object.values(w.places).filter(p=>p.kind==='home').length)}</div><h3>Поселения</h3><div class="town-list">${Object.values(w.settlements).map(t=>`<button data-town="${escape(t.id)}">${escape(t.name)} <span>⌖</span></button>`).join('')}</div><h3>Животный мир</h3><p class="muted">${wildlife.length?wildlife.map(a=>escape(({rabbit:'Кролики',deer:'Олени',bird:'Птицы',fish:'Рыба',boar:'Кабаны',wolf:'Волки'} as Record<string,string>)[a.species]??a.species)+': '+number(a.count)).join(' · '):'В этой локации популяции не зарегистрированы.'}</p><h3>Карта</h3><p class="muted">Масштаб меняет только отображение. Люди продолжают жить за пределами экрана.</p>`;
+    panel.querySelectorAll<HTMLButtonElement>('[data-town]').forEach(b=>b.onclick=()=>{const t=w.settlements[b.dataset.town!];selected={type:'place',id:t.centerPlaceId};camera.x=t.centerX;camera.y=t.centerY;renderPanel();requestRender();});
+  } else {
+    const active=Object.values(w.agents).filter(a=>a.life.alive);
+    panel.innerHTML=`<span class="eyebrow">ЖИВОЙ МИР</span><h2>Состояние сборки</h2><div class="metrics">${cell('Люди',active.length)}${cell('Поселения',Object.keys(w.settlements).length)}${cell('Локации',Object.keys(w.places).length)}${cell('Ревизия',w.revision)}${cell('Дороги',Object.keys(w.routes).length)}${cell('Эпоха',w.epoch??1)}</div><p class="ok-line">Автономный движок · конечный BrainState · BodyCore · личное восприятие</p>${storagePanelHtml()}<h3>Ключ мира</h3><code class="seed-code">${escape(w.bootstrapSeed)}</code><h3>Сохранение</h3><p class="muted">${escape(ISKORKA_DATABASE)}<br>${escape(ISKORKA_WORLD_ID)}<br>Мир хранится в IndexedDB на постоянном адресе. Если браузер не выдаёт режим durable, сохранение всё равно работает, но браузер/ОС теоретически могут очистить данные сайта при нехватке места.</p><h3>Время</h3><p class="muted">При «Минута = минута» аналитический экран показывает последний полученный срез мира с точной мировой минутой. На ускорениях экран остаётся наблюдателем и не влияет на причинность.</p>`;
+    const retry=panel.querySelector<HTMLButtonElement>('#retry-storage');
+    if(retry)retry.onclick=()=>void retryStorageProtection(retry);
+  }
+  panel.querySelectorAll<HTMLDetailsElement>('details[data-detail]').forEach(d=>{if(openDetails.has(d.dataset.detail!))d.open=true;});
+  panel.scrollTop=previousScroll;
+}
+document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.onclick=()=>{mode=b.dataset.tab as typeof mode;renderPanel();});
 function display(frame:WorldFrame):void {
   latest=frame;const w=frame.world;const cal=worldCalendarAtMinutes(w.calendar.elapsedWorldMinutes);const weather=worldWeatherV21(w);
   $('calendar').textContent=`Год ${cal.year} · день ${cal.dayOfYear} · ${String(cal.hour).padStart(2,'0')}:${String(cal.minute).padStart(2,'0')}`;
