@@ -3108,7 +3108,6 @@ function addFoundationLakeV1(
   places: Record<string, WorldPlace>,
   discoveredAt: number,
 ): void {
-  if (places.foundation_lake) return;
   const commons = places.commons;
   const outskirts = places.outskirts;
   if (!commons || !outskirts) return;
@@ -3142,7 +3141,8 @@ function addFoundationLakeV1(
     };
   });
 
-  const lake = createPlace(
+  const existing = places.foundation_lake;
+  const lake = existing ?? createPlace(
     'foundation_lake',
     'Озеро у Основания',
     'lake',
@@ -3158,8 +3158,22 @@ function addFoundationLakeV1(
       discoveredAt,
     },
   );
+  lake.name = 'Озеро у Основания';
+  lake.kind = 'lake';
+  lake.biome = 'lake';
+  lake.mapX = bank.x;
+  lake.mapY = bank.y;
+  lake.surface = 'shore';
+  lake.fertility = 0.72;
+  lake.danger = 0.04;
+  lake.connectedPlaceIds = ['outskirts'];
   lake.waterPolygon = waterPolygon;
+  lake.discoveredAt ??= discoveredAt;
   places[lake.id] = lake;
+
+  if (!outskirts.connectedPlaceIds.includes(lake.id)) {
+    outskirts.connectedPlaceIds.push(lake.id);
+  }
 }
 
 function markFoundationLakeTrailV1(
@@ -5088,6 +5102,11 @@ export class WorldEngine {
     }
     repairSecretLibraryPlacementV18(state);
     repairCompactSettlementLayout(state);
+    addFoundationLakeV1(state.places, now);
+    makeConnectionsReciprocal(state.places);
+    state.routes = rebuildWorldRoutes(state.places, state.routes);
+    markFoundationLakeTrailV1(state.routes);
+    state.settlements = rebuildSettlementProjection(state.places, state.settlements, now);
     if (useThreeHumanSeeds && repairRulidCoastalBank(state)) {
       makeConnectionsReciprocal(state.places);
       state.routes = rebuildWorldRoutes(state.places, state.routes);
@@ -5448,6 +5467,11 @@ export class WorldEngine {
         }
         repairSecretLibraryPlacementV18(this.state);
         repairCompactSettlementLayout(this.state);
+        addFoundationLakeV1(this.state.places, resetAt);
+        makeConnectionsReciprocal(this.state.places);
+        this.state.routes = rebuildWorldRoutes(this.state.places, this.state.routes);
+        markFoundationLakeTrailV1(this.state.routes);
+        this.state.settlements = rebuildSettlementProjection(this.state.places, this.state.settlements, resetAt);
         if (useThreeHumanSeeds && repairRulidCoastalBank(this.state)) {
           makeConnectionsReciprocal(this.state.places);
           this.state.routes = rebuildWorldRoutes(this.state.places, this.state.routes);
