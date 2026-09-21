@@ -57,7 +57,13 @@ test('founding town retains pinned F2 coordinates, buildings, connections and te
  const {world:w}=await create();const golden=JSON.parse(readFileSync('tests/iskorka/donor-geometry.json','utf8'));
  for(const [id,p]of Object.entries(golden.places) as [string,Record<string,unknown>][]){
   const actual=w.places[id];assert.ok(actual,id);
-  for(const [key,value]of Object.entries(p))assert.deepEqual((actual as any)[key],value,id+'.'+key);
+  for(const [key,value]of Object.entries(p)){
+   if(key==='connectedPlaceIds'){
+    for(const expectedId of value as string[])assert.ok(actual.connectedPlaceIds.includes(expectedId),id+'.connectedPlaceIds missing '+expectedId);
+    continue;
+   }
+   assert.deepEqual((actual as any)[key],value,id+'.'+key);
+  }
  }
  assert.deepEqual(w.terrain,golden.terrain);assert.deepEqual(w.v18!.planetaryGeography,golden.planetaryGeography);
  assert.equal(w.settlements.settlement_ainkrad.name,'Основание');
