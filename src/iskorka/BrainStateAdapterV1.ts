@@ -290,6 +290,29 @@ export function assertWorldBrainRegistryV1(world: Readonly<WorldState>): void {
   if (registry.version !== WORLD_BRAIN_REGISTRY_VERSION_V1) {
     throw new Error('Invalid Iskorka brain registry version.');
   }
+
+  for (const agent of Object.values(world.agents)) {
+    if ((agent.race ?? 'human') !== 'human') continue;
+    const brain = registry.brainsByAgentId[agent.id];
+    const retired = registry.retiredOwnersByAgentId[agent.id];
+    if (agent.life.alive) {
+      if (!brain) throw new Error(`Living human ${agent.id} has no BrainState.`);
+      if (retired) throw new Error(`Living human ${agent.id} is marked as retired.`);
+      if (
+        brain.ownerAgentId !== agent.id ||
+        brain.ownerGeneration !== agent.life.generation
+      ) {
+        throw new Error(`Brain ${agent.id} ownership mismatch.`);
+      }
+    } else {
+      if (brain) throw new Error(`Dead human ${agent.id} still has a BrainState.`);
+      if (!retired) throw new Error(`Dead human ${agent.id} has no retirement tombstone.`);
+      if (retired.ownerGeneration !== agent.life.generation) {
+        throw new Error(`Retired owner generation mismatch for ${agent.id}.`);
+      }
+    }
+  }
+
   for (const [agentId, brain] of Object.entries(registry.brainsByAgentId)) {
     const agent = world.agents[agentId];
     if (!agent?.life.alive || (agent.race ?? 'human') !== 'human') {
@@ -307,6 +330,10 @@ export function assertWorldBrainRegistryV1(world: Readonly<WorldState>): void {
     if (registry.brainsByAgentId[agentId]) throw new Error(`Retired brain ${agentId} still exists.`);
     if (!Number.isInteger(retired.ownerGeneration) || retired.ownerGeneration < 0) {
       throw new Error(`Retired brain ${agentId} generation is invalid.`);
+    }
+    const agent = world.agents[agentId];
+    if (!agent || (agent.race ?? 'human') !== 'human') {
+      throw new Error(`Retired brain owner ${agentId} is not a human resident.`);
     }
   }
 }
