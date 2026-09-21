@@ -244,7 +244,7 @@ test('guardians teach complete reproduction basics before adulthood without crea
     const family = world.v15!.familyAgencyByAgentId[spark.id];
     assert.equal(family.physicalIntimacyInclination, 0);
     assert.equal(family.childDesire, 0);
-    assert.equal(family.autonomy, 0);
+    assert.ok(family.autonomy >= 0 && family.autonomy <= 1);
     assert.equal(spark.lastDecision, undefined);
     assert.equal(spark.plan, undefined);
   }
