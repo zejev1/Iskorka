@@ -50,6 +50,22 @@ export const EARTH_SIZED_PLANET_V18: V18PlanetaryGeographyState = {
 export function initialRussianKnowledgeV18(
   agent: Readonly<AgentState>,
 ): V18LanguageKnowledgeState {
+  // A newborn is not born knowing Russian. This legacy language state remains
+  // temporary until SymbolLanguage/BrainCore replaces it, but it must not
+  // smuggle vocabulary or comprehension into a fresh brain.
+  if (agent.life.ageYears < 1) {
+    return {
+      languageId: 'ru',
+      spokenComprehension: 0,
+      spokenExpression: 0,
+      vocabulary: 0,
+      cyrillicLiteracy: 0,
+      conversationCount: 0,
+      teachingCount: 0,
+      writtenRecordCount: 0,
+      teacherIds: [],
+    };
+  }
   const ageFactor = clamp01(agent.life.ageYears / 12);
   const social = agent.skills.social;
   const knowledge = agent.mind.values.knowledge;
