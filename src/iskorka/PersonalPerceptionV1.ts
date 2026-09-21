@@ -1,6 +1,5 @@
 import type { AgentState, WorldState } from '../world/types';
 import {
-  BRAIN_BODY_SIGNAL_ORDER_V1,
   BRAIN_LOGICAL_BUDGET_BYTES_V1,
   invalidateBrainPerceptionByteCacheV1,
   logicalBrainBytesV1,
@@ -22,15 +21,41 @@ import type {
 } from './PortableHumanCoreV1';
 
 const MAX_RECENT_MESSAGES_V1 = 8;
+const TRANSIENT_PERCEPT_FIXED_BYTES_V1 = 128;
+const TRANSIENT_BODY_SIGNAL_BYTES_V1 = 4;
+const TRANSIENT_OBSERVATION_FIXED_BYTES_V1 = 28;
+const encoder = new TextEncoder();
+
+export interface PersonalPerceptViewV1 {
+  worldMinute: number;
+  body: PerceptBatchV1['body'];
+  observations: readonly BrainCurrentObservationV1[];
+  messages: readonly BrainPerceivedMessageV1[];
+}
 
 function emptyPerceptionStateV1(): BrainPerceptionStateV1 {
   return {
     nextRefSequence: 1,
     references: [],
-    currentBodySignals: [],
-    currentObservations: [],
     recentMessages: [],
   };
+}
+
+function transientPerceptBytesV1(view: Readonly<PersonalPerceptViewV1>): number {
+  let bytes =
+    TRANSIENT_PERCEPT_FIXED_BYTES_V1 +
+    Object.keys(view.body.interoception).length * TRANSIENT_BODY_SIGNAL_BYTES_V1;
+  for (const observation of view.observations) {
+    bytes +=
+      TRANSIENT_OBSERVATION_FIXED_BYTES_V1 +
+      encoder.encode(observation.refId).byteLength +
+      encoder.encode(observation.observedAction ?? '').byteLength +
+      encoder.encode(observation.eventKind ?? '').byteLength +
+      encoder.encode(observation.subjectRefId ?? '').byteLength;
+  }
+  // Messages are references to the same bounded acquired records already
+  // charged in BrainState; the transient view does not duplicate their symbols.
+  return bytes;
 }
 
 function sourceKindV1(
@@ -105,13 +130,6 @@ function ensureReferenceV1(
     if (subjectWorldObjectId) reference.subjectWorldObjectId = subjectWorldObjectId;
   }
   return reference;
-}
-
-function bodySignalsFromBatchV1(batch: Readonly<PerceptBatchV1>): number[] {
-  return BRAIN_BODY_SIGNAL_ORDER_V1.map((kind) => {
-    const signal = batch.body.interoception[kind];
-    return signal.availability === 'available' ? signal.intensity : -1;
-  });
 }
 
 function observationForBrainV1(
@@ -238,7 +256,11 @@ function rollbackPerceptionMutationV1(
 export function acceptPersonalPerceptBatchV1(
   brain: BrainStateV1,
   batch: Readonly<PerceptBatchV1>,
-): { accepted: boolean; budgetBlocked: boolean } {
+): {
+  accepted: boolean;
+  budgetBlocked: boolean;
+  view?: PersonalPerceptViewV1;
+} {
   if (brain.ownerAgentId !== batch.ownerAgentId) {
     throw new Error('Personal percept owner mismatch.');
   }
@@ -256,8 +278,6 @@ export function acceptPersonalPerceptBatchV1(
   }
 
   const priorLastPerceptWorldMinute = perception.lastPerceptWorldMinute;
-  const priorBodySignals = perception.currentBodySignals;
-  const priorObservations = perception.currentObservations;
   const priorMessages = perception.recentMessages;
   const priorNextRefSequence = perception.nextRefSequence;
   const initialReferenceLength = perception.references.length;
@@ -272,8 +292,7 @@ export function acceptPersonalPerceptBatchV1(
   };
 
   perception.lastPerceptWorldMinute = batch.worldMinute;
-  perception.currentBodySignals = bodySignalsFromBatchV1(batch);
-  perception.currentObservations = batch.localObservations
+  const observations = batch.localObservations
     .slice(0, 24)
     .map((observation) =>
       observationForBrainV1(
@@ -296,8 +315,18 @@ export function acceptPersonalPerceptBatchV1(
     receivedMessages,
   );
 
+  const view: PersonalPerceptViewV1 = {
+    worldMinute: batch.worldMinute,
+    body: batch.body,
+    observations,
+    messages: receivedMessages,
+  };
+
   invalidateBrainPerceptionByteCacheV1(brain);
-  if (logicalBrainBytesV1(brain) > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
+  if (
+    logicalBrainBytesV1(brain) + transientPerceptBytesV1(view) >
+    BRAIN_LOGICAL_BUDGET_BYTES_V1
+  ) {
     rollbackPerceptionMutationV1(
       perception,
       context,
@@ -305,14 +334,12 @@ export function acceptPersonalPerceptBatchV1(
       priorNextRefSequence,
     );
     perception.lastPerceptWorldMinute = priorLastPerceptWorldMinute;
-    perception.currentBodySignals = priorBodySignals;
-    perception.currentObservations = priorObservations;
     perception.recentMessages = priorMessages;
     if (createdPerception) delete brain.perception;
     invalidateBrainPerceptionByteCacheV1(brain);
     return { accepted: false, budgetBlocked: true };
   }
-  return { accepted: true, budgetBlocked: false };
+  return { accepted: true, budgetBlocked: false, view };
 }
 
 export function perceptionReferenceForWorldObjectV1(
