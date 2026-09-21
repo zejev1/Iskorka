@@ -43,6 +43,17 @@ import {
   applyHumanMotorActionEnvelopeV1,
   humanMotorMobilityScaleV1,
 } from '../iskorka/HumanMotorDevelopmentV1';
+import {
+  FOUNDING_SPARK_START_AGE_YEARS_V1,
+  advanceFoundingMentorLifecycleV1,
+  applyFoundingMentorCareV1,
+  applyFoundingMentorLessonV1,
+  assignedFoundingMentorV1,
+  ensureFoundingMentorWorldV1,
+  isMentoredMinorV1,
+  mentorTeachingPlaceV1,
+  updateMentorTeachingPositionsV1,
+} from '../iskorka/FoundingMentorsV1';
 import { residentKnownPath, invalidateResidentNavigation } from './ResidentNavigation';
 import { consultSettlementMap, residentSurveyedPlaceIds, recordResidentSurvey, recordResidentRouteArrival, assertResidentCartography } from './ResidentCartography';
 import {applyOceanDecision} from './geography/OceanGeographyPolicy';
