@@ -49,6 +49,7 @@ import {
   applyFoundingMentorCareV1,
   applyFoundingMentorLessonV1,
   assignedFoundingMentorV1,
+  foundingMentorStudentsV1,
   ensureFoundingMentorWorldV1,
   isMentoredMinorV1,
   mentorTeachingPlaceV1,
@@ -5626,10 +5627,6 @@ export class WorldEngine {
             resolveBodyEliminationV1(this.state, agent);
           }
         }
-        if (!sleeping && mentoredMinor) {
-          const care = applyFoundingMentorCareV1(this.state, agent);
-          if (care.resourcesChanged) this.resourceProjectionDirty = true;
-        }
         if (!sleeping && agent.energy <= 0) advanceBodySleepV21(this.state, agent);
       }
       const agents = this.shuffled(livingAgents);
@@ -5638,13 +5635,23 @@ export class WorldEngine {
         now,
       );
       const residentsStudyingInLibrary = this.advanceSecretLibraryVisitorsV18(now);
+      // Founding children have no scripted resident task loop. Five scripted
+      // guardians raise them in permanent pairs: care, food, walks, outings
+      // and teaching originate here, from the mentor side.
+      this.stepFoundingMentorGuardians(now);
+      updateMentorTeachingPositionsV1(this.state);
       for (const agent of agents) {
         if (residentsStudyingInLibrary.has(agent.id)) {
           recordResidentActionEvidenceV16(this.state, agent);
           continue;
         }
         if (isMentoredMinorV1(this.state, agent)) {
-          this.stepMentoredFoundingStudent(agent, now);
+          // Child itself receives no task script. Perception is refreshed so
+          // lived caregiver actions can become personal experience.
+          delete agent.lastAction;
+          delete agent.lastDecision;
+          delete agent.plan;
+          this.refreshSparkPerception(agent);
         } else {
           this.stepAgent(agent, agents, effectiveEnvironment, now);
         }
@@ -6995,80 +7002,133 @@ export class WorldEngine {
     );
   }
 
-  private stepMentoredFoundingStudent(
-    agent: AgentState,
-    now: number,
-  ): void {
-    if (!canResidentAct(agent)) return;
-    if (advanceBodySleepV21(this.state, agent)) return;
+  private stepFoundingMentorGuardians(now: number): void {
+    const mentorWorld = this.state.iskorkaMentorsV1;
+    if (!mentorWorld?.active) return;
 
-    // Founding childhood has no resident task script. Only the caregiver
-    // schedule is scripted; the child's old adult action/plan fields stay
-    // empty until adulthood.
-    delete agent.lastAction;
-    delete agent.lastDecision;
-    delete agent.plan;
+    for (const mentor of Object.values(mentorWorld.mentorsById)) {
+      if (mentor.status !== 'caregiving') continue;
+      const students = foundingMentorStudentsV1(this.state, mentor.id)
+        .filter((student) => student.life.ageYears < mentorWorld.releaseAgeYears);
+      if (students.length === 0) continue;
 
-    this.refreshSparkPerception(agent);
-    if (agent.movement) {
-      // The route exists because a mentor initiated a supervised outing.
-      // Movement is physical, but it is not persisted as the child's chosen
-      // work/task action.
-      return;
-    }
+      // Permanent guardian rule: this script belongs to the mentor. Children
+      // keep no work/task plan of their own before adulthood.
+      for (const child of students) {
+        delete child.lastAction;
+        delete child.lastDecision;
+        delete child.plan;
+        delete child.agencyCadence;
+      }
 
-    const mentor = assignedFoundingMentorV1(this.state, agent.id);
-    if (!mentor || mentor.status !== 'caregiving') return;
+      const awake = students.filter(
+        (child) => !isBodySleepingV21(this.state, child.id),
+      );
 
-    const target = mentorTeachingPlaceV1(
-      this.state,
-      mentor,
-      agent.life.ageYears,
-    );
+      // Feeding, drinking, hygiene/first aid and ordinary care are performed by
+      // the guardian for each awake child.
+      for (const child of awake) {
+        const care = applyFoundingMentorCareV1(this.state, child);
+        if (care.resourcesChanged) this.resourceProjectionDirty = true;
+      }
 
-    if (
-      agent.life.ageYears >= 1.5 &&
-      agent.locationId !== target
-    ) {
-      if (this.travelBeforeAction(agent, target, 'reflect', now, 'walk')) {
-        return;
+      // If the pair is currently walking, the guardian follows them physically;
+      // no lesson is injected while bodies are still en route.
+      if (students.some((child) => Boolean(child.movement))) {
+        updateMentorTeachingPositionsV1(this.state);
+        continue;
+      }
+
+      // A parent-like guardian does not take one small child away while the
+      // other assigned child is sleeping or elsewhere. The pair moves together.
+      if (
+        awake.length !== students.length ||
+        new Set(students.map((child) => child.locationId)).size !== 1
+      ) {
+        updateMentorTeachingPositionsV1(this.state);
+        continue;
+      }
+
+      const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
+      const destinationId = mentorTeachingPlaceV1(
+        this.state,
+        mentor,
+        youngestAge,
+      );
+      const currentPlaceId = students[0].locationId;
+
+      if (currentPlaceId !== destinationId) {
+        // The outing is initiated by the guardian. moveAgent only creates the
+        // physical path; no child decision, goal, job or profession is written.
+        for (const child of students) {
+          this.moveAgent(child, destinationId);
+          if (child.movement) child.movement.purpose = 'walk';
+          delete child.lastAction;
+          delete child.lastDecision;
+          delete child.plan;
+        }
+        updateMentorTeachingPositionsV1(this.state);
+        this.stageEvent({
+          eventId: this.nextId('mentor-outing'),
+          worldId: this.state.id,
+          kind: 'mentor.guardian.outing.started',
+          source: 'world',
+          occurredAt: now,
+          payload: {
+            mentorId: mentor.id,
+            studentIds: students.map((child) => child.id).join(','),
+            fromPlaceId: currentPlaceId,
+            destinationId,
+            childTaskScriptUsed: false,
+          },
+        });
+        continue;
+      }
+
+      // The guardian demonstrates and may allow age-appropriate supervised
+      // practice. Learning is a consequence of co-location with the mentor,
+      // never a "go work" task assigned to the child.
+      mentor.locationId = currentPlaceId;
+      updateMentorTeachingPositionsV1(this.state);
+      for (const child of awake) {
+        this.refreshSparkPerception(child);
+        const lesson = applyFoundingMentorLessonV1(
+          this.state,
+          child,
+          mentor,
+        );
+        if (!lesson.taught) continue;
+        child.lastMeaningfulEventAt = now;
+        child.energy = clamp01(
+          child.energy - (child.life.ageYears < 8 ? 0.002 : 0.005),
+        );
+        child.stress = clamp01(
+          child.stress - (child.life.ageYears < 8 ? 0.006 : 0.003),
+        );
+        delete child.lastAction;
+        delete child.lastDecision;
+        delete child.plan;
+
+        this.stageEvent({
+          eventId: this.nextId('mentor-lesson'),
+          worldId: this.state.id,
+          kind: 'mentor.guardian.lesson',
+          source: 'world',
+          occurredAt: now,
+          payload: {
+            mentorId: mentor.id,
+            studentId: child.id,
+            domain: lesson.domain ?? 'language',
+            teachingMode: lesson.mode ?? 'demonstration',
+            placeId: currentPlaceId,
+            gained: lesson.gained,
+            childLabor: false,
+            childTaskScriptUsed: false,
+            physicallyCoLocated: true,
+          },
+        });
       }
     }
-
-    // Infants/toddlers remain with the care team in the common nursery.
-    // Older children learn only after physically reaching the mentor's site.
-    if (agent.locationId !== mentor.locationId) return;
-
-    const lesson = applyFoundingMentorLessonV1(
-      this.state,
-      agent,
-      mentor,
-    );
-    if (!lesson.taught) return;
-
-    observeLocalPlacesV20(this.state, agent);
-    agent.lastMeaningfulEventAt = now;
-    agent.energy = clamp01(
-      agent.energy - (agent.life.ageYears < 8 ? 0.002 : 0.006),
-    );
-    agent.stress = clamp01(
-      agent.stress - (agent.life.ageYears < 8 ? 0.006 : 0.003),
-    );
-
-    this.recordAgentEvent(agent, now, 'agent.education.mentor_lesson', {
-      mentorId: mentor.id,
-      mentorName: mentor.name,
-      mentorRole: mentor.role,
-      domain: lesson.domain ?? 'language',
-      teachingMode: lesson.mode ?? 'demonstration',
-      gained: lesson.gained,
-      ageYears: agent.life.ageYears,
-      worldMinutes: this.state.calendar.elapsedWorldMinutes,
-      physicallyCoLocated: true,
-      supervisedByMentor: true,
-      childLabor: false,
-      autonomousAdultDecisionEngineUsed: false,
-    });
   }
 
   private stepAgent(
@@ -16348,6 +16408,9 @@ export class WorldEngine {
       for (const agent of Object.values(this.state.agents)) {
         if (!canResidentAct(agent) || !agent.movement || agent.movement.boatId || arrivedByBoat.has(agent.id)) continue;
         this.advanceAgentMovement(agent, next - minute, minute);
+      }
+      if (this.state.iskorkaMentorsV1?.active) {
+        updateMentorTeachingPositionsV1(this.state);
       }
       minute = next;
       this.finishSecretLibraryAdmissions(minute, this.state.now);
