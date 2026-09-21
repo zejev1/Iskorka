@@ -58,8 +58,6 @@ export interface LocalObservationV1 {
   objectId: string;
   kind: LocalObservationKindV1;
   relation: 'here' | 'connected_visible' | 'co_located';
-  /** Human-readable labels are observations, not handles to hidden object data. */
-  observedLabel?: string;
 }
 
 export interface ReceivedMessageV1 {
