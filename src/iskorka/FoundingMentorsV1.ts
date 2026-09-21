@@ -481,27 +481,32 @@ export function applyFoundingMentorCareV1(
   const mealPortion = age < 1 ? 0.18 : age < 3 ? 0.22 : age < 8 ? 0.25 : 0.28;
   const drinkAmount = age < 1 ? 0.16 : age < 5 ? 0.2 : 0.24;
   const careCost = 0.0007 * (0.72 + Math.min(1, age / 12) * 0.28);
-  if (resources) {
-    Object.assign(resources, consumeStoredResources(resources, Math.min(resources.storedResources, careCost)));
+  const hasFood = Boolean(resources && resources.storedResources >= careCost);
+  if (resources && hasFood) {
+    Object.assign(resources, consumeStoredResources(resources, careCost));
     resourcesChanged = true;
+    recordBodyMealV1(world, student, mealPortion);
+    recordMealV18(world, student, mealPortion);
+    state.totalMeals += 1;
+    mentor.feedingCount += 1;
   }
-
-  recordBodyMealV1(world, student, mealPortion);
+  // Founding settlement access supplies potable water by the same physical
+  // assumption already used by the ordinary settlement-water path.
   recordBodyDrinkV1(world, student, drinkAmount);
-  recordMealV18(world, student, mealPortion);
+  state.totalDrinks += 1;
+
   const rhythm = ensureLifeRhythmV18(world, student);
-  rhythm.satiety = Math.max(rhythm.satiety, age < 1 ? 0.72 : 0.66);
+  if (hasFood) {
+    rhythm.satiety = Math.max(rhythm.satiety, age < 1 ? 0.72 : 0.66);
+  }
 
   student.energy = Math.max(student.energy, age < 3 ? 0.78 : 0.7);
   student.stress = clamp01(student.stress - (age < 5 ? 0.045 : 0.025));
   student.resources = Math.max(student.resources, 0.12);
   student.needs.belonging = Math.max(student.needs.belonging, age < 8 ? 0.76 : 0.62);
 
-  mentor.feedingCount += 1;
   mentor.careCount += 1;
   mentor.lastCareWorldMinute = world.calendar.elapsedWorldMinutes;
-  state.totalMeals += 1;
-  state.totalDrinks += 1;
   state.totalCareActions += 1;
 
   if (age < 5) {
