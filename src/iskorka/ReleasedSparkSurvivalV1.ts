@@ -7,6 +7,29 @@ const DAY = 24 * HOUR;
 export const RELEASED_SPARK_BODY_BOUNDARY_WORLD_MINUTES_V1 = 3 * HOUR;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+const canonical = (value: number): number =>
+  Math.round(clamp01(value) * 1e12) / 1e12;
+const HYDRATION_LOSS_PER_MINUTE = 0.27 / DAY;
+const SATIETY_LOSS_PER_MINUTE = 0.46 / DAY;
+const STOMACH_LOSS_PER_MINUTE = 0.55 / DAY;
+const METABOLIC_RESERVE_LOSS_PER_MINUTE = 0.032 / DAY;
+
+function timeBelowLinearThreshold(
+  startValue: number,
+  endValue: number,
+  threshold: number,
+  lossPerMinute: number,
+  elapsedWorldMinutes: number,
+): number {
+  if (endValue > threshold) return 0;
+  if (startValue <= threshold) return elapsedWorldMinutes;
+  if (!(lossPerMinute > 0)) return 0;
+  const minutesUntilThreshold = Math.max(
+    0,
+    (startValue - threshold) / lossPerMinute,
+  );
+  return Math.max(0, elapsedWorldMinutes - minutesUntilThreshold);
+}
 
 export type ReleasedSparkFatalCauseV1 = 'dehydration' | 'starvation';
 
@@ -91,88 +114,92 @@ export function advanceReleasedSparkSurvivalV1(
     };
   }
 
-  const days = elapsed / DAY;
   const h = core.homeostasis;
   const rhythm = ensureLifeRhythmV18(world, agent);
+  const hydrationBefore = h.hydration;
+  const satietyBefore = rhythm.satiety;
+  const stomachBefore = h.stomachFill;
+  const reserveBefore = survival.metabolicReserve;
 
-  // Hunger becomes noticeable within hours. This is sensation/metabolism only:
-  // no pantry, granary, field or hunt is accessed here.
-  rhythm.satiety = clamp01(rhythm.satiety - days * 0.46);
-  h.stomachFill = clamp01(h.stomachFill - days * 0.55);
+  // All passive depletion is linear in canonical world minutes. No result
+  // depends on whether the caller supplied one large interval or many small
+  // frames. Actual eat/drink actions are the only positive inputs.
+  h.hydration = canonical(
+    hydrationBefore - elapsed * HYDRATION_LOSS_PER_MINUTE,
+  );
+  rhythm.satiety = canonical(
+    satietyBefore - elapsed * SATIETY_LOSS_PER_MINUTE,
+  );
+  h.stomachFill = canonical(
+    stomachBefore - elapsed * STOMACH_LOSS_PER_MINUTE,
+  );
+  survival.metabolicReserve = canonical(
+    reserveBefore - elapsed * METABOLIC_RESERVE_LOSS_PER_MINUTE,
+  );
+  h.energyReserve = Math.min(
+    h.energyReserve,
+    survival.metabolicReserve,
+  );
 
-  // Human dehydration becomes critical in days, not simulated years.
-  // Heat/exertion remain additive in BodyPhysiologyV1.
-  h.hydration = clamp01(h.hydration - days * 0.27);
+  // Dehydration perturbs electrolytes but cannot create energy or an action.
   h.electrolyteDeviation = Math.max(
     -1,
     Math.min(
       1,
       h.electrolyteDeviation +
-        days * 0.08 * Math.max(0, 0.75 - h.hydration),
+        (elapsed / DAY) * 0.08 * Math.max(0, 0.75 - h.hydration),
     ),
   );
 
-  // Long-term stored metabolic reserve: starvation takes weeks rather than the
-  // same timescale as thirst. BodyPhysiology may model short-term energy, but
-  // it may never invent calories above this physically depleted reserve.
-  const hungerPressure = clamp01(1 - rhythm.satiety);
-  survival.metabolicReserve = clamp01(
-    survival.metabolicReserve -
-      days * (0.012 + hungerPressure * 0.032),
-  );
-  h.energyReserve = Math.min(h.energyReserve, survival.metabolicReserve);
-
   // Wakefulness is a body constraint. Collapse is not a decision script.
   if (!sleeping) {
-    agent.energy = clamp01(
+    agent.energy = canonical(
       agent.energy - elapsed / (18 * HOUR),
     );
   }
 
-  const dehydrationSeverity = clamp01((0.38 - h.hydration) / 0.38);
-  const starvationSeverity = clamp01(
-    Math.max(
-      (0.22 - survival.metabolicReserve) / 0.22,
-      (0.12 - rhythm.satiety) / 0.12,
-    ),
+  const dehydrationBelow = timeBelowLinearThreshold(
+    hydrationBefore,
+    h.hydration,
+    0.12,
+    HYDRATION_LOSS_PER_MINUTE,
+    elapsed,
   );
-  if (dehydrationSeverity > 0 || starvationSeverity > 0) {
-    agent.life.health = clamp01(
-      agent.life.health -
-        days * (
-          dehydrationSeverity * 0.075 +
-          starvationSeverity * 0.022
-        ),
-    );
-    agent.stress = clamp01(
-      agent.stress +
-        days * (
-          dehydrationSeverity * 0.09 +
-          starvationSeverity * 0.035
-        ),
-    );
-  }
-
   if (h.hydration <= 0.12) {
-    survival.criticalDehydrationWorldMinutes += elapsed;
+    survival.criticalDehydrationWorldMinutes += dehydrationBelow;
   } else {
-    survival.criticalDehydrationWorldMinutes = Math.max(
-      0,
-      survival.criticalDehydrationWorldMinutes - elapsed * 0.5,
-    );
+    survival.criticalDehydrationWorldMinutes = 0;
   }
 
+  let starvationBelow = 0;
   if (
     survival.metabolicReserve <= 0.06 &&
     rhythm.satiety <= 0.05
   ) {
-    survival.criticalStarvationWorldMinutes += elapsed;
-  } else {
-    survival.criticalStarvationWorldMinutes = Math.max(
-      0,
-      survival.criticalStarvationWorldMinutes - elapsed * 0.2,
+    const reserveBelow = timeBelowLinearThreshold(
+      reserveBefore,
+      survival.metabolicReserve,
+      0.06,
+      METABOLIC_RESERVE_LOSS_PER_MINUTE,
+      elapsed,
     );
+    const satietyBelow = timeBelowLinearThreshold(
+      satietyBefore,
+      rhythm.satiety,
+      0.05,
+      SATIETY_LOSS_PER_MINUTE,
+      elapsed,
+    );
+    starvationBelow = Math.min(reserveBelow, satietyBelow);
+    survival.criticalStarvationWorldMinutes += starvationBelow;
+  } else {
+    survival.criticalStarvationWorldMinutes = 0;
   }
+
+  survival.criticalDehydrationWorldMinutes =
+    Math.round(survival.criticalDehydrationWorldMinutes * 1e9) / 1e9;
+  survival.criticalStarvationWorldMinutes =
+    Math.round(survival.criticalStarvationWorldMinutes * 1e9) / 1e9;
 
   if (
     survival.criticalDehydrationWorldMinutes >= 18 * HOUR
