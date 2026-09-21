@@ -6976,6 +6976,97 @@ export class WorldEngine {
   }
 
 
+  private refreshSparkPerception(agent: AgentState): void {
+    if ((agent.race ?? 'human') !== 'human' || !agent.life.alive) return;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain) return;
+    acceptPersonalPerceptBatchV1(
+      brain,
+      perceptBatchForAgentV1(this.state, agent.id, {
+        localAgents: this.agentsAtLocation(agent.locationId),
+        receivedMessages:
+          this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
+      }),
+    );
+  }
+
+  private stepMentoredFoundingStudent(
+    agent: AgentState,
+    now: number,
+  ): void {
+    if (!canResidentAct(agent)) return;
+    if (advanceBodySleepV21(this.state, agent)) return;
+
+    this.refreshSparkPerception(agent);
+    if (agent.movement) {
+      // Mentor-led travel is real continuous movement. No adult decision
+      // engine is invoked while the child is en route.
+      agent.lastAction = 'walk';
+      return;
+    }
+
+    const mentor = assignedFoundingMentorV1(this.state, agent.id);
+    if (!mentor || mentor.status !== 'caregiving') return;
+
+    const target = mentorTeachingPlaceV1(
+      this.state,
+      mentor,
+      agent.life.ageYears,
+    );
+
+    if (
+      agent.life.ageYears >= 1.5 &&
+      agent.locationId !== target
+    ) {
+      if (this.travelBeforeAction(agent, target, 'reflect', now, 'walk')) {
+        return;
+      }
+    }
+
+    // Infants/toddlers remain with the care team in the common nursery.
+    // Older children learn only after physically reaching the mentor's site.
+    if (agent.locationId !== mentor.locationId) return;
+
+    const lesson = applyFoundingMentorLessonV1(
+      this.state,
+      agent,
+      mentor,
+    );
+    if (!lesson.taught) return;
+
+    observeLocalPlacesV20(this.state, agent);
+    agent.lastAction =
+      lesson.domain === 'agriculture' || lesson.domain === 'construction'
+        ? 'work'
+        : lesson.domain === 'survival'
+          ? 'walk'
+          : 'socialize';
+    agent.lastMeaningfulEventAt = now;
+    agent.energy = clamp01(
+      agent.energy - (agent.life.ageYears < 5 ? 0.002 : 0.006),
+    );
+    agent.stress = clamp01(
+      agent.stress - (agent.life.ageYears < 8 ? 0.006 : 0.003),
+    );
+    agent.needs.purpose = clamp01(
+      agent.needs.purpose + Math.min(0.006, lesson.gained * 0.18),
+    );
+
+    this.recordAgentEvent(agent, now, 'agent.education.mentor_lesson', {
+      mentorId: mentor.id,
+      mentorName: mentor.name,
+      mentorRole: mentor.role,
+      domain: lesson.domain ?? 'language',
+      gained: lesson.gained,
+      ageYears: agent.life.ageYears,
+      worldMinutes: this.state.calendar.elapsedWorldMinutes,
+      physicallyCoLocated: true,
+      autonomousAdultDecisionEngineUsed: false,
+    });
+  }
+
   private stepAgent(
     agent: AgentState,
     allAgents: AgentState[],
@@ -6994,21 +7085,7 @@ export class WorldEngine {
       if (!agent.life.alive) return;
     }
 
-    if ((agent.race ?? 'human') === 'human') {
-      const brain =
-        brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
-        ensureBrainForAgentV1(this.state, agent);
-      if (brain) {
-        acceptPersonalPerceptBatchV1(
-          brain,
-          perceptBatchForAgentV1(this.state, agent.id, {
-            localAgents: this.agentsAtLocation(agent.locationId),
-            receivedMessages:
-              this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
-          }),
-        );
-      }
-    }
+    this.refreshSparkPerception(agent);
 
     const giftBefore = giftLearningSnapshotV20(this.state, agent);
     const ageAllowedActions = allowedActionsForResidentV1(agent);
