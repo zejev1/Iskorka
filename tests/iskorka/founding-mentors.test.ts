@@ -283,7 +283,37 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
       .every((mentor) => mentor.status === 'inactive'),
   );
   assert.equal(mentorActorsVisibleV1(world).length, 0);
-  assert.ok(Object.values(world.agents).some((agent) => agent.lastDecision !== undefined));
+
+  // Critical experiment boundary: adulthood must NOT switch the founding
+  // cohort back onto the inherited Ainkrad resident task script.
+  for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    assert.equal(spark.agencyCadence, undefined);
+  }
+
+  const birthsAtRelease = world.population.births;
+  const knowledgeAtRelease = Object.fromEntries(
+    Object.values(world.agents).map((spark) => [
+      spark.id,
+      structuredClone(world.v15!.knowledgeByAgentId[spark.id]),
+    ]),
+  );
+
+  await runtime.advanceTo(adulthoodFromStart + YEAR * 2);
+  world = runtime.snapshot();
+  assert.equal(world.population.births, birthsAtRelease);
+  for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.lastAction, undefined);
+    assert.equal(spark.plan, undefined);
+    assert.equal(spark.agencyCadence, undefined);
+    assert.deepEqual(
+      world.v15!.knowledgeByAgentId[spark.id],
+      knowledgeAtRelease[spark.id],
+    );
+  }
 });
 
 test('mentors become visible/hearable through the same perception boundary, not hidden data injection', async () => {
