@@ -32,14 +32,22 @@ function assertPartitionEquivalent(actual: unknown, expected: unknown, path = ''
 }
 
 
-test('fresh world: ten different adult humans, no preassigned partners/profession',async()=>{
+test('fresh world: ten different six-month Sparks, five mentors, no acquired founder profession',async()=>{
  const {world:w}=await create();assertIskorkaProfile(w,true);
  assert.equal(w.simulationProfile,ISKORKA_PROFILE);
- assert.equal(Object.values(w.agents).filter(a=>a.sex==='female').length,5);
- assert.equal(new Set(Object.values(w.agents).map(a=>JSON.stringify(a.personality))).size,10);
- assert.equal(new Set(Object.values(w.agents).map(a=>JSON.stringify(a.life.physiology))).size,10);
+ const founders=Object.values(w.agents);
+ assert.equal(founders.length,10);
+ assert.equal(founders.filter(a=>a.sex==='female').length,5);
+ assert.ok(founders.every(a=>a.life.ageYears===0.5&&a.life.stage==='child'&&a.life.generation===0));
+ assert.ok(founders.every(a=>Object.values(a.skills).every(value=>value===0)));
+ assert.ok(founders.every(a=>Object.values(a.mind.values).every(value=>value===0)));
+ assert.ok(founders.every(a=>Object.values(a.mind.beliefs).every(value=>value===0)));
+ assert.equal(new Set(founders.map(a=>JSON.stringify(a.personality))).size,10);
+ assert.equal(new Set(founders.map(a=>JSON.stringify(a.life.physiology))).size,10);
  assert.deepEqual(w.relationships,{});
  assert.equal(w.v15?.founderSmithAgentId,undefined);
+ assert.equal(w.v15?.genesisTeachers.length,0);
+ assert.equal(Object.keys(w.iskorkaMentorsV1!.mentorsById).length,5);
  assert.ok(Object.values(w.v18!.livelihoodByAgentId).every(a=>a.primary==='undecided'));
  assert.equal(Object.keys(w.v16!.familyLifecycleByPairId).length,0);
 });
@@ -64,25 +72,25 @@ test('ordinary animals and fish inhabit compatible existing locations',async()=>
  assert.ok(pop.some(p=>p.species==='fish'));assert.ok(pop.some(p=>p.species==='rabbit'));
  for(const p of pop){assert.ok(w.places[p.habitatId]);assert.ok(!p.isMonster);assert.ok(p.count>0);}
 });
-test('world survives ten years with autonomous decisions, exploration and births',async()=>{
- const {runtime,store,world:initial}=await create();const start=performance.now();const yearly=[];
+test('world survives ten mentored years without adult autonomy or artificial births',async()=>{
+ const {runtime,store}=await create();const start=performance.now();const yearly=[];
  for(let year=1;year<=10;year++){
   await runtime.advanceTo(year*YEAR);const w=runtime.snapshot();assertIskorkaProfile(w);
-  yearly.push({year,alive:Object.values(w.agents).filter(a=>a.life.alive).length,births:w.population.births,deaths:w.population.deaths,places:Object.keys(w.places).length});
+  yearly.push({year,alive:Object.values(w.agents).filter(a=>a.life.alive).length,births:w.population.births,deaths:w.population.deaths,lessons:w.iskorkaMentorsV1?.totalLessons??0,care:w.iskorkaMentorsV1?.totalCareActions??0});
  }
  const w=runtime.snapshot();assert.equal(w.calendar.elapsedWorldMinutes,YEAR*10);
- assert.ok(w.population.births>0);assert.ok(Object.keys(w.places).length>Object.keys(initial.places).length);
- const born=Object.values(w.agents).filter(a=>a.life.generation>0);
- assert.ok(born.length>0);
- for(const child of born){
-  const core=w.v21!.bodiesByAgentId[child.id]?.bodyCore;assert.ok(core,child.id);assert.equal(core.sex,child.sex);assert.equal(core.reproductive.type,child.sex);
-  if(child.life.ageYears<18){assert.equal(core.homeostasis.sexualArousal,undefined);if(core.reproductive.type==='female')assert.equal(core.reproductive.cyclePhase,undefined);else assert.equal(core.reproductive.refractoryLoad,undefined);}
- }
- assert.ok(Object.values(w.v16!.residentEvidenceByAgentId).reduce((a,e)=>a+e.recordedDecisionCount,0)>1000);
- assert.ok(Object.values(w.agents).some(a=>a.lastAction));
+ assert.equal(w.population.births,0);
+ assert.equal(Object.values(w.agents).filter(a=>a.life.generation>0).length,0);
+ assert.ok(Object.values(w.agents).every(a=>a.life.ageYears<18));
+ assert.ok(Object.values(w.agents).every(a=>a.lastDecision===undefined));
+ assert.ok((w.iskorkaMentorsV1?.totalLessons??0)>100);
+ assert.ok((w.iskorkaMentorsV1?.totalCareActions??0)>100);
+ assert.equal(w.iskorkaMentorsV1?.active,true);
+ assert.ok(Object.values(w.v15!.knowledgeByAgentId).some(k=>k.agriculture>0||k.construction>0||k.household>0||k.survival>0));
+ assert.ok(Object.values(w.v18!.languageByAgentId).some(l=>l.spokenComprehension>0&&l.vocabulary>0));
  const history=await store.history(w.id);assert.ok(history.length>0);
  assert.ok(history.every(e=>['agent','world','player','system'].includes(e.source)));
- writeFileSync('validation/ten-year-world.json',JSON.stringify({seed:w.bootstrapSeed,elapsedMs:performance.now()-start,yearly,eventCount:history.length},null,2));
+ writeFileSync('validation/ten-year-world.json',JSON.stringify({seed:w.bootstrapSeed,elapsedMs:performance.now()-start,yearly,eventCount:history.length,mentorActive:w.iskorkaMentorsV1?.active},null,2));
 });
 test('save/open preserves full state, identity and deterministic continuation',async()=>{
  const a=await create(),b=await create();await a.runtime.advanceTo(YEAR*.5);await b.runtime.advanceTo(YEAR*.5);
