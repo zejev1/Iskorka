@@ -699,7 +699,10 @@ function performGuidedPhysicalPracticeV1(
           effort: 0.08,
         },
       );
-      Object.assign(resources, harvested.next);
+      Object.assign(resources, {
+        ...harvested.next,
+        storedResources: clamp01(harvested.next.storedResources),
+      });
       succeeded = harvested.harvested > 0;
     }
     recordBodyMovementV1(world, student, 45, 0.24);
