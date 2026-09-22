@@ -38,7 +38,10 @@ import {
   retireBrainOwnerV1,
   synchronizeLegacyOwnedStateV1,
 } from '../iskorka/BrainStateAdapterV1';
-import { tryStoreBrainDatumV1 } from '../iskorka/BrainStateV1';
+import {
+  setBrainWorkingStepV1,
+  tryStoreBrainDatumV1,
+} from '../iskorka/BrainStateV1';
 import {
   applyHumanMotorActionEnvelopeV1,
   humanMotorMobilityScaleV1,
@@ -51,6 +54,8 @@ import {
 } from '../iskorka/MedievalPlaceInfrastructureV1';
 import {
   assertFoundationWellsV1,
+  consumeHomeWaterLitresV1,
+  drawWellWaterLitresV1,
   ensureFoundationWellsV1,
   refillHomeWaterFromWellV1,
   synchronizeFoundationWellWaterV1,
@@ -61,6 +66,14 @@ import {
   isReleasedFoundingSparkV1,
   nextReleasedSparkBodyBoundaryV1,
 } from '../iskorka/ReleasedSparkSurvivalV1';
+import {
+  chooseReleasedSparkNativeIntentV1,
+  nativeReviewDueV1,
+  nextNativeSparkReviewBoundaryV1,
+} from '../iskorka/NativeSparkAgencyV1';
+import {
+  recordVoluntaryPracticeDevelopmentV1,
+} from '../iskorka/NativeSparkDevelopmentV1';
 import {
   FOUNDING_SPARK_START_AGE_YEARS_V1,
   advanceFoundingMentorLifecycleV1,
@@ -16741,11 +16754,15 @@ export class WorldEngine {
       const nextReleasedBodyBoundary = hasReleasedFoundingSparksV1(this.state)
         ? nextReleasedSparkBodyBoundaryV1(minute)
         : Number.POSITIVE_INFINITY;
+      const nextNativeReviewBoundary = hasReleasedFoundingSparksV1(this.state)
+        ? nextNativeSparkReviewBoundaryV1(this.state, minute)
+        : Number.POSITIVE_INFINITY;
       const nextWake = nextBodyWakeWorldMinuteV21(this.state);
       const next = Math.min(
         end,
         nextMentorBoundary,
         nextReleasedBodyBoundary,
+        nextNativeReviewBoundary,
         nextWake !== undefined && nextWake > minute
           ? nextWake
           : Number.POSITIVE_INFINITY,
@@ -16790,11 +16807,17 @@ export class WorldEngine {
           ) {
             // Collapse is a body constraint, not a chosen resident task.
             startBodySleepV21(this.state, agent, true, next);
-            // A forced physiological collapse is visible through BodySleep,
-            // but it is not a chosen Spark action or hidden task.
             delete agent.lastAction;
             delete agent.lastDecision;
             delete agent.plan;
+          }
+        }
+        for (const agent of Object.values(this.state.agents)) {
+          if (
+            isReleasedFoundingSparkV1(this.state, agent) &&
+            nativeReviewDueV1(this.state, agent, next)
+          ) {
+            this.executeReleasedSparkNativeIntentAt(agent, next);
           }
         }
       }
@@ -16806,6 +16829,182 @@ export class WorldEngine {
     // Water volume is a deterministic projection of canonical elapsed time
     // and cumulative withdrawals, never of how the caller partitioned frames.
     synchronizeFoundationWellWaterV1(this.state, end);
+  }
+
+  private executeReleasedSparkNativeIntentAt(
+    agent: AgentState,
+    worldMinute: number,
+  ): void {
+    if (
+      !agent.life.alive ||
+      agent.life.health <= 0.015 ||
+      isBodySleepingV21(this.state, agent.id) ||
+      agent.movement
+    ) return;
+
+    this.refreshSparkPerception(agent);
+    const intent = chooseReleasedSparkNativeIntentV1(this.state, agent);
+    if (!intent) return;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain) return;
+
+    const travelTo = (targetPlaceId: string | undefined): boolean => {
+      if (!targetPlaceId || targetPlaceId === agent.locationId) return false;
+      this.moveAgent(agent, targetPlaceId);
+      if (!agent.movement) {
+        setBrainWorkingStepV1(brain, undefined);
+        return false;
+      }
+      agent.movement.purpose = 'walk';
+      setBrainWorkingStepV1(brain, {
+        stepId: `native-travel:${intent.kind}:${Math.floor(worldMinute)}`,
+        startedWorldMinute: worldMinute,
+        phase: 'waiting_outcome',
+        action: intent.kind,
+        targetObjectId: targetPlaceId,
+      });
+      this.stageEvent({
+        eventId: this.nextId('native-intent-travel'),
+        worldId: this.state.id,
+        kind: 'agent.native_intent.travel_started',
+        source: 'agent',
+        occurredAt: this.state.now,
+        occurredWorldMinutes: worldMinute,
+        payload: {
+          agentId: agent.id,
+          intent: intent.kind,
+          targetPlaceId,
+          evidence: intent.evidence.join(','),
+          legacyTaskScriptUsed: false,
+        },
+      });
+      return true;
+    };
+
+    if (travelTo(intent.targetPlaceId)) return;
+
+    let succeeded = false;
+    const place = this.state.places[agent.locationId];
+    if (intent.kind === 'drink') {
+      const litres = place?.kind === 'well'
+        ? drawWellWaterLitresV1(this.state, place.id, 0.4, worldMinute)
+        : agent.locationId === agent.homeId
+          ? consumeHomeWaterLitresV1(this.state, agent.homeId, 0.4)
+          : 0;
+      if (litres > 0) {
+        recordBodyDrinkV1(this.state, agent, 0.34);
+        succeeded = true;
+      }
+    } else if (intent.kind === 'eat') {
+      const wallet = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id];
+      const goods = wallet?.carriedGoods;
+      if (goods) {
+        const food = Math.max(0, goods.food ?? 0);
+        const meat = Math.max(0, goods.meat ?? 0);
+        const available = food + meat;
+        const consumed = Math.min(0.09, available);
+        if (consumed > 0) {
+          const fromFood = Math.min(food, consumed);
+          goods.food = food - fromFood;
+          const remainder = consumed - fromFood;
+          if (remainder > 0) goods.meat = Math.max(0, meat - remainder);
+          recordBodyMealV1(this.state, agent, 0.28);
+          recordMealV18(this.state, agent, 0.28);
+          succeeded = true;
+        }
+      }
+    } else if (intent.kind === 'gather_food') {
+      if (
+        place &&
+        (place.kind === 'resource_field' ||
+          place.kind === 'meadow' ||
+          place.biome === 'plains')
+      ) {
+        ensureAgentV15State(this.state, agent);
+        const localResources = this.settlementResourcesForAgent(agent);
+        const profile = this.v15World().knowledgeByAgentId[agent.id];
+        const harvested = harvestRenewably(
+          localResources,
+          {
+            id: agent.id,
+            agricultureKnowledge: profile.agriculture,
+            diligence: agent.personality.diligence,
+          },
+          {
+            eventId: `native-food:${agent.id}:${Math.floor(worldMinute)}`,
+            worldMinutes: worldMinute,
+            effort: clamp01(
+              0.1 +
+                agent.skills.gathering * 0.18 +
+                profile.agriculture * 0.12 +
+                agent.personality.diligence * 0.08,
+            ),
+          },
+        );
+        const personalFood = harvested.harvested * 0.72;
+        Object.assign(
+          localResources,
+          consumeStoredResources(harvested.next, personalFood),
+        );
+        if (personalFood > 0) {
+          recordPhysicalGoodsV21(
+            this.state,
+            agent,
+            'food',
+            personalFood,
+          );
+          agent.skills.gathering = clamp01(agent.skills.gathering + 0.0025);
+          agent.energy = clamp01(agent.energy - 0.025);
+          succeeded = true;
+        }
+      }
+    } else if (intent.kind === 'rest') {
+      if (agent.locationId === agent.homeId) {
+        succeeded = startBodySleepV21(this.state, agent, false, worldMinute);
+      }
+    } else if (intent.kind === 'work') {
+      if (
+        place?.kind === 'workshop' &&
+        placeSupportsCapabilityV1(place, 'general_craft')
+      ) {
+        recordMaterialPracticeV21(this.state, agent.id, 0.015);
+        agent.skills.craft = clamp01(agent.skills.craft + 0.0018);
+        agent.energy = clamp01(agent.energy - 0.018);
+        succeeded = true;
+      }
+    } else if (intent.kind === 'explore') {
+      // Reaching a remembered outdoor place is already a genuine outcome.
+      succeeded = place !== undefined && place.kind !== 'home';
+    } else if (intent.kind === 'reflect') {
+      succeeded = true;
+    }
+
+    if (succeeded) {
+      recordVoluntaryPracticeDevelopmentV1(agent, true, true);
+      agent.lastMeaningfulEventAt = this.state.now;
+    }
+    setBrainWorkingStepV1(brain, undefined);
+    delete agent.lastDecision;
+    delete agent.plan;
+
+    this.stageEvent({
+      eventId: this.nextId('native-intent'),
+      worldId: this.state.id,
+      kind: 'agent.native_intent.resolved',
+      source: 'agent',
+      occurredAt: this.state.now,
+      occurredWorldMinutes: worldMinute,
+      payload: {
+        agentId: agent.id,
+        intent: intent.kind,
+        placeId: agent.locationId,
+        succeeded,
+        evidence: intent.evidence.join(','),
+        legacyTaskScriptUsed: false,
+      },
+    });
   }
 
   private advanceAgentMovement(

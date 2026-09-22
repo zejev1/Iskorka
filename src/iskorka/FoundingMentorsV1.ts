@@ -2,7 +2,11 @@ import type { AgentState, WorldState } from '../world/types';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 import { ensureBrainForAgentV1 } from './BrainStateAdapterV1';
 import { tryStoreBrainDatumV1 } from './BrainStateV1';
-import { recordBodyDrinkV1, recordBodyMealV1 } from './BodyActionsV1';
+import {
+  recordBodyDrinkV1,
+  recordBodyMealV1,
+  recordBodyMovementV1,
+} from './BodyActionsV1';
 import {
   applyIndependentPractice,
   applyOrdinaryLesson,
@@ -21,6 +25,16 @@ import {
   nearestFoundationWellIdV1,
   refillHomeWaterFromWellV1,
 } from './FoundationWaterV1';
+import {
+  recordMentorCareDevelopmentV1,
+  recordMentorLessonDevelopmentV1,
+  recordVoluntaryPracticeDevelopmentV1,
+} from './NativeSparkDevelopmentV1';
+import {
+  brainAcceptsGuidedPracticeV1,
+  recordGuidedPracticeExperienceV1,
+  type GuidedPracticeExperienceV1,
+} from './NativeSparkAgencyV1';
 
 export const FOUNDING_SPARK_START_AGE_YEARS_V1 = 0.5;
 export const FOUNDING_MENTOR_RELEASE_AGE_YEARS_V1 = 18;
@@ -649,6 +663,88 @@ function skillPracticeFromDomain(
   }
 }
 
+function practiceActionForDomainV1(
+  domain: GenesisDomain,
+): GuidedPracticeExperienceV1['action'] {
+  if (domain === 'agriculture') return 'gather_food';
+  if (domain === 'construction') return 'work';
+  if (domain === 'household') return 'fetch_water';
+  return 'explore';
+}
+
+function performGuidedPhysicalPracticeV1(
+  world: WorldState,
+  student: AgentState,
+  mentor: FoundingMentorStateV1,
+  domain: GenesisDomain,
+): boolean {
+  const place = world.places[student.locationId];
+  if (!place || mentor.locationId !== student.locationId) return false;
+  let succeeded = false;
+
+  if (domain === 'agriculture' && place.kind === 'resource_field') {
+    const resources = world.v15?.renewableResources;
+    const knowledge = world.v15?.knowledgeByAgentId[student.id]?.agriculture ?? 0;
+    if (resources) {
+      const harvested = harvestRenewably(
+        resources,
+        {
+          id: student.id,
+          agricultureKnowledge: knowledge,
+          diligence: student.personality.diligence,
+        },
+        {
+          eventId: `guided-harvest:${mentor.id}:${student.id}:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}`,
+          worldMinutes: world.calendar.elapsedWorldMinutes,
+          effort: 0.08,
+        },
+      );
+      Object.assign(resources, harvested.next);
+      succeeded = harvested.harvested > 0;
+    }
+    recordBodyMovementV1(world, student, 45, 0.24);
+  } else if (
+    domain === 'construction' &&
+    place.kind === 'workshop' &&
+    placeSupportsCapabilityV1(place, 'general_craft')
+  ) {
+    // Supervised tool handling has a real body load and requires the actual
+    // furnished workshop, but does not conjure a finished product.
+    recordBodyMovementV1(world, student, 50, 0.3);
+    succeeded = true;
+  } else if (domain === 'household' && place.kind === 'well') {
+    const fetched = refillHomeWaterFromWellV1(
+      world,
+      student.homeId,
+      place.id,
+      4,
+    );
+    recordBodyMovementV1(world, student, 25, 0.18);
+    succeeded = fetched > 0;
+  } else if (
+    domain === 'survival' &&
+    (
+      ['quiet_space', 'foundation_lake', 'meadow', 'forest', 'outskirts', 'river', 'lake']
+        .includes(place.id) ||
+      ['quiet_space', 'meadow', 'forest', 'outskirts', 'shore', 'river', 'lake']
+        .includes(place.kind)
+    )
+  ) {
+    recordBodyMovementV1(world, student, 50, 0.24);
+    succeeded = true;
+  }
+
+  recordGuidedPracticeExperienceV1(world, student, {
+    domain,
+    action: practiceActionForDomainV1(domain),
+    placeId: place.id,
+    mentorId: mentor.id,
+    worldMinute: world.calendar.elapsedWorldMinutes,
+    succeeded,
+  });
+  return succeeded;
+}
+
 export type FoundingMentorEducationDomainV1 =
   | GenesisDomain
   | 'language'
@@ -687,6 +783,7 @@ export function applyFoundingMentorLessonV1(
     mentor,
   );
   if (reproductiveEducationStage) {
+    recordMentorLessonDevelopmentV1(student, 0.01);
     mentor.lessonCount += 1;
     mentor.lastLessonWorldMinute = now;
     const state = ensureFoundingMentorWorldV1(world);
@@ -731,10 +828,11 @@ export function applyFoundingMentorLessonV1(
         },
       );
       let practiceGained = 0;
-      if (student.life.ageYears >= 8) {
-        // This is an optional supervised try after the mentor's demonstration.
-        // It changes only the student's learning state; it does not harvest,
-        // build, earn resources or satisfy settlement labour demand.
+      let physicalPracticeSucceeded = false;
+      const acceptedPractice =
+        student.life.ageYears >= 8 &&
+        brainAcceptsGuidedPracticeV1(world, student, primaryDomain);
+      if (acceptedPractice) {
         const practice = applyIndependentPractice(
           learner,
           {
@@ -748,10 +846,23 @@ export function applyFoundingMentorLessonV1(
           },
         );
         practiceGained = practice.gained;
+        physicalPracticeSucceeded = performGuidedPhysicalPracticeV1(
+          world,
+          student,
+          mentor,
+          primaryDomain,
+        );
+      }
+      if (student.life.ageYears >= 8) {
+        recordVoluntaryPracticeDevelopmentV1(
+          student,
+          acceptedPractice,
+          physicalPracticeSucceeded,
+        );
       }
       gained = lesson.gained + practiceGained;
       domain = primaryDomain;
-      if (student.life.ageYears >= 8) {
+      if (acceptedPractice && physicalPracticeSucceeded) {
         const ageScale = student.life.ageYears < 12 ? 0.35 : 1;
         skillPracticeFromDomain(student, primaryDomain, gained * ageScale);
       }
@@ -760,12 +871,28 @@ export function applyFoundingMentorLessonV1(
     gained += teachLanguageV1(world, student, mentor) * 0.25;
   }
 
+  recordMentorLessonDevelopmentV1(student, gained);
   mentor.lessonCount += 1;
   mentor.lastLessonWorldMinute = now;
   const state = ensureFoundingMentorWorldV1(world);
   state.totalLessons += 1;
+  const physicalPracticeRemembered =
+    domain !== 'language' &&
+    domain !== 'human_reproduction' &&
+    ensureBrainForAgentV1(world, student)?.data.some(
+      (datum) =>
+        datum.kind === 'mentor_guided_physical_practice' &&
+        (() => {
+          try {
+            const parsed = JSON.parse(datum.encoded) as { worldMinute?: number; domain?: string; succeeded?: boolean };
+            return parsed.worldMinute === now && parsed.domain === domain && parsed.succeeded === true;
+          } catch {
+            return false;
+          }
+        })(),
+    ) === true;
   const mode: FoundingMentorLessonResultV1['mode'] =
-    student.life.ageYears < 8 ? 'demonstration' : 'guided_practice';
+    physicalPracticeRemembered ? 'guided_practice' : 'demonstration';
   pushStudentMessage(state, {
     id: `mentor-message:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
     mentorId: mentor.id,
@@ -918,6 +1045,10 @@ export function applyFoundingMentorCareV1(
       kind: 'care',
     });
   }
+  recordMentorCareDevelopmentV1(
+    student,
+    hasFood && suppliedWaterLitres > 0 ? 1 : 0.55,
+  );
   return { cared: true, resourcesChanged };
 }
 

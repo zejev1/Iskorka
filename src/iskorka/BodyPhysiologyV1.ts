@@ -502,27 +502,53 @@ export function applyBodyMindFeedbackV1(
     agent.stress +
     dose * (discomfort * 0.018 - relief * 0.015),
   );
+  // Emotions are transient interpretations, not counters that only ever
+  // accumulate. The old additive fear path saturated every long-lived Spark at
+  // 100% even in years of safety because ordinary fear had almost no decay.
+  const fearTarget = clamp01(
+    0.025 +
+      signals.breathlessness * 0.28 +
+      signals.startle * 0.22 +
+      Math.max(signals.coldStress, signals.heatStress) * 0.16 +
+      body.pain * 0.2 +
+      signals.weakness * 0.08 -
+      signals.postPleasureRelaxation * 0.12,
+  );
   agent.mind.emotions.fear = clamp01(
-    agent.mind.emotions.fear +
-    dose * (
-      signals.breathlessness * 0.006 +
-      signals.startle * 0.004 +
-      Math.max(signals.coldStress, signals.heatStress) * 0.003 +
-      body.pain * 0.004 -
-      signals.postPleasureRelaxation * 0.003
+    approachBodyValueV1(
+      agent.mind.emotions.fear,
+      fearTarget,
+      fearTarget > agent.mind.emotions.fear ? 4 * 60 : 18 * 60,
+      elapsedWorldMinutes,
     ),
+  );
+  const joyTarget = clamp01(
+    0.08 +
+      signals.physicalPleasure * 0.58 +
+      signals.postPleasureRelaxation * 0.28 -
+      signals.physicalDiscomfort * 0.16,
   );
   agent.mind.emotions.joy = clamp01(
-    agent.mind.emotions.joy +
-    dose * (
-      signals.physicalPleasure * 0.014 +
-      signals.postPleasureRelaxation * 0.006 -
-      signals.physicalDiscomfort * 0.004
+    approachBodyValueV1(
+      agent.mind.emotions.joy,
+      joyTarget,
+      joyTarget > agent.mind.emotions.joy ? 5 * 60 : 30 * 60,
+      elapsedWorldMinutes,
     ),
   );
+  const hopeTarget = clamp01(
+    0.16 +
+      agent.mind.beliefs.worldTrust * 0.34 +
+      agent.personality.resilience * 0.28 -
+      signals.weakness * 0.22,
+  );
   agent.mind.emotions.hope = clamp01(
-    agent.mind.emotions.hope -
-    dose * signals.weakness * 0.0018,
+    approachBodyValueV1(
+      agent.mind.emotions.hope,
+      hopeTarget,
+      3 * DAY,
+      elapsedWorldMinutes,
+    ),
   );
 }
 
