@@ -878,7 +878,6 @@ export function applyFoundingMentorLessonV1(
   state.totalLessons += 1;
   const physicalPracticeRemembered =
     domain !== 'language' &&
-    domain !== 'human_reproduction' &&
     ensureBrainForAgentV1(world, student)?.data.some(
       (datum) =>
         datum.kind === 'mentor_guided_physical_practice' &&
