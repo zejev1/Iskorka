@@ -8,12 +8,12 @@ import {
 } from '../../src/iskorka/BrowserPersistence';
 import { MINUTES_PER_SECOND } from '../../src/iskorka/protocol';
 
-test('temporary Vercel deployment URLs redirect to one persistent Iskorka origin', () => {
+test('Vercel deployment URLs stay on the exact build by default', () => {
   assert.equal(
     canonicalIskorkaProductionUrl(
       'https://iskorka-abc123-sao-a8bd.vercel.app/?x=1&_vercel_share=secret',
     ),
-    `https://${ISKORKA_CANONICAL_PRODUCTION_HOST}/?x=1`,
+    undefined,
   );
   assert.equal(
     canonicalIskorkaProductionUrl(
@@ -23,12 +23,12 @@ test('temporary Vercel deployment URLs redirect to one persistent Iskorka origin
   );
 });
 
-test('preview escape hatch keeps an intentionally isolated deployment origin', () => {
+test('explicit production switch can leave a preview for the stable origin', () => {
   assert.equal(
     canonicalIskorkaProductionUrl(
-      'https://iskorka-abc123-sao-a8bd.vercel.app/?preview=1',
+      'https://iskorka-abc123-sao-a8bd.vercel.app/?x=1&production=1&_vercel_share=secret',
     ),
-    undefined,
+    `https://${ISKORKA_CANONICAL_PRODUCTION_HOST}/?x=1`,
   );
 });
 
