@@ -38,7 +38,12 @@ test('human library: at most five volunteers; no learning before physical arriva
  // learn anything before a real arrival receipt exists.
  assert.ok(selected.every(v=>v.status==='travelling'&&v.arrivedWorldMinute===undefined));
  assert.ok(selected.every(v=>w.agents[v.agentId].locationId!==SECRET_LIBRARY_PLACE_ID_V18));
- for(let tick=2;tick<=7;tick++)await world.step(tick);
+ // This regression only needs the first completed physical reading. Stop as
+ // soon as evidence exists instead of running an unrelated month-long survival
+ // experiment with this synthetic adult fixture.
+ for(let tick=2;tick<=5 && world.snapshot().v18!.secretLibrary.totalKnowledgeRecords===0;tick++){
+  await world.step(tick);
+ }
  const complete=world.snapshot().v18!.secretLibrary;
  const history=await store.history(prepared.id);
  assert.ok(complete.totalKnowledgeRecords>0,JSON.stringify({
