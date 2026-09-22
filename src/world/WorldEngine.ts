@@ -16944,10 +16944,14 @@ export class WorldEngine {
           },
         );
         const personalFood = harvested.harvested * 0.72;
-        Object.assign(
-          localResources,
-          consumeStoredResources(harvested.next, personalFood),
+        const afterPersonalShare = consumeStoredResources(
+          harvested.next,
+          personalFood,
         );
+        Object.assign(localResources, {
+          ...afterPersonalShare,
+          storedResources: clamp01(afterPersonalShare.storedResources),
+        });
         if (personalFood > 0) {
           recordPhysicalGoodsV21(
             this.state,
