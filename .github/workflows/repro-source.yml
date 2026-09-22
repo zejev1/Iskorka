@@ -1,0 +1,29 @@
+name: Iskorka reproducible source
+on:
+  push:
+    branches: [fix/learning-wildlife-lake-20260922]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Package tracked source and locked public dependencies only
+        run: |
+          git archive --format=tar HEAD > "$RUNNER_TEMP/iskorka-source.tar"
+          tar -rf "$RUNNER_TEMP/iskorka-source.tar" node_modules
+          gzip "$RUNNER_TEMP/iskorka-source.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iskorka-repro-source
+          path: ${{ runner.temp }}/iskorka-source.tar.gz
+          retention-days: 1
