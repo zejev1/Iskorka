@@ -2,18 +2,19 @@ export const ISKORKA_CANONICAL_PRODUCTION_HOST =
   'iskorka-sao-a8bd.vercel.app';
 
 /**
- * Vercel deployment URLs change on every build and IndexedDB is isolated by
- * origin. Redirect those transient Iskorka hosts to one stable production
- * origin before opening the world database.
+ * Vercel deployment URLs are isolated origins. A deployment opened from the
+ * Vercel dashboard must stay on that exact deployment so the user can inspect
+ * the build they clicked. Never silently bounce previews to an older production.
  *
- * Add ?preview=1 only when intentionally inspecting an isolated preview.
+ * Add ?production=1 only when intentionally asking to jump from a Vercel
+ * preview host to the stable production origin.
  */
 export function canonicalIskorkaProductionUrl(
   href: string,
 ): string | undefined {
   const url = new URL(href);
   const host = url.hostname.toLowerCase();
-  if (url.searchParams.get('preview') === '1') return undefined;
+  if (url.searchParams.get('production') !== '1') return undefined;
   if (host === ISKORKA_CANONICAL_PRODUCTION_HOST) return undefined;
   if (!host.startsWith('iskorka') || !host.endsWith('.vercel.app')) {
     return undefined;
@@ -21,6 +22,7 @@ export function canonicalIskorkaProductionUrl(
   url.protocol = 'https:';
   url.hostname = ISKORKA_CANONICAL_PRODUCTION_HOST;
   url.port = '';
+  url.searchParams.delete('production');
   url.searchParams.delete('_vercel_share');
   return url.toString();
 }
