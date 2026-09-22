@@ -1,4 +1,4 @@
-import type { AgentState, WorldState } from '../world/types';
+import type { AgentState, WildlifePopulation, WorldState } from '../world/types';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 import { ensureBrainForAgentV1 } from './BrainStateAdapterV1';
 import { tryStoreBrainDatumV1 } from './BrainStateV1';
@@ -18,6 +18,7 @@ import { consumeStoredResources, harvestRenewably } from '../v15/RenewableAgricu
 import { ensureRussianKnowledgeV18 } from '../v18/UnderworldFoundationV18';
 import { ensureLifeRhythmV18, recordMealV18 } from '../v18/LivelihoodAndRhythmV18';
 import { placeSupportsCapabilityV1 } from './MedievalPlaceInfrastructureV1';
+import { recordPhysicalGoodsV21 } from '../v21/EmergentSocietyV21';
 import {
   consumeHomeWaterLitresV1,
   drawWellWaterLitresV1,
@@ -118,6 +119,15 @@ const MENTOR_SPECS: ReadonlyArray<{
 ] as const;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+function stablePracticeUnitV1(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
 
 type ReproductiveEducationStageV1 =
   | 'body_boundaries'
@@ -656,10 +666,9 @@ function skillPracticeFromDomain(
   } else if (domain === 'household') {
     student.skills.social = clamp01(student.skills.social + practice);
   } else if (domain === 'survival') {
+    // Generic navigation practice must not magically create hunting skill.
+    // Hunting/fishing progress is added only by a real wildlife attempt below.
     student.skills.exploration = clamp01(student.skills.exploration + practice);
-    if (student.life.ageYears >= 12) {
-      student.skills.hunting = clamp01(student.skills.hunting + practice * 0.35);
-    }
   }
 }
 
@@ -672,6 +681,82 @@ function practiceActionForDomainV1(
   return 'explore';
 }
 
+function guidedWildlifeTargetV1(
+  world: Readonly<WorldState>,
+  student: Readonly<AgentState>,
+  placeId: string,
+  fishing: boolean,
+): WildlifePopulation | undefined {
+  const candidates = Object.values(world.wildlife)
+    .filter((population) =>
+      !population.isMonster &&
+      population.habitatId === placeId &&
+      population.count > 0 &&
+      (fishing
+        ? population.species === 'fish'
+        : ['rabbit', 'deer', 'boar', 'bird'].includes(population.species)),
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (candidates.length === 0) return undefined;
+  const roll = stablePracticeUnitV1(
+    `${world.bootstrapSeed ?? world.id}:${student.id}:${placeId}:${Math.floor(world.calendar.elapsedWorldMinutes / DAY)}:${fishing ? 'fish' : 'hunt'}`,
+  );
+  return candidates[Math.min(candidates.length - 1, Math.floor(roll * candidates.length))];
+}
+
+function performGuidedWildlifePracticeV1(
+  world: WorldState,
+  student: AgentState,
+  population: WildlifePopulation,
+  fishing: boolean,
+): { attempted: boolean; harvested: boolean; defensiveEncounter: boolean } {
+  const reserveFloor = Math.max(2, Math.floor(population.carryingCapacity * 0.3));
+  const canHarvest = population.count > reserveFloor;
+  const successChance = clamp01(
+    (fishing ? 0.48 : 0.38) +
+      student.skills.hunting * 0.24 +
+      student.personality.diligence * 0.08 +
+      student.life.physiology.endurance * 0.07 +
+      student.life.physiology.strength * (fishing ? 0.02 : 0.06) -
+      population.alertness * 0.14 -
+      population.threat * (fishing ? 0.04 : 0.12),
+  );
+  const harvestRoll = stablePracticeUnitV1(
+    `${world.bootstrapSeed ?? world.id}:${student.id}:${population.id}:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}:harvest`,
+  );
+  const harvested = canHarvest && harvestRoll < successChance;
+  if (harvested) {
+    population.count = Math.max(0, population.count - 1);
+    population.lastChangedAt = world.now;
+    const meat = population.species === 'deer' ? 0.16
+      : population.species === 'boar' ? 0.15
+        : population.species === 'rabbit' ? 0.07
+          : population.species === 'fish' ? 0.055
+            : 0.04;
+    recordPhysicalGoodsV21(world, student, 'meat', meat);
+  }
+
+  // A supervised boar encounter can produce genuine defensive/combat
+  // experience.  It is never granted for merely standing in the forest.
+  const defensiveEncounter =
+    !fishing &&
+    population.species === 'boar' &&
+    stablePracticeUnitV1(
+      `${world.bootstrapSeed ?? world.id}:${student.id}:${population.id}:${Math.floor(world.calendar.elapsedWorldMinutes / SEMANTIC_QUANTUM)}:defence`,
+    ) < 0.42;
+  if (defensiveEncounter && student.progression) {
+    student.progression.combatMastery = clamp01(
+      student.progression.combatMastery + (harvested ? 0.004 : 0.002),
+    );
+    student.stress = clamp01(student.stress + (harvested ? 0.004 : 0.012));
+  }
+  student.skills.hunting = clamp01(
+    student.skills.hunting + (harvested ? 0.0045 : 0.0018),
+  );
+  recordBodyMovementV1(world, student, fishing ? 45 : 65, fishing ? 0.2 : 0.32);
+  return { attempted: true, harvested, defensiveEncounter };
+}
+
 function performGuidedPhysicalPracticeV1(
   world: WorldState,
   student: AgentState,
@@ -681,12 +766,17 @@ function performGuidedPhysicalPracticeV1(
   const place = world.places[student.locationId];
   if (!place || mentor.locationId !== student.locationId) return false;
   let succeeded = false;
+  let action = practiceActionForDomainV1(domain);
+  let targetPopulationId: string | undefined;
+  let targetSpecies: string | undefined;
+  let harvested: boolean | undefined;
+  let defensiveEncounter: boolean | undefined;
 
   if (domain === 'agriculture' && place.kind === 'resource_field') {
     const resources = world.v15?.renewableResources;
     const knowledge = world.v15?.knowledgeByAgentId[student.id]?.agriculture ?? 0;
     if (resources) {
-      const harvested = harvestRenewably(
+      const harvestedResult = harvestRenewably(
         resources,
         {
           id: student.id,
@@ -700,10 +790,10 @@ function performGuidedPhysicalPracticeV1(
         },
       );
       Object.assign(resources, {
-        ...harvested.next,
-        storedResources: clamp01(harvested.next.storedResources),
+        ...harvestedResult.next,
+        storedResources: clamp01(harvestedResult.next.storedResources),
       });
-      succeeded = harvested.harvested > 0;
+      succeeded = harvestedResult.harvested > 0;
     }
     recordBodyMovementV1(world, student, 45, 0.24);
   } else if (
@@ -711,8 +801,6 @@ function performGuidedPhysicalPracticeV1(
     place.kind === 'workshop' &&
     placeSupportsCapabilityV1(place, 'general_craft')
   ) {
-    // Supervised tool handling has a real body load and requires the actual
-    // furnished workshop, but does not conjure a finished product.
     recordBodyMovementV1(world, student, 50, 0.3);
     succeeded = true;
   } else if (domain === 'household' && place.kind === 'well') {
@@ -733,17 +821,48 @@ function performGuidedPhysicalPracticeV1(
         .includes(place.kind)
     )
   ) {
-    recordBodyMovementV1(world, student, 50, 0.24);
-    succeeded = true;
+    const fishing =
+      student.life.ageYears >= 10 &&
+      (place.id === 'foundation_lake' || place.kind === 'lake' || place.kind === 'river');
+    const hunting =
+      student.life.ageYears >= 12 &&
+      !fishing &&
+      (place.id === 'outskirts' || place.kind === 'outskirts' || place.kind === 'forest' || place.kind === 'meadow');
+    const population = fishing
+      ? guidedWildlifeTargetV1(world, student, place.id, true)
+      : hunting
+        ? guidedWildlifeTargetV1(world, student, place.id, false)
+        : undefined;
+    if (population) {
+      action = fishing ? 'fish' : 'hunt';
+      targetPopulationId = population.id;
+      targetSpecies = population.species;
+      const outcome = performGuidedWildlifePracticeV1(
+        world,
+        student,
+        population,
+        fishing,
+      );
+      succeeded = outcome.attempted;
+      harvested = outcome.harvested;
+      defensiveEncounter = outcome.defensiveEncounter;
+    } else {
+      recordBodyMovementV1(world, student, 50, 0.24);
+      succeeded = true;
+    }
   }
 
   recordGuidedPracticeExperienceV1(world, student, {
     domain,
-    action: practiceActionForDomainV1(domain),
+    action,
     placeId: place.id,
     mentorId: mentor.id,
     worldMinute: world.calendar.elapsedWorldMinutes,
     succeeded,
+    ...(targetPopulationId ? { targetPopulationId } : {}),
+    ...(targetSpecies ? { targetSpecies } : {}),
+    ...(harvested === undefined ? {} : { harvested }),
+    ...(defensiveEncounter === undefined ? {} : { defensiveEncounter }),
   });
   return succeeded;
 }
@@ -836,25 +955,29 @@ export function applyFoundingMentorLessonV1(
         student.life.ageYears >= 8 &&
         brainAcceptsGuidedPracticeV1(world, student, primaryDomain);
       if (acceptedPractice) {
-        const practice = applyIndependentPractice(
-          learner,
-          {
-            practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
-            personId: student.id,
-            domain: primaryDomain,
-            worldMinutes: now,
-            durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 45,
-            activityVerified: true,
-            challenge: student.life.ageYears >= 12 ? 0.52 : 0.18,
-          },
-        );
-        practiceGained = practice.gained;
+        // First do the physical attempt.  Knowledge-transfer credit is only
+        // granted afterwards when that attempt actually happened in the world.
         physicalPracticeSucceeded = performGuidedPhysicalPracticeV1(
           world,
           student,
           mentor,
           primaryDomain,
         );
+        if (physicalPracticeSucceeded) {
+          const practice = applyIndependentPractice(
+            learner,
+            {
+              practiceId: `mentor-practice:${mentor.id}:${student.id}:${Math.floor(now / SEMANTIC_QUANTUM)}`,
+              personId: student.id,
+              domain: primaryDomain,
+              worldMinutes: now,
+              durationWorldMinutes: student.life.ageYears >= 12 ? 120 : 45,
+              activityVerified: true,
+              challenge: student.life.ageYears >= 12 ? 0.52 : 0.18,
+            },
+          );
+          practiceGained = practice.gained;
+        }
       }
       if (student.life.ageYears >= 8) {
         recordVoluntaryPracticeDevelopmentV1(

@@ -28,17 +28,33 @@ export function initializeIskorkaWorld(world: WorldState, seed: string): void {
       place.name = place.name.replace(/Айнкрада/g, 'Основания').replace(/Айнкрад/g, 'Основание');
     }
   }
-  // No physics is invented here: populations use the same habitats and reproduction fields as F2.
+  // No physics is invented here: the founding ecology uses the normal F2
+  // wildlife populations, but the first children need real, reachable animals
+  // in the places their guardians can physically take them to.  Keeping the
+  // starter populations on the nearby outskirts also prevents an accidental
+  // "hunting lesson" that is only a number in a brain while every edible
+  // animal actually lives tens of kilometres away.
   const outskirts = world.places.outskirts;
+  const foundationLake = world.places.foundation_lake;
   const ocean = world.places.ocean_ainkrad;
   const additions: WildlifePopulation[] = [];
-  if (outskirts?.surface === 'land' && ['plains', 'forest'].includes(outskirts.biome)) {
-    for (const [species, count, carryingCapacity, threat] of [
-      ['rabbit', 4, 12, 0.04], ['deer', 3, 9, 0.08], ['bird', 5, 16, 0.02],
+  if (outskirts?.surface === 'land') {
+    for (const [species, count, carryingCapacity, threat, alertness] of [
+      ['rabbit', 10, 24, 0.03, 0.22],
+      ['deer', 6, 16, 0.08, 0.3],
+      ['boar', 4, 10, 0.24, 0.34],
+      ['bird', 12, 28, 0.02, 0.25],
     ] as const) additions.push({
       id: `wildlife_foundation_${species}`, species, habitatId: outskirts.id,
-      count, carryingCapacity, reproductionRate: 0.12, alertness: 0.2,
+      count, carryingCapacity, reproductionRate: 0.14, alertness,
       threat, isMonster: false, lastChangedAt: world.now,
+    });
+  }
+  if (foundationLake?.kind === 'lake' && (foundationLake.waterPolygon?.length ?? 0) >= 3) {
+    additions.push({
+      id: 'wildlife_foundation_lake_fish', species: 'fish', habitatId: foundationLake.id,
+      count: 18, carryingCapacity: 48, reproductionRate: 0.22, alertness: 0.14,
+      threat: 0.01, isMonster: false, lastChangedAt: world.now,
     });
   }
   if (ocean?.surface === 'water') additions.push({

@@ -25,6 +25,9 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
   const world = runtime.snapshot();
 
   let successfulPracticeOwners = 0;
+  let huntingPracticeOwners = 0;
+  let fishingPracticeOwners = 0;
+  let defensiveExperienceOwners = 0;
   for (const spark of Object.values(world.agents)) {
     assert.ok(spark.life.ageYears >= 13);
     assert.ok(spark.mind.values.care > 0.02, spark.id + ' care');
@@ -36,6 +39,13 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
     const lived = brain.data.filter(
       (datum) => datum.kind === 'mentor_guided_physical_practice',
     );
+    const decoded = lived.map((datum) => {
+      try { return JSON.parse(datum.encoded) as { action?: string; defensiveEncounter?: boolean }; }
+      catch { return {}; }
+    });
+    if (decoded.some((experience) => experience.action === 'hunt')) huntingPracticeOwners += 1;
+    if (decoded.some((experience) => experience.action === 'fish')) fishingPracticeOwners += 1;
+    if (decoded.some((experience) => experience.defensiveEncounter === true)) defensiveExperienceOwners += 1;
     if (lived.some((datum) => {
       try {
         return (JSON.parse(datum.encoded) as { succeeded?: boolean }).succeeded === true;
@@ -52,6 +62,9 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
     }
   }
   assert.ok(successfulPracticeOwners >= 8, String(successfulPracticeOwners));
+  assert.ok(huntingPracticeOwners >= 7, `hunting owners: ${huntingPracticeOwners}`);
+  assert.ok(fishingPracticeOwners >= 8, `fishing owners: ${fishingPracticeOwners}`);
+  assert.ok(defensiveExperienceOwners >= 1, 'no real defensive wildlife experience');
 });
 
 test('after guardian departure Sparks can act from lived learning without legacy decisions', async () => {
@@ -79,13 +92,17 @@ test('after guardian departure Sparks can act from lived learning without legacy
       event.payload.succeeded === true,
   );
   const survivalActions = resolved.filter((event) =>
-    ['drink', 'eat', 'gather_food', 'rest'].includes(
+    ['drink', 'eat', 'gather_food', 'hunt', 'fish', 'rest'].includes(
       String(event.payload.intent),
     ),
+  );
+  const wildlifeChoices = native.filter((event) =>
+    ['hunt', 'fish'].includes(String(event.payload.intent)),
   );
 
   assert.ok(native.length > 0, 'no native intents');
   assert.ok(survivalActions.length > 0, 'no successful native survival action');
+  assert.ok(wildlifeChoices.length > 0, 'learned hunting/fishing never became a native choice');
   assert.ok(world.population.deaths < 10, 'all Sparks died');
 
   for (const spark of Object.values(world.agents).filter((agent) => agent.life.alive)) {

@@ -12,6 +12,9 @@ import {
 } from './BrainStateAdapterV1';
 import { isReleasedFoundingSparkV1 } from './ReleasedSparkSurvivalV1';
 
+// Reconsider several times per day, not every few minutes across ten adults.
+// This keeps decisions responsive to hunger/thirst without turning thought into
+// the new performance bottleneck.
 const REVIEW_INTERVAL = 90;
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -19,6 +22,8 @@ export type NativeSparkIntentKindV1 =
   | 'drink'
   | 'eat'
   | 'gather_food'
+  | 'hunt'
+  | 'fish'
   | 'rest'
   | 'work'
   | 'explore'
@@ -27,17 +32,22 @@ export type NativeSparkIntentKindV1 =
 export interface NativeSparkIntentV1 {
   kind: NativeSparkIntentKindV1;
   targetPlaceId?: string;
+  targetPopulationId?: string;
   score: number;
   evidence: string[];
 }
 
 export interface GuidedPracticeExperienceV1 {
   domain: 'agriculture' | 'construction' | 'household' | 'survival';
-  action: 'gather_food' | 'work' | 'fetch_water' | 'explore';
+  action: 'gather_food' | 'work' | 'fetch_water' | 'explore' | 'hunt' | 'fish';
   placeId: string;
   mentorId: string;
   worldMinute: number;
   succeeded: boolean;
+  targetPopulationId?: string;
+  targetSpecies?: string;
+  harvested?: boolean;
+  defensiveEncounter?: boolean;
 }
 
 function stableUnit(value: string): number {
@@ -129,7 +139,7 @@ export function recordGuidedPracticeExperienceV1(
   const brain = ensureBrainForAgentV1(world, student);
   if (!brain) return false;
   const slot = Math.floor(experience.worldMinute / (30 * 24 * 60)) % 12;
-  const id = `guided-practice:${experience.domain}:${slot}`;
+  const id = `guided-practice:${experience.domain}:${experience.action}:${slot}`;
   brain.data = brain.data.filter(
     (datum) =>
       datum.kind !== 'mentor_guided_physical_practice' ||
@@ -215,6 +225,32 @@ export function chooseReleasedSparkNativeIntentV1(
   const core = body?.bodyCore;
   if (!brain || !body || !core) return undefined;
 
+  // A choice that required travel remains the person's current intention until
+  // they reach the remembered target and actually try it.  Without this,
+  // every review could replace "go to the well and drink" with a fresh roll
+  // immediately after arrival, producing pointless wandering and eventual
+  // death despite correct lived knowledge.
+  const pending = brain.workingStep;
+  if (pending?.phase === 'waiting_outcome' && pending.action?.startsWith('native:')) {
+    const kind = pending.action.slice('native:'.length) as NativeSparkIntentKindV1;
+    if (['drink','gather_food','hunt','fish','work','explore'].includes(kind)) {
+      const targetObjectId = pending.targetObjectId;
+      const population = targetObjectId ? world.wildlife[targetObjectId] : undefined;
+      const targetPlaceId = population?.habitatId ??
+        (targetObjectId && world.places[targetObjectId] ? targetObjectId : undefined);
+      if (targetPlaceId) {
+        return {
+          kind,
+          targetPlaceId,
+          ...(population ? { targetPopulationId: population.id } : {}),
+          score: 10,
+          evidence: ['pending:lived-intent'],
+        };
+      }
+    }
+    setBrainWorkingStepV1(brain, undefined);
+  }
+
   const signals = bodySignalsV1(agent, body, core);
   const practice = guidedPracticeExperiencesV1(brain)
     .filter((experience) => experience.succeeded);
@@ -226,6 +262,8 @@ export function chooseReleasedSparkNativeIntentV1(
   const foodPractice = practice.filter((item) => item.action === 'gather_food');
   const workPractice = practice.filter((item) => item.action === 'work');
   const explorePractice = practice.filter((item) => item.action === 'explore');
+  const huntPractice = practice.filter((item) => item.action === 'hunt');
+  const fishPractice = practice.filter((item) => item.action === 'fish');
   const farewell = hasFarewellOrientation(brain);
 
   const homeWater =
@@ -242,14 +280,14 @@ export function chooseReleasedSparkNativeIntentV1(
   if ((current?.kind === 'well' || homeWater) && (waterPractice.length > 0 || farewell)) {
     candidates.push({
       kind: 'drink',
-      score: 0.16 + signals.thirst * 1.65 + signals.dryMouth * 0.28,
+      score: 0.22 + signals.thirst * 2.25 + signals.dryMouth * 0.36,
       evidence: ['body:thirst', waterPractice.length ? 'lived:water' : 'farewell:water'],
     });
   } else if (knownWell && (waterPractice.length > 0 || farewell)) {
     candidates.push({
       kind: 'drink',
       targetPlaceId: knownWell.id,
-      score: 0.08 + signals.thirst * 1.46 + signals.dryMouth * 0.22,
+      score: 0.14 + signals.thirst * 2.05 + signals.dryMouth * 0.32,
       evidence: ['body:thirst', waterPractice.length ? 'lived:water' : 'farewell:water'],
     });
   }
@@ -291,6 +329,45 @@ export function chooseReleasedSparkNativeIntentV1(
         (1 - core.homeostasis.energyReserve) * 0.24 +
         agent.skills.gathering * 0.24,
       evidence: ['body:hunger', 'lived:gather-food'],
+    });
+  }
+
+  // Hunting and fishing only become candidate actions after the Spark has
+  // physically attempted them while growing up.  The animal population is a
+  // real target in world state, not a semantic "survival" lesson.
+  const knownIds = new Set(known.map((place) => place.id));
+  for (const lived of [...huntPractice, ...fishPractice]) {
+    if (!knownIds.has(lived.placeId) && lived.placeId !== agent.locationId) continue;
+    const population = lived.targetPopulationId
+      ? world.wildlife[lived.targetPopulationId]
+      : Object.values(world.wildlife).find(
+          (candidate) =>
+            candidate.habitatId === lived.placeId &&
+            (lived.action === 'fish'
+              ? candidate.species === 'fish'
+              : ['rabbit', 'deer', 'boar', 'bird'].includes(candidate.species)),
+        );
+    if (!population || population.count <= 0 || population.isMonster) continue;
+    const habitat = world.places[population.habitatId];
+    if (!habitat) continue;
+    const isFishing = lived.action === 'fish' || population.species === 'fish';
+    candidates.push({
+      kind: isFishing ? 'fish' : 'hunt',
+      targetPlaceId: habitat.id,
+      targetPopulationId: population.id,
+      score:
+        0.04 +
+        signals.hunger * 1.12 +
+        (1 - core.homeostasis.energyReserve) * 0.2 +
+        agent.skills.hunting * 0.3 +
+        agent.personality.riskTolerance * (isFishing ? 0.03 : 0.1) -
+        population.threat * (isFishing ? 0.08 : 0.28) -
+        signals.weakness * 0.42,
+      evidence: [
+        'body:hunger',
+        isFishing ? 'lived:fishing' : 'lived:hunting',
+        `wildlife:${population.species}`,
+      ],
     });
   }
 
@@ -357,7 +434,11 @@ export function chooseReleasedSparkNativeIntentV1(
     startedWorldMinute: world.calendar.elapsedWorldMinutes,
     phase: 'considering',
     action: chosen.kind,
-    ...(chosen.targetPlaceId ? { targetObjectId: chosen.targetPlaceId } : {}),
+    ...(chosen.targetPopulationId
+      ? { targetObjectId: chosen.targetPopulationId }
+      : chosen.targetPlaceId
+        ? { targetObjectId: chosen.targetPlaceId }
+        : {}),
   });
   return chosen;
 }

@@ -3155,21 +3155,22 @@ function addFoundationLakeV1(
   const px = -uy;
   const py = ux;
 
-  // A small natural lake just beyond the settlement edge. The place point is
-  // the dry bank; the water body sits farther outward so the footpath ends at
-  // the shore instead of crossing water.
+  // A real local lake just beyond the settlement edge. The place point is the
+  // dry bank; the water body sits farther outward so the footpath ends at the
+  // shore instead of crossing water.  It is deliberately large enough for
+  // shore fishing and small-boat movement instead of rendering as a puddle.
   const bank = {
     x: outskirts.mapX + ux * 5.5 + px * 1.6,
     y: outskirts.mapY + uy * 5.5 + py * 1.6,
   };
   const waterCenter = {
-    x: bank.x + ux * 3.8,
-    y: bank.y + uy * 3.8,
+    x: bank.x + ux * 6.2,
+    y: bank.y + uy * 6.2,
   };
   const waterPolygon = Array.from({ length: 20 }, (_, index) => {
     const angle = (Math.PI * 2 * index) / 20;
-    const along = Math.cos(angle) * 3.0;
-    const across = Math.sin(angle) * 2.2;
+    const along = Math.cos(angle) * 5.2;
+    const across = Math.sin(angle) * 3.6;
     return {
       x: waterCenter.x + ux * along + px * across,
       y: waterCenter.y + uy * along + py * across,
@@ -16862,8 +16863,8 @@ export class WorldEngine {
         stepId: `native-travel:${intent.kind}:${Math.floor(worldMinute)}`,
         startedWorldMinute: worldMinute,
         phase: 'waiting_outcome',
-        action: intent.kind,
-        targetObjectId: targetPlaceId,
+        action: `native:${intent.kind}`,
+        targetObjectId: intent.targetPopulationId ?? targetPlaceId,
       });
       this.stageEvent({
         eventId: this.nextId('native-intent-travel'),
@@ -16889,12 +16890,12 @@ export class WorldEngine {
     const place = this.state.places[agent.locationId];
     if (intent.kind === 'drink') {
       const litres = place?.kind === 'well'
-        ? drawWellWaterLitresV1(this.state, place.id, 0.4, worldMinute)
+        ? drawWellWaterLitresV1(this.state, place.id, 0.75, worldMinute)
         : agent.locationId === agent.homeId
-          ? consumeHomeWaterLitresV1(this.state, agent.homeId, 0.4)
+          ? consumeHomeWaterLitresV1(this.state, agent.homeId, 0.75)
           : 0;
       if (litres > 0) {
-        recordBodyDrinkV1(this.state, agent, 0.34);
+        recordBodyDrinkV1(this.state, agent, 0.65);
         succeeded = true;
       }
     } else if (intent.kind === 'eat') {
@@ -16964,6 +16965,67 @@ export class WorldEngine {
           succeeded = true;
         }
       }
+    } else if (intent.kind === 'hunt' || intent.kind === 'fish') {
+      const fishing = intent.kind === 'fish';
+      const target = intent.targetPopulationId
+        ? this.state.wildlife[intent.targetPopulationId]
+        : Object.values(this.state.wildlife).find(
+            (population) =>
+              !population.isMonster &&
+              population.habitatId === agent.locationId &&
+              population.count > 0 &&
+              (fishing
+                ? population.species === 'fish'
+                : ['rabbit', 'deer', 'boar', 'bird'].includes(population.species)),
+          );
+      if (target && target.habitatId === agent.locationId && target.count > 0) {
+        const successChance = clamp01(
+          (fishing ? 0.18 : 0.15) +
+            agent.skills.hunting * 0.42 +
+            agent.personality.riskTolerance * (fishing ? 0.03 : 0.08) +
+            agent.life.physiology.strength * (fishing ? 0.02 : 0.08) +
+            agent.life.physiology.endurance * 0.07 +
+            (agent.progression?.combatMastery ?? 0) * (fishing ? 0 : 0.08) -
+            target.alertness * 0.25 -
+            target.threat * (fishing ? 0.04 : 0.24),
+        );
+        const harvested = this.rng.next() < successChance;
+        const reserveFloor = Math.max(1, Math.floor(target.carryingCapacity * 0.22));
+        if (harvested && target.count > reserveFloor) {
+          target.count = Math.max(0, target.count - 1);
+          target.lastChangedAt = this.state.now;
+          const meat = target.species === 'deer' ? 0.18
+            : target.species === 'boar' ? 0.17
+              : target.species === 'rabbit' ? 0.075
+                : target.species === 'fish' ? 0.06
+                  : 0.045;
+          recordPhysicalGoodsV21(this.state, agent, 'meat', meat);
+          succeeded = true;
+        }
+        // Missing the animal is still a real lived attempt and can improve
+        // technique a little; it does not conjure food.
+        agent.skills.hunting = clamp01(
+          agent.skills.hunting + (succeeded ? 0.0045 : 0.0014),
+        );
+        agent.energy = clamp01(agent.energy - (fishing ? 0.025 : 0.045));
+        agent.stress = clamp01(agent.stress + (succeeded ? -0.004 : 0.008));
+        recordBodyMovementV1(this.state, agent, fishing ? 40 : 60, fishing ? 0.18 : 0.3);
+
+        // Combat experience is not awarded for "hunting knowledge".  It is
+        // earned only when a chosen hunt produces a real defensive encounter
+        // with a dangerous animal.
+        if (
+          !fishing &&
+          target.species === 'boar' &&
+          this.rng.next() < clamp01(0.14 + target.threat * 0.8) &&
+          agent.progression
+        ) {
+          agent.progression.combatMastery = clamp01(
+            agent.progression.combatMastery + (succeeded ? 0.0035 : 0.002),
+          );
+          agent.stress = clamp01(agent.stress + (succeeded ? 0.004 : 0.016));
+        }
+      }
     } else if (intent.kind === 'rest') {
       if (agent.locationId === agent.homeId) {
         succeeded = startBodySleepV21(this.state, agent, false, worldMinute);
@@ -17005,6 +17067,7 @@ export class WorldEngine {
         intent: intent.kind,
         placeId: agent.locationId,
         succeeded,
+        ...(intent.targetPopulationId ? { targetPopulationId: intent.targetPopulationId } : {}),
         evidence: intent.evidence.join(','),
         legacyTaskScriptUsed: false,
       },

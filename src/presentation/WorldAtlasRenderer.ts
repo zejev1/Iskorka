@@ -77,7 +77,7 @@ export class WorldAtlasRenderer {
       // water. Legacy/survey polygons stay in state for knowledge/boundaries
       // but cannot repaint the viewport when clipping turns a containing
       // polygon into a screen-sized rectangle at a particular zoom.
-      if(!shouldPaintAtlasAreaOverlay(area.kind,Boolean(model)))continue;
+      if(!shouldPaintAtlasAreaOverlay(area.kind,Boolean(model),area.id))continue;
       const polygon=clipMapPolygon(area.polygon.map(p=>camera.point(p.x,p.y)));
       if(polygon.length<3)continue;
       const d='M'+polygon.map(p=>p.x.toFixed(4)+' '+p.y.toFixed(4)).join('L')+'Z';

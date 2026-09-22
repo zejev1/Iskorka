@@ -19,6 +19,7 @@ import {
   homeWaterReserveFractionV1,
 } from '../../src/iskorka/FoundationWaterV1';
 import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
+import { shouldPaintAtlasAreaOverlay } from '../../src/presentation/WorldAtlasOverlayPolicy';
 import type { WorldState } from '../../src/world/types';
 
 const YEAR=525600;
@@ -91,6 +92,15 @@ test('Foundation has one nearby physical lake with a walkable pre-existing footp
  const lake=w.places.foundation_lake,outskirts=w.places.outskirts;
  assert.ok(lake);assert.equal(lake.kind,'lake');assert.equal(lake.biome,'lake');assert.equal(lake.surface,'shore');
  assert.ok((lake.waterPolygon?.length??0)>=16);
+ const water=lake.waterPolygon!;
+ const spanX=Math.max(...water.map(point=>point.x))-Math.min(...water.map(point=>point.x));
+ const spanY=Math.max(...water.map(point=>point.y))-Math.min(...water.map(point=>point.y));
+ assert.ok(Math.max(spanX,spanY)>9,'Foundation lake still renders as a puddle');
+ assert.ok(Math.min(spanX,spanY)>6,'Foundation lake is too narrow for local boating');
+ assert.equal(shouldPaintAtlasAreaOverlay('water',true,'foundation_lake:water'),true);
+ assert.equal(shouldPaintAtlasAreaOverlay('water',true,'legacy-water:water'),false);
+ const lakeFish=Object.values(w.wildlife).find(pop=>pop.species==='fish'&&pop.habitatId==='foundation_lake');
+ assert.ok(lakeFish);assert.ok(lakeFish!.count>=12);
  assert.ok(Math.hypot(lake.mapX-outskirts.mapX,lake.mapY-outskirts.mapY)<10);
  assert.ok(lake.connectedPlaceIds.includes('outskirts'));
  assert.ok(outskirts.connectedPlaceIds.includes('foundation_lake'));
@@ -99,6 +109,10 @@ test('Foundation has one nearby physical lake with a walkable pre-existing footp
  assert.ok((route.completedTraversals??0)>=1);
  assert.equal(route.widthMetres,1.5);
  assert.equal(pathCrossesWater(route.waypoints,w.places),false);
+ const nearbySpecies=new Set(Object.values(w.wildlife)
+   .filter(pop=>pop.habitatId==='outskirts'&&pop.count>0)
+   .map(pop=>pop.species));
+ for(const species of ['rabbit','deer','boar','bird']) assert.ok(nearbySpecies.has(species as any),species);
 });
 test('Foundation homes and workshop are physically furnished, not semantic labels',async()=>{
  const {world:w}=await create('physical-interiors','physical-interiors-world');
