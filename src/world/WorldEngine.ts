@@ -71,6 +71,7 @@ import {
   isNativeSparkChoiceEligibleV1,
   nativeReviewDueV1,
   nextNativeSparkReviewBoundaryV1,
+  recordGuidedPracticeExperienceV1,
 } from '../iskorka/NativeSparkAgencyV1';
 import {
   recordVoluntaryPracticeDevelopmentV1,
@@ -7267,6 +7268,18 @@ export class WorldEngine {
             worldMinute,
           );
           if (fetchedLitres > 0) {
+            for (const child of students) {
+              if (child.life.ageYears < 8) continue;
+              recordBodyMovementV1(this.state, child, 20, 0.16);
+              recordGuidedPracticeExperienceV1(this.state, child, {
+                domain: 'household',
+                action: 'fetch_water',
+                placeId: currentPlaceId,
+                mentorId: mentor.id,
+                worldMinute,
+                succeeded: true,
+              });
+            }
             this.stageEvent({
               eventId: this.nextId('mentor-water'),
               worldId: this.state.id,

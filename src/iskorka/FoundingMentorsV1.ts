@@ -191,8 +191,8 @@ const REPRODUCTIVE_EDUCATION_V1: readonly ReproductiveEducationSpecV1[] = [
   },
   {
     stage: 'adult_relationships_parenthood',
-    minAgeYears: 17,
-    minComprehension: 0.82,
+    minAgeYears: 16.5,
+    minComprehension: 0.78,
     facts: [
       'Сексуальное влечение, любовь, согласие, половой акт, желание ребёнка и фертильность — разные вещи.',
       'Половой акт взрослых людей возможен только по взаимному согласию.',

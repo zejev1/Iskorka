@@ -103,6 +103,8 @@ export interface BrainStateV1 {
   ownerGeneration: number;
   createdWorldMinute: number;
   rngState: number;
+  /** Last world minute at which the native deliberation loop was actually evaluated. */
+  lastNativeReviewWorldMinute?: number;
   workingStep?: BrainWorkingStepV1;
   perception?: BrainPerceptionStateV1;
   data: BrainDatumV1[];
@@ -195,6 +197,7 @@ function logicalBrainBaseBytesV1(brain: Readonly<BrainStateV1>): number {
   const bytes =
     BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 +
     utf8BytesV1(brain.ownerAgentId) +
+    (brain.lastNativeReviewWorldMinute === undefined ? 0 : 8) +
     workingStepLogicalBytesV1(brain.workingStep) +
     brain.data.reduce(
       (sum, datum) => sum + brainDatumLogicalBytesV1(datum),
@@ -261,6 +264,12 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
     throw new Error('Brain owner generation is invalid.');
   }
   if (!Number.isSafeInteger(brain.rngState)) throw new Error('Brain RNG state is invalid.');
+  if (
+    brain.lastNativeReviewWorldMinute !== undefined &&
+    (!Number.isFinite(brain.lastNativeReviewWorldMinute) || brain.lastNativeReviewWorldMinute < 0)
+  ) {
+    throw new Error('Brain native review time is invalid.');
+  }
   if (!Number.isFinite(brain.createdWorldMinute) || brain.createdWorldMinute < 0) {
     throw new Error('Brain creation time is invalid.');
   }

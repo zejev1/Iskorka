@@ -126,7 +126,12 @@ test('after guardian departure Sparks can act from lived learning without legacy
   );
 
   assert.ok(native.length > 0, 'no native intents');
+  assert.ok(native.length < 8_000, 'native deliberation repeated too often: ' + native.length);
   assert.ok(survivalActions.length > 0, 'no successful native survival action');
+  assert.ok(
+    resolved.some((event) => String(event.payload.intent) === 'drink'),
+    'no successful drinking from lived water practice',
+  );
   assert.ok(wildlifeChoices.length > 0, 'learned hunting/fishing never became a native choice');
   const intentCounts = Object.fromEntries(
     [...new Set(native.map((event) => String(event.payload.intent)))].map((intent) => [

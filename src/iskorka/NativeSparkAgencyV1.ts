@@ -217,6 +217,12 @@ export function chooseReleasedSparkNativeIntentV1(
   context: Readonly<NativeSparkChoiceContextV1>,
 ): NativeSparkIntentV1 | undefined {
   if (percept.ownerAgentId !== brain.ownerAgentId || context.ownerAgentId !== brain.ownerAgentId) return undefined;
+  if (
+    brain.lastNativeReviewWorldMinute !== undefined &&
+    context.worldMinute <= brain.lastNativeReviewWorldMinute + 1e-7
+  ) return undefined;
+  brain.lastNativeReviewWorldMinute = context.worldMinute;
+  invalidateBrainLogicalByteCacheV1(brain);
 
   const practice = guidedPracticeExperiencesV1(brain)
     .filter((experience) => experience.succeeded);
@@ -290,7 +296,12 @@ export function chooseReleasedSparkNativeIntentV1(
     });
   }
 
-  for (const lived of [...huntPractice.slice(-2), ...fishPractice.slice(-2)]) {
+  const wildlifePractice = new Map<string, GuidedPracticeExperienceV1>();
+  for (const lived of [...huntPractice, ...fishPractice]) {
+    const key = `${lived.action}:${lived.targetPopulationId ?? lived.placeId}`;
+    wildlifePractice.set(key, lived);
+  }
+  for (const lived of wildlifePractice.values()) {
     const fishing = lived.action === 'fish';
     candidates.push({
       kind: fishing ? 'fish' : 'hunt',
