@@ -1,7 +1,7 @@
 name: Iskorka verification
 on:
   push:
-    branches: [main, bootstrap/iskorka-human-lab, bootstrap/iskorka-stage1-spck-20260918]
+    branches: [main, bootstrap/iskorka-human-lab, bootstrap/iskorka-stage1-spck-20260918, fix/mentor-transition-perception-perf-lake-20260922]
   pull_request:
   workflow_dispatch:
 permissions:
