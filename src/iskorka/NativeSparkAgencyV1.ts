@@ -1,5 +1,4 @@
 import type { AgentState, WorldPlace, WorldState } from '../world/types';
-import { bodySignalsV1 } from './BodyCoreV1';
 import {
   invalidateBrainLogicalByteCacheV1,
   setBrainWorkingStepV1,
@@ -11,11 +10,12 @@ import {
   ensureBrainForAgentV1,
 } from './BrainStateAdapterV1';
 import { isReleasedFoundingSparkV1 } from './ReleasedSparkSurvivalV1';
+import type { PerceptBatchV1 } from './PortableHumanCoreV1';
 
 // Reconsider several times per day, not every few minutes across ten adults.
 // This keeps decisions responsive to hunger/thirst without turning thought into
 // the new performance bottleneck.
-const REVIEW_INTERVAL = 90;
+const REVIEW_INTERVAL = 180;
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 export type NativeSparkIntentKindV1 =
@@ -50,14 +50,6 @@ export interface GuidedPracticeExperienceV1 {
   defensiveEncounter?: boolean;
 }
 
-function stableUnit(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) / 0xffffffff;
-}
 
 function nextBrainUnit(brain: BrainStateV1): number {
   let x = brain.rngState >>> 0;
@@ -157,25 +149,28 @@ export function recordGuidedPracticeExperienceV1(
   return stored;
 }
 
+export function isNativeSparkChoiceEligibleV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+): boolean {
+  if (!agent.life.alive || (agent.race ?? 'human') !== 'human') return false;
+  if (isReleasedFoundingSparkV1(world, agent)) return true;
+  // Ages 15-17 are a transition, not a second childhood. The same acquired
+  // choice mechanism used after release is already allowed to operate while
+  // mentors are still present as teachers/safety support.
+  return Boolean(world.iskorkaMentorsV1?.active && agent.life.ageYears >= 15 && agent.life.ageYears < 18);
+}
+
 export function nextNativeSparkReviewBoundaryV1(
   world: Readonly<WorldState>,
   worldMinute: number,
 ): number {
-  const released = Object.values(world.agents).filter((agent) =>
-    isReleasedFoundingSparkV1(world, agent),
-  );
-  if (released.length === 0) return Number.POSITIVE_INFINITY;
-  let next = Number.POSITIVE_INFINITY;
-  for (const agent of released) {
-    const offset = Math.floor(
-      stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:native-review`) *
-        REVIEW_INTERVAL,
-    );
-    const index =
-      Math.floor((Math.max(0, worldMinute) + offset) / REVIEW_INTERVAL) + 1;
-    next = Math.min(next, index * REVIEW_INTERVAL - offset);
+  if (!Object.values(world.agents).some((agent) => isNativeSparkChoiceEligibleV1(world, agent))) {
+    return Number.POSITIVE_INFINITY;
   }
-  return next;
+  // One shared scheduler boundary for all eligible Sparks avoids N separate
+  // world-time cuts per cycle. Individual choice still remains independent.
+  return (Math.floor(Math.max(0, worldMinute) / REVIEW_INTERVAL) + 1) * REVIEW_INTERVAL;
 }
 
 export function nativeReviewDueV1(
@@ -183,12 +178,8 @@ export function nativeReviewDueV1(
   agent: Readonly<AgentState>,
   worldMinute: number,
 ): boolean {
-  if (!isReleasedFoundingSparkV1(world, agent)) return false;
-  const offset = Math.floor(
-    stableUnit(`${world.bootstrapSeed ?? world.id}:${agent.id}:native-review`) *
-      REVIEW_INTERVAL,
-  );
-  return Math.abs((worldMinute + offset) % REVIEW_INTERVAL) < 1e-7;
+  return isNativeSparkChoiceEligibleV1(world, agent) &&
+    Math.abs(worldMinute % REVIEW_INTERVAL) < 1e-7;
 }
 
 function weightedPick(
@@ -209,15 +200,14 @@ function weightedPick(
   return candidates[candidates.length - 1];
 }
 
-function hasFarewellOrientation(brain: Readonly<BrainStateV1>): boolean {
-  return brain.data.some((datum) => datum.kind === 'mentor_farewell_orientation');
-}
 
 export function chooseReleasedSparkNativeIntentV1(
   world: WorldState,
   agent: AgentState,
+  percept: Readonly<PerceptBatchV1>,
 ): NativeSparkIntentV1 | undefined {
-  if (!isReleasedFoundingSparkV1(world, agent) || agent.movement) return undefined;
+  if (!isNativeSparkChoiceEligibleV1(world, agent) || agent.movement) return undefined;
+  if (percept.ownerAgentId !== agent.id) return undefined;
   const brain =
     brainForLiveOwnerV1(world, agent.id, agent.life.generation) ??
     ensureBrainForAgentV1(world, agent);
@@ -251,7 +241,14 @@ export function chooseReleasedSparkNativeIntentV1(
     setBrainWorkingStepV1(brain, undefined);
   }
 
-  const signals = bodySignalsV1(agent, body, core);
+  const signal = (key: keyof PerceptBatchV1['body']['interoception']): number => {
+    const sensed = percept.body.interoception[key];
+    return sensed?.availability === 'available' ? sensed.intensity : 0;
+  };
+  const signals = {
+    thirst: signal('thirst'), hunger: signal('hunger'), dryMouth: signal('dryMouth'),
+    weakness: signal('weakness'), physicalDiscomfort: signal('physicalDiscomfort'),
+  };
   const practice = guidedPracticeExperiencesV1(brain)
     .filter((experience) => experience.succeeded);
   const known = knownPlaces(world, brain);
@@ -264,7 +261,6 @@ export function chooseReleasedSparkNativeIntentV1(
   const explorePractice = practice.filter((item) => item.action === 'explore');
   const huntPractice = practice.filter((item) => item.action === 'hunt');
   const fishPractice = practice.filter((item) => item.action === 'fish');
-  const farewell = hasFarewellOrientation(brain);
 
   const homeWater =
     current?.kind === 'home' &&
@@ -277,18 +273,18 @@ export function chooseReleasedSparkNativeIntentV1(
           Math.hypot(right.mapX - agent.position.x, right.mapY - agent.position.y),
     )[0];
 
-  if ((current?.kind === 'well' || homeWater) && (waterPractice.length > 0 || farewell)) {
+  if ((current?.kind === 'well' || homeWater) && waterPractice.length > 0) {
     candidates.push({
       kind: 'drink',
       score: 0.22 + signals.thirst * 2.25 + signals.dryMouth * 0.36,
-      evidence: ['body:thirst', waterPractice.length ? 'lived:water' : 'farewell:water'],
+      evidence: ['body:thirst', 'lived:water'],
     });
-  } else if (knownWell && (waterPractice.length > 0 || farewell)) {
+  } else if (knownWell && waterPractice.length > 0) {
     candidates.push({
       kind: 'drink',
       targetPlaceId: knownWell.id,
       score: 0.14 + signals.thirst * 2.05 + signals.dryMouth * 0.32,
-      evidence: ['body:thirst', waterPractice.length ? 'lived:water' : 'farewell:water'],
+      evidence: ['body:thirst', 'lived:water'],
     });
   }
 

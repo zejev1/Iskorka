@@ -68,6 +68,7 @@ import {
 } from '../iskorka/ReleasedSparkSurvivalV1';
 import {
   chooseReleasedSparkNativeIntentV1,
+  isNativeSparkChoiceEligibleV1,
   nativeReviewDueV1,
   nextNativeSparkReviewBoundaryV1,
 } from '../iskorka/NativeSparkAgencyV1';
@@ -3164,13 +3165,13 @@ function addFoundationLakeV1(
     y: outskirts.mapY + uy * 5.5 + py * 1.6,
   };
   const waterCenter = {
-    x: bank.x + ux * 6.2,
-    y: bank.y + uy * 6.2,
+    x: bank.x + ux * 2.1,
+    y: bank.y + uy * 2.1,
   };
   const waterPolygon = Array.from({ length: 20 }, (_, index) => {
     const angle = (Math.PI * 2 * index) / 20;
-    const along = Math.cos(angle) * 5.2;
-    const across = Math.sin(angle) * 3.6;
+    const along = Math.cos(angle) * 1.9;
+    const across = Math.sin(angle) * 1.35;
     return {
       x: waterCenter.x + ux * along + px * across,
       y: waterCenter.y + uy * along + py * across,
@@ -7218,20 +7219,19 @@ export class WorldEngine {
   }
 
 
-  private refreshSparkPerception(agent: AgentState): void {
-    if ((agent.race ?? 'human') !== 'human' || !agent.life.alive) return;
+  private refreshSparkPerception(agent: AgentState) {
+    if ((agent.race ?? 'human') !== 'human' || !agent.life.alive) return undefined;
     const brain =
       brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
       ensureBrainForAgentV1(this.state, agent);
-    if (!brain) return;
-    acceptPersonalPerceptBatchV1(
-      brain,
-      perceptBatchForAgentV1(this.state, agent.id, {
-        localAgents: this.agentsAtLocation(agent.locationId),
-        receivedMessages:
-          this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
-      }),
-    );
+    if (!brain) return undefined;
+    const percept = perceptBatchForAgentV1(this.state, agent.id, {
+      localAgents: this.agentsAtLocation(agent.locationId),
+      receivedMessages:
+        this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
+    });
+    acceptPersonalPerceptBatchV1(brain, percept);
+    return percept;
   }
 
   private applyFoundingMentorPhysicalRoutineAt(worldMinute: number): void {
@@ -7245,7 +7245,7 @@ export class WorldEngine {
         mentor.id,
       ).filter(
         (child: AgentState) =>
-          child.life.ageYears < mentorWorld.releaseAgeYears,
+          child.life.ageYears < Math.min(15, mentorWorld.releaseAgeYears),
       );
       if (students.length === 0) continue;
 
@@ -7351,9 +7351,11 @@ export class WorldEngine {
         .filter((student) => student.life.ageYears < mentorWorld.releaseAgeYears);
       if (students.length === 0) continue;
 
-      // Permanent guardian rule: this script belongs to the mentor. Children
-      // keep no work/task plan of their own before adulthood.
+      // Guardian control fades before adulthood. Under 15 the mentor still
+      // owns the daily routine; from 15 onward the Spark keeps its own active
+      // intention and the mentor remains a teacher/safety net only.
       for (const child of students) {
+        if (child.life.ageYears >= 15) continue;
         delete child.lastAction;
         delete child.lastDecision;
         delete child.plan;
@@ -7364,9 +7366,10 @@ export class WorldEngine {
         (child) => !isBodySleepingV21(this.state, child.id),
       );
 
-      // Feeding, drinking, hygiene/first aid and ordinary care are performed by
-      // the guardian for each awake child.
+      // Routine feeding/drinking ends at the transition stage. Emergency
+      // treatment remains available inside applyFoundingMentorCareV1.
       for (const child of awake) {
+        if (child.life.ageYears >= 15) continue;
         const care = applyFoundingMentorCareV1(this.state, child);
         if (care.resourcesChanged) this.resourceProjectionDirty = true;
       }
@@ -16755,7 +16758,10 @@ export class WorldEngine {
       const nextReleasedBodyBoundary = hasReleasedFoundingSparksV1(this.state)
         ? nextReleasedSparkBodyBoundaryV1(minute)
         : Number.POSITIVE_INFINITY;
-      const nextNativeReviewBoundary = hasReleasedFoundingSparksV1(this.state)
+      const hasNativeChoice = Object.values(this.state.agents).some((agent) =>
+        isNativeSparkChoiceEligibleV1(this.state, agent),
+      );
+      const nextNativeReviewBoundary = hasNativeChoice
         ? nextNativeSparkReviewBoundaryV1(this.state, minute)
         : Number.POSITIVE_INFINITY;
       const nextWake = nextBodyWakeWorldMinuteV21(this.state);
@@ -16813,11 +16819,10 @@ export class WorldEngine {
             delete agent.plan;
           }
         }
+      }
+      if (hasNativeChoice) {
         for (const agent of Object.values(this.state.agents)) {
-          if (
-            isReleasedFoundingSparkV1(this.state, agent) &&
-            nativeReviewDueV1(this.state, agent, next)
-          ) {
+          if (nativeReviewDueV1(this.state, agent, next)) {
             this.executeReleasedSparkNativeIntentAt(agent, next);
           }
         }
@@ -16843,8 +16848,9 @@ export class WorldEngine {
       agent.movement
     ) return;
 
-    this.refreshSparkPerception(agent);
-    const intent = chooseReleasedSparkNativeIntentV1(this.state, agent);
+    const percept = this.refreshSparkPerception(agent);
+    if (!percept) return;
+    const intent = chooseReleasedSparkNativeIntentV1(this.state, agent, percept);
     if (!intent) return;
     const brain =
       brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??

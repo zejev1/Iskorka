@@ -1062,6 +1062,36 @@ export function applyFoundingMentorCareV1(
   const core = body?.bodyCore;
   if (!body || !core) return { cared: false, resourcesChanged: false };
 
+  const age = student.life.ageYears;
+
+  // From 15 the founding Spark is in the independence transition. Routine
+  // feeding, drinking and energy resets would hide whether its own learned
+  // choices actually work, so the mentor no longer performs them. A mentor
+  // may still tend a real wound/disease as safety support.
+  if (age >= 15) {
+    let treated = false;
+    for (const wound of body.wounds) {
+      wound.bleeding = clamp01(wound.bleeding - 0.025 * mentor.careMastery);
+      wound.contamination = clamp01(wound.contamination - 0.035 * mentor.careMastery);
+      wound.pain = clamp01(wound.pain - 0.015 * mentor.careMastery);
+      wound.lastTreatedWorldMinute = world.calendar.elapsedWorldMinutes;
+      treated = true;
+    }
+    for (const disease of body.diseases) {
+      disease.severity = clamp01(disease.severity - 0.012 * mentor.careMastery);
+      disease.lastObservedWorldMinute = world.calendar.elapsedWorldMinutes;
+      treated = true;
+    }
+    if (treated) {
+      student.life.health = clamp01(student.life.health + 0.0025 * mentor.careMastery);
+      mentor.careCount += 1;
+      mentor.lastCareWorldMinute = world.calendar.elapsedWorldMinutes;
+      state.totalCareActions += 1;
+      recordMentorCareDevelopmentV1(student, 0.35);
+    }
+    return { cared: treated, resourcesChanged: false };
+  }
+
   const resources = world.v15?.renewableResources;
   let resourcesChanged = false;
   if (
@@ -1089,7 +1119,6 @@ export function applyFoundingMentorCareV1(
     resourcesChanged = harvested.harvested > 0;
   }
 
-  const age = student.life.ageYears;
   const mealPortion = age < 1 ? 0.18 : age < 3 ? 0.22 : age < 8 ? 0.25 : 0.28;
   const drinkAmount = age < 1 ? 0.16 : age < 5 ? 0.2 : 0.24;
   const careCost = 0.0007 * (0.72 + Math.min(1, age / 12) * 0.28);

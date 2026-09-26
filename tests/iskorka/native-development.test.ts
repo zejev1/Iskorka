@@ -67,6 +67,31 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
   assert.ok(defensiveExperienceOwners >= 1, 'no real defensive wildlife experience');
 });
 
+test('ages 15-17 use the same acquired-choice path before mentor departure and are not routinely fed', async () => {
+  const { store, runtime } = await create(
+    'native-development-transition',
+    'native-development-transition-world',
+  );
+  await runtime.advanceTo(YEAR * 15);
+  let world = runtime.snapshot();
+  assert.ok(Object.values(world.agents).every((agent) => agent.life.ageYears >= 15 && agent.life.ageYears < 18));
+  const mealsBefore = world.iskorkaMentorsV1!.totalMeals;
+  const historyBefore = (await store.history(world.id)).length;
+
+  await runtime.advanceTo(YEAR * 15 + 14 * DAY);
+  world = runtime.snapshot();
+  assert.equal(world.iskorkaMentorsV1!.totalMeals, mealsBefore, 'mentor routine feeding continued after 15');
+  const newHistory = (await store.history(world.id)).slice(historyBefore);
+  const teenNative = newHistory.filter((event) =>
+    event.kind === 'agent.native_intent.resolved' || event.kind === 'agent.native_intent.travel_started',
+  );
+  assert.ok(teenNative.length > 0, 'transition-age Sparks never used acquired native choices');
+  for (const spark of Object.values(world.agents)) {
+    assert.equal(spark.lastDecision, undefined);
+    assert.equal(spark.plan, undefined);
+  }
+});
+
 test('after guardian departure Sparks can act from lived learning without legacy decisions', async () => {
   const { store, runtime } = await create(
     'native-development-release',

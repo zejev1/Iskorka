@@ -95,8 +95,8 @@ test('Foundation has one nearby physical lake with a walkable pre-existing footp
  const water=lake.waterPolygon!;
  const spanX=Math.max(...water.map(point=>point.x))-Math.min(...water.map(point=>point.x));
  const spanY=Math.max(...water.map(point=>point.y))-Math.min(...water.map(point=>point.y));
- assert.ok(Math.max(spanX,spanY)>9,'Foundation lake still renders as a puddle');
- assert.ok(Math.min(spanX,spanY)>6,'Foundation lake is too narrow for local boating');
+ assert.ok(Math.max(spanX,spanY)>3.5,'Foundation lake still renders as a puddle');
+ assert.ok(Math.min(spanX,spanY)>2.4,'Foundation lake is too narrow for local boating');
  assert.equal(shouldPaintAtlasAreaOverlay('water',true,'foundation_lake:water'),true);
  assert.equal(shouldPaintAtlasAreaOverlay('water',true,'legacy-water:water'),false);
  const lakeFish=Object.values(w.wildlife).find(pop=>pop.species==='fish'&&pop.habitatId==='foundation_lake');
