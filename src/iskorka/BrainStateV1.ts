@@ -1,3 +1,4 @@
+import type { BrainLearningStateV1 } from './BrainLearningTypesV1';
 export const BRAIN_STATE_VERSION_V1 = 1 as const;
 export const BRAIN_LOGICAL_BUDGET_BYTES_V1 = 256 * 1024;
 
@@ -106,6 +107,7 @@ export interface BrainStateV1 {
   /** Last world minute at which the native deliberation loop was actually evaluated. */
   lastNativeReviewWorldMinute?: number;
   workingStep?: BrainWorkingStepV1;
+  learning?: BrainLearningStateV1;
   perception?: BrainPerceptionStateV1;
   data: BrainDatumV1[];
   migration: BrainMigrationStateV1;
@@ -199,6 +201,7 @@ function logicalBrainBaseBytesV1(brain: Readonly<BrainStateV1>): number {
     utf8BytesV1(brain.ownerAgentId) +
     (brain.lastNativeReviewWorldMinute === undefined ? 0 : 8) +
     workingStepLogicalBytesV1(brain.workingStep) +
+    (brain.learning ? utf8BytesV1(JSON.stringify(brain.learning)) : 0) +
     brain.data.reduce(
       (sum, datum) => sum + brainDatumLogicalBytesV1(datum),
       0,
@@ -279,6 +282,21 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
     ids.add(datum.id);
     if (!datum.kind.trim()) throw new Error(`Brain datum ${datum.id} has no kind.`);
     if (!datum.encoded.trim()) throw new Error(`Brain datum ${datum.id} has empty encoded content.`);
+  }
+  if (brain.learning) {
+    if (brain.learning.version !== 1 || brain.learning.methods.length > 12) {
+      throw new Error('Brain learning state is invalid.');
+    }
+    const methodIds = new Set<string>();
+    for (const method of brain.learning.methods) {
+      if (!method.id.trim() || methodIds.has(method.id)) throw new Error('Brain learned method IDs must be unique.');
+      methodIds.add(method.id);
+      if (!Number.isInteger(method.trials) || !Number.isInteger(method.successes) || !Number.isInteger(method.failures)) {
+        throw new Error('Brain learned method counters are invalid.');
+      }
+      if (method.successes + method.failures !== method.trials) throw new Error('Brain learned method outcomes do not match trials.');
+      if (!Number.isFinite(method.confidence) || method.confidence < 0 || method.confidence > 1) throw new Error('Brain learned method confidence is invalid.');
+    }
   }
   if (brain.workingStep) {
     if (!brain.workingStep.stepId.trim()) throw new Error('Brain working step has no ID.');

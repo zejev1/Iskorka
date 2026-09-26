@@ -11,6 +11,7 @@ import {
   PORTABLE_HUMAN_CONTRACT_VERSION_V1,
   availableSignalV1,
   unavailableSignalV1,
+  type ActionOutcomeV1,
   type HumanBodyPerceptV1,
   type HumanBodySignalKindV1,
   type LocalObservationV1,
@@ -488,6 +489,7 @@ export function buildReceivedMessageIndexV1(
 export interface PerceptionAdapterOptionsV1 {
   localAgents?: readonly Readonly<AgentState>[];
   receivedMessages?: readonly ReceivedMessageV1[];
+  priorOutcome?: Readonly<ActionOutcomeV1>;
 }
 
 function directReceivedMessagesForAgentV1(
@@ -556,5 +558,6 @@ export function perceptBatchForAgentV1(
     receivedMessages:
       options.receivedMessages ??
       directReceivedMessagesForAgentV1(world, agent.id),
+    ...(options.priorOutcome ? { priorOutcome: { ...options.priorOutcome, perceivedEffects: options.priorOutcome.perceivedEffects.map((effect) => ({ ...effect })) } } : {}),
   };
 }

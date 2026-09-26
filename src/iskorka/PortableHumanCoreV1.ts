@@ -3,6 +3,8 @@ import type { HumanBrainLifePhaseV1 } from './BrainLifecycleV1';
 export const PORTABLE_HUMAN_CONTRACT_VERSION_V1 = 1 as const;
 
 export type PortableHumanActionKindV1 =
+  | 'drink'
+  | 'eat'
   | 'rest'
   | 'relax'
   | 'walk'
