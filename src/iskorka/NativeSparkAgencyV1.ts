@@ -1,4 +1,4 @@
-import type { AgentState, WorldPlace, WorldState } from '../world/types';
+import type { AgentState, WorldState } from '../world/types';
 import {
   invalidateBrainLogicalByteCacheV1,
   setBrainWorkingStepV1,
@@ -61,15 +61,6 @@ function nextBrainUnit(brain: BrainStateV1): number {
   return brain.rngState / 0xffffffff;
 }
 
-function knownPlaces(
-  world: Readonly<WorldState>,
-  brain: Readonly<BrainStateV1>,
-): WorldPlace[] {
-  return (brain.perception?.references ?? [])
-    .filter((ref) => ref.kind === 'place')
-    .map((ref) => world.places[ref.worldObjectId])
-    .filter((place): place is WorldPlace => Boolean(place));
-}
 
 export function guidedPracticeExperiencesV1(
   brain: Readonly<BrainStateV1>,
@@ -201,42 +192,51 @@ function weightedPick(
 }
 
 
-export function chooseReleasedSparkNativeIntentV1(
-  world: WorldState,
-  agent: AgentState,
-  percept: Readonly<PerceptBatchV1>,
-): NativeSparkIntentV1 | undefined {
-  if (!isNativeSparkChoiceEligibleV1(world, agent) || agent.movement) return undefined;
-  if (percept.ownerAgentId !== agent.id) return undefined;
-  const brain =
-    brainForLiveOwnerV1(world, agent.id, agent.life.generation) ??
-    ensureBrainForAgentV1(world, agent);
-  const body = world.v21?.bodiesByAgentId[agent.id];
-  const core = body?.bodyCore;
-  if (!brain || !body || !core) return undefined;
+export interface NativeSparkChoiceContextV1 {
+  ownerAgentId: string;
+  worldMinute: number;
+  currentPlaceId?: string;
+  atHome: boolean;
+  carriedFood: number;
+  energy: number;
+  stress: number;
+  curiosity: number;
+  diligence: number;
+  riskTolerance: number;
+  ambition: number;
+  freedom: number;
+  knowledge: number;
+  gathering: number;
+  hunting: number;
+  craft: number;
+}
 
-  // A choice that required travel remains the person's current intention until
-  // they reach the remembered target and actually try it.  Without this,
-  // every review could replace "go to the well and drink" with a fresh roll
-  // immediately after arrival, producing pointless wandering and eventual
-  // death despite correct lived knowledge.
+export function chooseReleasedSparkNativeIntentV1(
+  brain: BrainStateV1,
+  percept: Readonly<PerceptBatchV1>,
+  context: Readonly<NativeSparkChoiceContextV1>,
+): NativeSparkIntentV1 | undefined {
+  if (percept.ownerAgentId !== brain.ownerAgentId || context.ownerAgentId !== brain.ownerAgentId) return undefined;
+
+  const practice = guidedPracticeExperiencesV1(brain)
+    .filter((experience) => experience.succeeded);
+
   const pending = brain.workingStep;
   if (pending?.phase === 'waiting_outcome' && pending.action?.startsWith('native:')) {
     const kind = pending.action.slice('native:'.length) as NativeSparkIntentKindV1;
-    if (['drink','gather_food','hunt','fish','work','explore'].includes(kind)) {
-      const targetObjectId = pending.targetObjectId;
-      const population = targetObjectId ? world.wildlife[targetObjectId] : undefined;
-      const targetPlaceId = population?.habitatId ??
-        (targetObjectId && world.places[targetObjectId] ? targetObjectId : undefined);
-      if (targetPlaceId) {
-        return {
-          kind,
-          targetPlaceId,
-          ...(population ? { targetPopulationId: population.id } : {}),
-          score: 10,
-          evidence: ['pending:lived-intent'],
-        };
-      }
+    const targetObjectId = pending.targetObjectId;
+    const learned = targetObjectId
+      ? practice.find((item) => item.targetPopulationId === targetObjectId || item.placeId === targetObjectId)
+      : undefined;
+    const targetPlaceId = learned?.placeId ?? targetObjectId;
+    if (targetPlaceId && ['drink','gather_food','hunt','fish','work','explore'].includes(kind)) {
+      return {
+        kind,
+        targetPlaceId,
+        ...(learned?.targetPopulationId ? { targetPopulationId: learned.targetPopulationId } : {}),
+        score: 10,
+        evidence: ['pending:lived-intent'],
+      };
     }
     setBrainWorkingStepV1(brain, undefined);
   }
@@ -245,14 +245,11 @@ export function chooseReleasedSparkNativeIntentV1(
     const sensed = percept.body.interoception[key];
     return sensed?.availability === 'available' ? sensed.intensity : 0;
   };
-  const signals = {
-    thirst: signal('thirst'), hunger: signal('hunger'), dryMouth: signal('dryMouth'),
-    weakness: signal('weakness'), physicalDiscomfort: signal('physicalDiscomfort'),
-  };
-  const practice = guidedPracticeExperiencesV1(brain)
-    .filter((experience) => experience.succeeded);
-  const known = knownPlaces(world, brain);
-  const current = world.places[agent.locationId];
+  const thirst = signal('thirst');
+  const hunger = signal('hunger');
+  const dryMouth = signal('dryMouth');
+  const weakness = signal('weakness');
+  const discomfort = signal('physicalDiscomfort');
   const candidates: NativeSparkIntentV1[] = [];
 
   const waterPractice = practice.filter((item) => item.action === 'fetch_water');
@@ -262,172 +259,87 @@ export function chooseReleasedSparkNativeIntentV1(
   const huntPractice = practice.filter((item) => item.action === 'hunt');
   const fishPractice = practice.filter((item) => item.action === 'fish');
 
-  const homeWater =
-    current?.kind === 'home' &&
-    (current.medievalInfrastructureV1?.waterReserveLitres ?? 0) > 0.2;
-  const knownWell = known
-    .filter((place) => place.kind === 'well')
-    .sort(
-      (left, right) =>
-        Math.hypot(left.mapX - agent.position.x, left.mapY - agent.position.y) -
-          Math.hypot(right.mapX - agent.position.x, right.mapY - agent.position.y),
-    )[0];
-
-  if ((current?.kind === 'well' || homeWater) && waterPractice.length > 0) {
+  const waterHere = context.currentPlaceId
+    ? waterPractice.find((item) => item.placeId === context.currentPlaceId)
+    : undefined;
+  const learnedWater = waterHere ?? waterPractice.at(-1);
+  if (learnedWater) {
     candidates.push({
       kind: 'drink',
-      score: 0.22 + signals.thirst * 2.25 + signals.dryMouth * 0.36,
-      evidence: ['body:thirst', 'lived:water'],
-    });
-  } else if (knownWell && waterPractice.length > 0) {
-    candidates.push({
-      kind: 'drink',
-      targetPlaceId: knownWell.id,
-      score: 0.14 + signals.thirst * 2.05 + signals.dryMouth * 0.32,
+      ...(waterHere ? {} : { targetPlaceId: learnedWater.placeId }),
+      score: 0.16 + thirst * 1.8 + dryMouth * 0.3,
       evidence: ['body:thirst', 'lived:water'],
     });
   }
 
-  const wallet = world.v19?.adventureEconomy.adventurersByAgentId[agent.id];
-  const carriedFood =
-    (wallet?.carriedGoods?.food ?? 0) +
-    (wallet?.carriedGoods?.meat ?? 0);
-  if (carriedFood > 0.001) {
+  if (context.carriedFood > 0.001) {
     candidates.push({
       kind: 'eat',
-      score:
-        0.12 +
-        signals.hunger * 1.48 +
-        (1 - core.homeostasis.energyReserve) * 0.3,
-      evidence: ['body:hunger', 'physical:carried-food'],
+      score: 0.1 + hunger * 1.45 + weakness * 0.22,
+      evidence: ['body:hunger', 'perceived:self-carried-food'],
     });
   }
 
-  const knownFoodPlace = known
-    .filter(
-      (place) =>
-        place.kind === 'resource_field' ||
-        place.kind === 'meadow' ||
-        place.biome === 'plains',
-    )
-    .sort(
-      (left, right) =>
-        Math.hypot(left.mapX - agent.position.x, left.mapY - agent.position.y) -
-          Math.hypot(right.mapX - agent.position.x, right.mapY - agent.position.y),
-    )[0];
-  if (knownFoodPlace && foodPractice.length > 0) {
+  const learnedFood = foodPractice.at(-1);
+  if (learnedFood) {
     candidates.push({
       kind: 'gather_food',
-      targetPlaceId: knownFoodPlace.id,
-      score:
-        0.05 +
-        signals.hunger * 1.18 +
-        (1 - core.homeostasis.energyReserve) * 0.24 +
-        agent.skills.gathering * 0.24,
+      ...(learnedFood.placeId === context.currentPlaceId ? {} : { targetPlaceId: learnedFood.placeId }),
+      score: 0.04 + hunger * 1.05 + context.gathering * 0.22 - weakness * 0.28,
       evidence: ['body:hunger', 'lived:gather-food'],
     });
   }
 
-  // Hunting and fishing only become candidate actions after the Spark has
-  // physically attempted them while growing up.  The animal population is a
-  // real target in world state, not a semantic "survival" lesson.
-  const knownIds = new Set(known.map((place) => place.id));
-  for (const lived of [...huntPractice, ...fishPractice]) {
-    if (!knownIds.has(lived.placeId) && lived.placeId !== agent.locationId) continue;
-    const population = lived.targetPopulationId
-      ? world.wildlife[lived.targetPopulationId]
-      : Object.values(world.wildlife).find(
-          (candidate) =>
-            candidate.habitatId === lived.placeId &&
-            (lived.action === 'fish'
-              ? candidate.species === 'fish'
-              : ['rabbit', 'deer', 'boar', 'bird'].includes(candidate.species)),
-        );
-    if (!population || population.count <= 0 || population.isMonster) continue;
-    const habitat = world.places[population.habitatId];
-    if (!habitat) continue;
-    const isFishing = lived.action === 'fish' || population.species === 'fish';
+  for (const lived of [...huntPractice.slice(-2), ...fishPractice.slice(-2)]) {
+    const fishing = lived.action === 'fish';
     candidates.push({
-      kind: isFishing ? 'fish' : 'hunt',
-      targetPlaceId: habitat.id,
-      targetPopulationId: population.id,
-      score:
-        0.04 +
-        signals.hunger * 1.12 +
-        (1 - core.homeostasis.energyReserve) * 0.2 +
-        agent.skills.hunting * 0.3 +
-        agent.personality.riskTolerance * (isFishing ? 0.03 : 0.1) -
-        population.threat * (isFishing ? 0.08 : 0.28) -
-        signals.weakness * 0.42,
-      evidence: [
-        'body:hunger',
-        isFishing ? 'lived:fishing' : 'lived:hunting',
-        `wildlife:${population.species}`,
-      ],
+      kind: fishing ? 'fish' : 'hunt',
+      ...(lived.placeId === context.currentPlaceId ? {} : { targetPlaceId: lived.placeId }),
+      ...(lived.targetPopulationId ? { targetPopulationId: lived.targetPopulationId } : {}),
+      score: 0.025 + hunger * 0.88 + context.hunting * 0.26 + context.riskTolerance * (fishing ? 0.03 : 0.08) - weakness * 0.38,
+      evidence: ['body:hunger', fishing ? 'lived:fishing' : 'lived:hunting'],
     });
   }
 
-  if (agent.locationId === agent.homeId && (agent.energy < 0.52 || signals.weakness > 0.24)) {
+  if (context.atHome && (context.energy < 0.52 || weakness > 0.24)) {
     candidates.push({
       kind: 'rest',
-      score:
-        0.08 +
-        (1 - agent.energy) * 1.08 +
-        signals.weakness * 0.48 +
-        signals.physicalDiscomfort * 0.18,
+      score: 0.08 + (1 - context.energy) * 1.08 + weakness * 0.48 + discomfort * 0.18,
       evidence: ['body:fatigue'],
     });
   }
 
-  const knownWorkshop = known.find((place) => place.kind === 'workshop');
-  if (knownWorkshop && workPractice.length > 0) {
+  const learnedWork = workPractice.at(-1);
+  if (learnedWork) {
     candidates.push({
       kind: 'work',
-      targetPlaceId: knownWorkshop.id,
-      score:
-        0.08 +
-        agent.mind.values.ambition * 0.3 +
-        agent.personality.diligence * 0.24 +
-        agent.skills.craft * 0.18 -
-        signals.weakness * 0.42,
+      ...(learnedWork.placeId === context.currentPlaceId ? {} : { targetPlaceId: learnedWork.placeId }),
+      score: 0.06 + context.ambition * 0.28 + context.diligence * 0.22 + context.craft * 0.16 - weakness * 0.38,
       evidence: ['lived:work'],
     });
   }
 
-  const exploredPlace = explorePractice.length > 0
-    ? known.filter((place) => !['home', 'workshop', 'well'].includes(place.kind))
-        .sort((a, b) => a.id.localeCompare(b.id))[0]
-    : undefined;
-  if (exploredPlace) {
+  const learnedExplore = explorePractice.at(-1);
+  if (learnedExplore) {
     candidates.push({
       kind: 'explore',
-      targetPlaceId: exploredPlace.id,
-      score:
-        0.04 +
-        agent.personality.curiosity * 0.42 +
-        agent.mind.values.freedom * 0.2 -
-        signals.weakness * 0.5 -
-        signals.thirst * 0.32 -
-        signals.hunger * 0.24,
+      ...(learnedExplore.placeId === context.currentPlaceId ? {} : { targetPlaceId: learnedExplore.placeId }),
+      score: 0.035 + context.curiosity * 0.38 + context.freedom * 0.18 - weakness * 0.46 - thirst * 0.3 - hunger * 0.22,
       evidence: ['lived:explore'],
     });
   }
 
   candidates.push({
     kind: 'reflect',
-    score:
-      0.06 +
-      agent.personality.curiosity * 0.08 +
-      agent.mind.values.knowledge * 0.08 +
-      agent.stress * 0.08,
+    score: 0.05 + context.curiosity * 0.08 + context.knowledge * 0.08 + context.stress * 0.06,
     evidence: ['self:uncertainty'],
   });
 
   const chosen = weightedPick(brain, candidates);
   if (!chosen) return undefined;
   setBrainWorkingStepV1(brain, {
-    stepId: `native-intent:${Math.floor(world.calendar.elapsedWorldMinutes)}`,
-    startedWorldMinute: world.calendar.elapsedWorldMinutes,
+    stepId: `native-intent:${Math.floor(context.worldMinute)}`,
+    startedWorldMinute: context.worldMinute,
     phase: 'considering',
     action: chosen.kind,
     ...(chosen.targetPopulationId

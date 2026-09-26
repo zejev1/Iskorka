@@ -16850,12 +16850,30 @@ export class WorldEngine {
 
     const percept = this.refreshSparkPerception(agent);
     if (!percept) return;
-    const intent = chooseReleasedSparkNativeIntentV1(this.state, agent, percept);
-    if (!intent) return;
     const brain =
       brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
       ensureBrainForAgentV1(this.state, agent);
     if (!brain) return;
+    const wallet = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id];
+    const intent = chooseReleasedSparkNativeIntentV1(brain, percept, {
+      ownerAgentId: agent.id,
+      worldMinute,
+      currentPlaceId: agent.locationId,
+      atHome: agent.locationId === agent.homeId,
+      carriedFood: Math.max(0, wallet?.carriedGoods?.food ?? 0) + Math.max(0, wallet?.carriedGoods?.meat ?? 0),
+      energy: agent.energy,
+      stress: agent.stress,
+      curiosity: agent.personality.curiosity,
+      diligence: agent.personality.diligence,
+      riskTolerance: agent.personality.riskTolerance,
+      ambition: agent.mind.values.ambition,
+      freedom: agent.mind.values.freedom,
+      knowledge: agent.mind.values.knowledge,
+      gathering: agent.skills.gathering,
+      hunting: agent.skills.hunting,
+      craft: agent.skills.craft,
+    });
+    if (!intent) return;
 
     const travelTo = (targetPlaceId: string | undefined): boolean => {
       if (!targetPlaceId || targetPlaceId === agent.locationId) return false;
