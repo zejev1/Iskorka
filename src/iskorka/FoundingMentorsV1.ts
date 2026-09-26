@@ -1123,7 +1123,11 @@ export function applyFoundingMentorCareV1(
   const drinkAmount = age < 1 ? 0.16 : age < 5 ? 0.2 : 0.24;
   const careCost = 0.0007 * (0.72 + Math.min(1, age / 12) * 0.28);
   const hasFood = Boolean(resources && resources.storedResources >= careCost);
-  if (resources && hasFood) {
+  // Full feeding is infant/toddler care only. Once a child can physically
+  // self-feed, the mentor may guide/assist an actual child action, but this
+  // caregiver routine must not perform eating on the child's behalf forever.
+  const directFeeding = age < 2;
+  if (resources && hasFood && directFeeding) {
     Object.assign(resources, consumeStoredResources(resources, careCost));
     resourcesChanged = true;
     recordBodyMealV1(world, student, mealPortion);
@@ -1134,37 +1138,41 @@ export function applyFoundingMentorCareV1(
   const physicalDrinkLitres =
     age < 1 ? 0.16 : age < 5 ? 0.22 : age < 12 ? 0.28 : 0.34;
   let suppliedWaterLitres = 0;
-  const currentPlace = world.places[mentor.locationId];
-  if (currentPlace?.kind === 'well') {
-    refillHomeWaterFromWellV1(
-      world,
-      student.homeId,
-      currentPlace.id,
-      18,
-    );
-    suppliedWaterLitres = drawWellWaterLitresV1(
-      world,
-      currentPlace.id,
-      physicalDrinkLitres,
-    );
-  } else {
-    suppliedWaterLitres = consumeHomeWaterLitresV1(
-      world,
-      student.homeId,
-      physicalDrinkLitres,
-    );
-  }
-  if (suppliedWaterLitres >= physicalDrinkLitres * 0.95) {
-    recordBodyDrinkV1(world, student, drinkAmount);
-    state.totalDrinks += 1;
+  if (age < 1.25) {
+    const currentPlace = world.places[mentor.locationId];
+    if (currentPlace?.kind === 'well') {
+      refillHomeWaterFromWellV1(
+        world,
+        student.homeId,
+        currentPlace.id,
+        18,
+      );
+      suppliedWaterLitres = drawWellWaterLitresV1(
+        world,
+        currentPlace.id,
+        physicalDrinkLitres,
+      );
+    } else {
+      suppliedWaterLitres = consumeHomeWaterLitresV1(
+        world,
+        student.homeId,
+        physicalDrinkLitres,
+      );
+    }
+    if (suppliedWaterLitres >= physicalDrinkLitres * 0.95) {
+      // Before reliable self-directed handling/walking this is direct
+      // caregiver hydration. Older children drink through their own action.
+      recordBodyDrinkV1(world, student, drinkAmount);
+      state.totalDrinks += 1;
+    }
   }
 
   const rhythm = ensureLifeRhythmV18(world, student);
-  if (hasFood) {
+  if (hasFood && directFeeding) {
     rhythm.satiety = Math.max(rhythm.satiety, age < 1 ? 0.72 : 0.66);
   }
 
-  student.energy = Math.max(student.energy, age < 3 ? 0.78 : 0.7);
+  if (age < 3) student.energy = Math.max(student.energy, 0.78);
   student.stress = clamp01(student.stress - (age < 5 ? 0.045 : 0.025));
   // Do not grant a child carried provisions, a profession motive or any
   // scripted mental need. Food/water/care come from the guardian's actions.

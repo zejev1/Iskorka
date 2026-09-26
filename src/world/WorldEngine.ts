@@ -43,7 +43,15 @@ import {
   tryStoreBrainDatumV1,
 } from '../iskorka/BrainStateV1';
 import {
+  beginBrainActionAttemptV1,
+  buildPerceivedActionOutcomeV1,
+  chooseLearnedBrainIntentV1,
+  finishBrainActionAttemptV1,
+} from '../iskorka/BrainLearningV1';
+import type { ActionOutcomeV1 } from '../iskorka/PortableHumanCoreV1';
+import {
   applyHumanMotorActionEnvelopeV1,
+  humanMotorDevelopmentV1,
   humanMotorMobilityScaleV1,
 } from '../iskorka/HumanMotorDevelopmentV1';
 import {
@@ -67,10 +75,6 @@ import {
   nextReleasedSparkBodyBoundaryV1,
 } from '../iskorka/ReleasedSparkSurvivalV1';
 import {
-  chooseReleasedSparkNativeIntentV1,
-  isNativeSparkChoiceEligibleV1,
-  nativeReviewDueV1,
-  nextNativeSparkReviewBoundaryV1,
   recordGuidedPracticeExperienceV1,
 } from '../iskorka/NativeSparkAgencyV1';
 import {
@@ -7220,7 +7224,7 @@ export class WorldEngine {
   }
 
 
-  private refreshSparkPerception(agent: AgentState) {
+  private refreshSparkPerception(agent: AgentState, priorOutcome?: Readonly<ActionOutcomeV1>) {
     if ((agent.race ?? 'human') !== 'human' || !agent.life.alive) return undefined;
     const brain =
       brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
@@ -7230,9 +7234,83 @@ export class WorldEngine {
       localAgents: this.agentsAtLocation(agent.locationId),
       receivedMessages:
         this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
+      ...(priorOutcome ? { priorOutcome } : {}),
     });
     acceptPersonalPerceptBatchV1(brain, percept);
     return percept;
+  }
+
+  /**
+   * Mentor script may offer/assist a real self-care attempt after the body can
+   * handle it. The physical action belongs to the child; only its perceived
+   * before/after result is learned by BrainCore.
+   */
+  private mentorGuidedSelfCarePracticeAt(agent: AgentState, worldMinute: number): boolean {
+    if (!agent.life.alive || agent.movement || agent.life.ageYears < 1.25) return false;
+    const mentor = assignedFoundingMentorV1(this.state, agent.id);
+    if (!mentor || mentor.status !== 'caregiving' || mentor.locationId !== agent.locationId) return false;
+    const motor = humanMotorDevelopmentV1(agent.life.ageYears);
+    if (motor.walkingCapacity < 0.45 || motor.coordination < 0.4) return false;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain) return false;
+
+    const alreadyKnows = (action: 'drink' | 'eat') =>
+      brain.learning?.methods.some((method) => method.action === action && method.successes > 0) ?? false;
+    const before = this.refreshSparkPerception(agent);
+    if (!before) return false;
+    const intensity = (key: 'thirst' | 'hunger'): number => {
+      const signal = before.body.interoception[key];
+      return signal.availability === 'available' ? signal.intensity : 0;
+    };
+
+    if (!alreadyKnows('drink') && intensity('thirst') >= 0.12) {
+      const place = this.state.places[agent.locationId];
+      const targetPlaceId =
+        place?.kind === 'well' ? place.id :
+        agent.locationId === agent.homeId ? agent.homeId :
+        undefined;
+      if (targetPlaceId) {
+        beginBrainActionAttemptV1(brain, before, 'drink', targetPlaceId);
+        const litres = place?.kind === 'well'
+          ? drawWellWaterLitresV1(this.state, place.id, 0.22, worldMinute)
+          : consumeHomeWaterLitresV1(this.state, agent.homeId, 0.22);
+        if (litres > 0) recordBodyDrinkV1(this.state, agent, 0.22);
+        const after = this.refreshSparkPerception(agent);
+        if (after) {
+          const outcome = buildPerceivedActionOutcomeV1(
+            before,
+            after,
+            'drink',
+            litres > 0 ? 'completed' : 'failed',
+          );
+          const perceived = this.refreshSparkPerception(agent, outcome) ?? after;
+          finishBrainActionAttemptV1(brain, perceived, outcome);
+        }
+        return litres > 0;
+      }
+    }
+
+    if (agent.life.ageYears >= 2 && !alreadyKnows('eat') && intensity('hunger') >= 0.12 && agent.locationId === agent.homeId) {
+      const resources = this.state.v15?.renewableResources;
+      if (resources?.storedResources && resources.storedResources > 0.001) {
+        beginBrainActionAttemptV1(brain, before, 'eat', agent.homeId);
+        const portion = Math.min(0.0012, resources.storedResources);
+        Object.assign(resources, consumeStoredResources(resources, portion));
+        this.resourceProjectionDirty = true;
+        recordBodyMealV1(this.state, agent, 0.18);
+        recordMealV18(this.state, agent, 0.18);
+        const after = this.refreshSparkPerception(agent);
+        if (after) {
+          const outcome = buildPerceivedActionOutcomeV1(before, after, 'eat', 'completed');
+          const perceived = this.refreshSparkPerception(agent, outcome) ?? after;
+          finishBrainActionAttemptV1(brain, perceived, outcome);
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   private applyFoundingMentorPhysicalRoutineAt(worldMinute: number): void {
@@ -7379,10 +7457,12 @@ export class WorldEngine {
         (child) => !isBodySleepingV21(this.state, child.id),
       );
 
-      // Routine feeding/drinking ends at the transition stage. Emergency
-      // treatment remains available inside applyFoundingMentorCareV1.
+      // As motor control appears, the mentor stops doing ordinary eating and
+      // drinking for the child and instead lets the child perform a real
+      // self-care attempt that BrainCore can learn from.
       for (const child of awake) {
         if (child.life.ageYears >= 15) continue;
+        this.mentorGuidedSelfCarePracticeAt(child, this.state.calendar.elapsedWorldMinutes);
         const care = applyFoundingMentorCareV1(this.state, child);
         if (care.resourcesChanged) this.resourceProjectionDirty = true;
       }
@@ -16804,18 +16884,19 @@ export class WorldEngine {
       const nextReleasedBodyBoundary = hasReleasedFoundingSparksV1(this.state)
         ? nextReleasedSparkBodyBoundaryV1(minute)
         : Number.POSITIVE_INFINITY;
-      const hasNativeChoice = Object.values(this.state.agents).some((agent) =>
-        isNativeSparkChoiceEligibleV1(this.state, agent),
-      );
-      const nextNativeReviewBoundary = hasNativeChoice
-        ? nextNativeSparkReviewBoundaryV1(this.state, minute)
+      const hasBrainChoice = Object.values(this.state.agents).some((agent) => {
+        const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
+        return Boolean(agent.life.alive && brain?.learning?.methods.some((method) => method.successes > 0));
+      });
+      const nextBrainReviewBoundary = hasBrainChoice
+        ? (Math.floor(Math.max(0, minute) / 240) + 1) * 240
         : Number.POSITIVE_INFINITY;
       const nextWake = nextBodyWakeWorldMinuteV21(this.state);
       const next = Math.min(
         end,
         nextMentorBoundary,
         nextReleasedBodyBoundary,
-        nextNativeReviewBoundary,
+        nextBrainReviewBoundary,
         nextWake !== undefined && nextWake > minute
           ? nextWake
           : Number.POSITIVE_INFINITY,
@@ -16866,11 +16947,11 @@ export class WorldEngine {
           }
         }
       }
-      if (hasNativeChoice) {
+      if (hasBrainChoice && Math.abs(next % 240) < 1e-7) {
         for (const agent of Object.values(this.state.agents)) {
-          if (nativeReviewDueV1(this.state, agent, next)) {
-            this.executeReleasedSparkNativeIntentAt(agent, next);
-          }
+          const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
+          if (!brain?.learning?.methods.some((method) => method.successes > 0)) continue;
+          this.executeLearnedBrainIntentAt(agent, next);
         }
       }
 
@@ -16883,7 +16964,7 @@ export class WorldEngine {
     synchronizeFoundationWellWaterV1(this.state, end);
   }
 
-  private executeReleasedSparkNativeIntentAt(
+  private executeLearnedBrainIntentAt(
     agent: AgentState,
     worldMinute: number,
   ): void {
@@ -16900,26 +16981,19 @@ export class WorldEngine {
       brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
       ensureBrainForAgentV1(this.state, agent);
     if (!brain) return;
-    const wallet = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id];
-    const intent = chooseReleasedSparkNativeIntentV1(brain, percept, {
-      ownerAgentId: agent.id,
-      worldMinute,
-      currentPlaceId: agent.locationId,
-      atHome: agent.locationId === agent.homeId,
-      carriedFood: Math.max(0, wallet?.carriedGoods?.food ?? 0) + Math.max(0, wallet?.carriedGoods?.meat ?? 0),
-      energy: agent.energy,
-      stress: agent.stress,
-      curiosity: agent.personality.curiosity,
-      diligence: agent.personality.diligence,
-      riskTolerance: agent.personality.riskTolerance,
-      ambition: agent.mind.values.ambition,
-      freedom: agent.mind.values.freedom,
-      knowledge: agent.mind.values.knowledge,
-      gathering: agent.skills.gathering,
-      hunting: agent.skills.hunting,
-      craft: agent.skills.craft,
-    });
-    if (!intent) return;
+    const brainIntent = chooseLearnedBrainIntentV1(brain, percept);
+    if (!brainIntent) return;
+    const mappedKind =
+      brainIntent.action === 'gather' ? 'gather_food' : brainIntent.action;
+    if (!['drink','eat','gather_food','hunt','rest','work','explore','reflect'].includes(mappedKind)) {
+      return;
+    }
+    const intent = {
+      kind: mappedKind as 'drink' | 'eat' | 'gather_food' | 'hunt' | 'rest' | 'work' | 'explore' | 'reflect',
+      targetPlaceId: brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
+      score: 1,
+      evidence: ['brain:lived-outcome'],
+    };
 
     const travelTo = (targetPlaceId: string | undefined): boolean => {
       if (!targetPlaceId || targetPlaceId === agent.locationId) return false;
@@ -16956,6 +17030,13 @@ export class WorldEngine {
 
     if (travelTo(intent.targetPlaceId)) return;
 
+    beginBrainActionAttemptV1(
+      brain,
+      percept,
+      brainIntent.action,
+      brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
+    );
+
     let succeeded = false;
     const place = this.state.places[agent.locationId];
     if (intent.kind === 'drink') {
@@ -16981,6 +17062,17 @@ export class WorldEngine {
           goods.food = food - fromFood;
           const remainder = consumed - fromFood;
           if (remainder > 0) goods.meat = Math.max(0, meat - remainder);
+          recordBodyMealV1(this.state, agent, 0.28);
+          recordMealV18(this.state, agent, 0.28);
+          succeeded = true;
+        }
+      }
+      if (!succeeded && agent.locationId === agent.homeId) {
+        const resources = this.state.v15?.renewableResources;
+        if (resources && resources.storedResources > 0.001) {
+          const portion = Math.min(0.0012, resources.storedResources);
+          Object.assign(resources, consumeStoredResources(resources, portion));
+          this.resourceProjectionDirty = true;
           recordBodyMealV1(this.state, agent, 0.28);
           recordMealV18(this.state, agent, 0.28);
           succeeded = true;
@@ -17120,6 +17212,17 @@ export class WorldEngine {
     if (succeeded) {
       recordVoluntaryPracticeDevelopmentV1(agent, true, true);
       agent.lastMeaningfulEventAt = this.state.now;
+    }
+    const afterPercept = this.refreshSparkPerception(agent);
+    if (afterPercept) {
+      const outcome = buildPerceivedActionOutcomeV1(
+        percept,
+        afterPercept,
+        brainIntent.action,
+        succeeded ? 'completed' : 'failed',
+      );
+      const perceivedOutcome = this.refreshSparkPerception(agent, outcome) ?? afterPercept;
+      finishBrainActionAttemptV1(brain, perceivedOutcome, outcome);
     }
     setBrainWorkingStepV1(brain, undefined);
     delete agent.lastDecision;

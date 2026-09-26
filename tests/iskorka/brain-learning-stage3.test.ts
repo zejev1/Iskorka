@@ -39,7 +39,7 @@ function percept(ownerAgentId: string, worldMinute: number, values: Partial<Reco
       ownerAgentId,
       worldMinute,
       ageYears: 3,
-      brainLifePhase: 'early_childhood',
+      brainLifePhase: 'toddler',
       interoception,
     },
     localObservations: [{

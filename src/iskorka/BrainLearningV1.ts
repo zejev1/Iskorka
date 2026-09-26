@@ -156,6 +156,16 @@ export function chooseLearnedBrainIntentV1(
 ): ActionIntentV1 | undefined {
   if (brain.ownerAgentId !== batch.ownerAgentId) throw new Error('Brain/percept owner mismatch.');
   const state = ensureBrainLearningV1(brain);
+  if (state.pending) {
+    return {
+      version: PORTABLE_HUMAN_CONTRACT_VERSION_V1,
+      ownerAgentId: brain.ownerAgentId,
+      action: state.pending.action,
+      ...(state.pending.targetObjectId ? { target: { kind: 'place' as const, objectId: state.pending.targetObjectId } } : {}),
+      maxWorldMinutes: 360,
+      stopConditions: ['body_limit','target_missing','new_danger','material_change','reconsider'],
+    };
+  }
   const current = availableSignals(batch);
   const scored = state.methods
     .filter((method) => method.trials > 0 && targetStillKnown(brain, method.targetObjectId))
@@ -190,5 +200,36 @@ export function chooseLearnedBrainIntentV1(
     ...(chosen.targetObjectId ? { target: { kind: 'place' as const, objectId: chosen.targetObjectId } } : {}),
     maxWorldMinutes: 360,
     stopConditions: ['body_limit','target_missing','new_danger','material_change','reconsider'],
+  };
+}
+
+
+export function buildPerceivedActionOutcomeV1(
+  before: Readonly<PerceptBatchV1>,
+  after: Readonly<PerceptBatchV1>,
+  action: PortableHumanActionKindV1,
+  status: ActionOutcomeV1['status'],
+): ActionOutcomeV1 {
+  if (before.ownerAgentId !== after.ownerAgentId) throw new Error('Action outcome percept owner mismatch.');
+  const effects: ActionOutcomeV1['perceivedEffects'][number][] = [];
+  for (const key of SIGNAL_KEYS) {
+    const a = before.body.interoception[key];
+    const b = after.body.interoception[key];
+    if (a.availability !== 'available' || b.availability !== 'available') continue;
+    const delta = b.intensity - a.intensity;
+    if (Math.abs(delta) < 0.002) continue;
+    effects.push({
+      channel: key,
+      direction: delta < 0 ? 'better' : 'worse',
+    });
+  }
+  return {
+    version: PORTABLE_HUMAN_CONTRACT_VERSION_V1,
+    ownerAgentId: before.ownerAgentId,
+    action,
+    startedWorldMinute: before.worldMinute,
+    finishedWorldMinute: after.worldMinute,
+    status,
+    perceivedEffects: effects,
   };
 }
