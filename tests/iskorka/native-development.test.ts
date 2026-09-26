@@ -128,7 +128,25 @@ test('after guardian departure Sparks can act from lived learning without legacy
   assert.ok(native.length > 0, 'no native intents');
   assert.ok(survivalActions.length > 0, 'no successful native survival action');
   assert.ok(wildlifeChoices.length > 0, 'learned hunting/fishing never became a native choice');
-  assert.ok(world.population.deaths < 10, 'all Sparks died');
+  const intentCounts = Object.fromEntries(
+    [...new Set(native.map((event) => String(event.payload.intent)))].map((intent) => [
+      intent,
+      {
+        total: native.filter((event) => String(event.payload.intent) === intent).length,
+        succeeded: resolved.filter((event) => String(event.payload.intent) === intent).length,
+      },
+    ]),
+  );
+  const deathCauses = Object.values(world.agents)
+    .filter((agent) => !agent.life.alive)
+    .map((agent) => ({
+      id: agent.id,
+      cause: world.v21?.bodiesByAgentId[agent.id]?.bodyCore?.releasedAdultSurvivalV1?.fatalCause ?? 'other',
+    }));
+  assert.ok(
+    world.population.deaths < 10,
+    'all Sparks died: ' + JSON.stringify({ intentCounts, deathCauses }),
+  );
 
   for (const spark of Object.values(world.agents).filter((agent) => agent.life.alive)) {
     assert.equal(spark.lastDecision, undefined);

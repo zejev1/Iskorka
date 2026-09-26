@@ -7374,6 +7374,39 @@ export class WorldEngine {
         if (care.resourcesChanged) this.resourceProjectionDirty = true;
       }
 
+      // Ages 15-17 keep their own movement and choices. The mentor can still
+      // come to the teenager for a short educational conversation, which is
+      // especially required for the final reproduction/parenthood stages.
+      // This moves the mentor to the learner; it never moves or feeds the teen.
+      for (const child of awake.filter((candidate) => candidate.life.ageYears >= 15)) {
+        if (child.movement) continue;
+        mentor.locationId = child.locationId;
+        mentor.position = { x: child.position.x + 0.12, y: child.position.y + 0.08 };
+        const lesson = applyFoundingMentorLessonV1(this.state, child, mentor);
+        if (lesson.taught) {
+          child.lastMeaningfulEventAt = now;
+          this.stageEvent({
+            eventId: this.nextId('mentor-transition-lesson'),
+            worldId: this.state.id,
+            kind: 'mentor.guardian.lesson',
+            source: 'world',
+            occurredAt: now,
+            payload: {
+              mentorId: mentor.id,
+              studentId: child.id,
+              domain: lesson.domain ?? 'language',
+              teachingMode: lesson.mode ?? 'demonstration',
+              placeId: child.locationId,
+              gained: lesson.gained,
+              transitionAge: true,
+              childLabor: false,
+              childTaskScriptUsed: false,
+              physicallyCoLocated: true,
+            },
+          });
+        }
+      }
+
       if (students.some((child) => Boolean(child.movement))) {
         updateMentorTeachingPositionsV1(this.state);
         continue;
