@@ -17008,7 +17008,7 @@ export class WorldEngine {
         startedWorldMinute: worldMinute,
         phase: 'waiting_outcome',
         action: `native:${intent.kind}`,
-        targetObjectId: intent.targetPopulationId ?? targetPlaceId,
+        targetObjectId: targetPlaceId,
       });
       this.stageEvent({
         eventId: this.nextId('native-intent-travel'),
@@ -17127,29 +17127,24 @@ export class WorldEngine {
           succeeded = true;
         }
       }
-    } else if (intent.kind === 'hunt' || intent.kind === 'fish') {
-      const fishing = intent.kind === 'fish';
-      const target = intent.targetPopulationId
-        ? this.state.wildlife[intent.targetPopulationId]
-        : Object.values(this.state.wildlife).find(
-            (population) =>
-              !population.isMonster &&
-              population.habitatId === agent.locationId &&
-              population.count > 0 &&
-              (fishing
-                ? population.species === 'fish'
-                : ['rabbit', 'deer', 'boar', 'bird'].includes(population.species)),
-          );
+    } else if (intent.kind === 'hunt') {
+      const target = Object.values(this.state.wildlife).find(
+        (population) =>
+          !population.isMonster &&
+          population.habitatId === agent.locationId &&
+          population.count > 0 &&
+          ['rabbit', 'deer', 'boar', 'bird'].includes(population.species),
+      );
       if (target && target.habitatId === agent.locationId && target.count > 0) {
         const successChance = clamp01(
-          (fishing ? 0.18 : 0.15) +
+          0.15 +
             agent.skills.hunting * 0.42 +
-            agent.personality.riskTolerance * (fishing ? 0.03 : 0.08) +
-            agent.life.physiology.strength * (fishing ? 0.02 : 0.08) +
+            agent.personality.riskTolerance * 0.08 +
+            agent.life.physiology.strength * 0.08 +
             agent.life.physiology.endurance * 0.07 +
-            (agent.progression?.combatMastery ?? 0) * (fishing ? 0 : 0.08) -
+            (agent.progression?.combatMastery ?? 0) * 0.08 -
             target.alertness * 0.25 -
-            target.threat * (fishing ? 0.04 : 0.24),
+            target.threat * 0.24,
         );
         const harvested = this.rng.next() < successChance;
         const reserveFloor = Math.max(1, Math.floor(target.carryingCapacity * 0.22));
@@ -17169,15 +17164,14 @@ export class WorldEngine {
         agent.skills.hunting = clamp01(
           agent.skills.hunting + (succeeded ? 0.0045 : 0.0014),
         );
-        agent.energy = clamp01(agent.energy - (fishing ? 0.025 : 0.045));
+        agent.energy = clamp01(agent.energy - 0.045);
         agent.stress = clamp01(agent.stress + (succeeded ? -0.004 : 0.008));
-        recordBodyMovementV1(this.state, agent, fishing ? 40 : 60, fishing ? 0.18 : 0.3);
+        recordBodyMovementV1(this.state, agent, 60, fishing ? 0.18 : 0.3);
 
         // Combat experience is not awarded for "hunting knowledge".  It is
         // earned only when a chosen hunt produces a real defensive encounter
         // with a dangerous animal.
         if (
-          !fishing &&
           target.species === 'boar' &&
           this.rng.next() < clamp01(0.14 + target.threat * 0.8) &&
           agent.progression
@@ -17240,7 +17234,6 @@ export class WorldEngine {
         intent: intent.kind,
         placeId: agent.locationId,
         succeeded,
-        ...(intent.targetPopulationId ? { targetPopulationId: intent.targetPopulationId } : {}),
         evidence: intent.evidence.join(','),
         legacyTaskScriptUsed: false,
       },
