@@ -1,6 +1,7 @@
 import { ISKORKA_FOUNDER_NAMES, ISKORKA_PROFILE, initializeIskorkaWorld, isIskorkaWorld, assertIskorkaProfile } from '../iskorka/Profile';
 import {
   bodySignalsV1,
+  bodySexualDesireV1,
   completeBodyCorePregnancyV1,
   setBodyCorePregnancyV1,
 } from '../iskorka/BodyCoreV1';
@@ -24,6 +25,7 @@ import {
 import {
   buildReceivedMessageIndexV1,
   perceptBatchForAgentV1,
+  rotatingPerceptionSampleV1,
 } from '../iskorka/PerceptionAdapterV1';
 import {
   acceptPersonalPerceptBatchV1,
@@ -39,16 +41,25 @@ import {
   synchronizeLegacyOwnedStateV1,
 } from '../iskorka/BrainStateAdapterV1';
 import {
+  invalidateBrainLogicalByteCacheV1,
   setBrainWorkingStepV1,
   tryStoreBrainDatumV1,
 } from '../iskorka/BrainStateV1';
 import {
   beginBrainActionAttemptV1,
   buildPerceivedActionOutcomeV1,
+  chooseExploratoryBrainIntentV1,
   chooseLearnedBrainIntentV1,
+  ensureBrainLearningV1,
   finishBrainActionAttemptV1,
 } from '../iskorka/BrainLearningV1';
-import type { ActionOutcomeV1 } from '../iskorka/PortableHumanCoreV1';
+import {
+  PORTABLE_HUMAN_CONTRACT_VERSION_V1,
+  type ActionIntentV1,
+  type ActionOutcomeV1,
+  type PerceptBatchV1,
+  type PortableHumanActionKindV1,
+} from '../iskorka/PortableHumanCoreV1';
 import {
   applyHumanMotorActionEnvelopeV1,
   humanMotorDevelopmentV1,
@@ -71,12 +82,10 @@ import {
 import {
   advanceReleasedSparkSurvivalV1,
   hasReleasedFoundingSparksV1,
+  isSparkSelfCareV1,
   isReleasedFoundingSparkV1,
   nextReleasedSparkBodyBoundaryV1,
 } from '../iskorka/ReleasedSparkSurvivalV1';
-import {
-  recordGuidedPracticeExperienceV1,
-} from '../iskorka/NativeSparkAgencyV1';
 import {
   recordVoluntaryPracticeDevelopmentV1,
 } from '../iskorka/NativeSparkDevelopmentV1';
@@ -401,6 +410,7 @@ import type {
   WorldState,
   WorldV15State,
   V16FamilyLifecycleState,
+  V16RemainsState,
   V16MaterialKind,
   V15WeaponKind,
   WildlifePopulation,
@@ -423,7 +433,9 @@ const LEGACY_WORLD_RULES_VERSIONS = new Set([
 export const WORLD_CONSTITUTION_VERSION = 'ainkrad-constitution-0.3.19';
 export { WORLD_TICKS_PER_YEAR } from './WorldClock';
 const MIN_ADULT_AGE = 18;
-const BIRTH_CHECK_INTERVAL = 12;
+// A small settlement gets repeated chances to discuss parenthood when
+// residents actually meet; each person can still decline every encounter.
+const BIRTH_CHECK_INTERVAL = 3;
 const FAMILY_MEETING_EXPIRY_WORLD_MINUTES = WORLD_MINUTES_PER_YEAR * 1.5;
 const FAMILY_INTENT_EXPIRY_WORLD_MINUTES = WORLD_MINUTES_PER_YEAR * 3;
 const FAMILY_GESTATION_WORLD_MINUTES = WORLD_MINUTES_PER_YEAR * 0.75;
@@ -440,6 +452,64 @@ const V15_MAX_DEATH_TELEMETRY = 512;
  */
 export const RESIDENT_WALK_MAP_UNITS_PER_WORLD_MINUTE = 0.3;
 const PHYSICAL_TIME_EPSILON = 1e-9;
+const STEADY_BRAIN_REVIEW_INTERVAL_WORLD_MINUTES_V1 = 12 * 60;
+const URGENT_BRAIN_REVIEW_INTERVAL_WORLD_MINUTES_V1 = 4 * 60;
+// Thirst and hunger signals reach .65 only near physiological failure. Wake
+// the brain while there is still time to act; the body reports urgency but
+// never selects the action.
+const URGENT_BRAIN_BODY_SIGNAL_V1 = 0.38;
+const NATIVE_INTENT_JOURNAL_INTERVAL_WORLD_MINUTES_V1 = 6 * 24 * 60;
+const PRETEEN_LEARNED_ACTIONS_V1 = new Set<PortableHumanActionKindV1>([
+  'drink', 'eat',
+]);
+const TEEN_LEARNED_ACTIONS_V1 = new Set<PortableHumanActionKindV1>([
+  'drink', 'eat', 'fetch_water', 'rest', 'gather', 'hunt', 'fish',
+  'socialize', 'explore', 'reflect',
+]);
+
+interface BrainReviewQueueEntryV1 {
+  agent: AgentState;
+  worldMinute: number;
+}
+
+/** Small binary heap; due reviews are per Spark, so calm residents do not
+ * trigger a population-wide four-hour scan. */
+class BrainReviewQueueV1 {
+  private readonly entries: BrainReviewQueueEntryV1[] = [];
+
+  peek(): BrainReviewQueueEntryV1 | undefined { return this.entries[0]; }
+
+  push(entry: BrainReviewQueueEntryV1): void {
+    let index = this.entries.push(entry) - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.entries[parent].worldMinute <= entry.worldMinute) break;
+      this.entries[index] = this.entries[parent];
+      index = parent;
+    }
+    this.entries[index] = entry;
+  }
+
+  pop(): BrainReviewQueueEntryV1 | undefined {
+    const first = this.entries[0];
+    if (!first) return undefined;
+    const last = this.entries.pop()!;
+    if (this.entries.length === 0) return first;
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      if (left >= this.entries.length) break;
+      const right = left + 1;
+      const child = right < this.entries.length &&
+        this.entries[right].worldMinute < this.entries[left].worldMinute ? right : left;
+      if (this.entries[child].worldMinute >= last.worldMinute) break;
+      this.entries[index] = this.entries[child];
+      index = child;
+    }
+    this.entries[index] = last;
+    return first;
+  }
+}
 const MONSTER_FEEDING_INTERVAL_TICKS = WORLD_TICKS_PER_YEAR / 2;
 const WILDLIFE_VIABLE_RESERVE_SHARE = 0.25;
 
@@ -1790,6 +1860,14 @@ function assertWorldState(value: unknown): asserts value is WorldState {
     }
     if (!places[locationId]) {
       throw new Error(`Agent ${agentId} references missing location ${locationId}.`);
+    }
+    if (agent.carriedByParentId !== undefined) {
+      const carrierId = requiredString(agent.carriedByParentId, `Agent ${agentId}.carriedByParentId`);
+      const carrier = agents[carrierId] as AgentState | undefined;
+      if (!carrier || !(life.parentIds as string[]).includes(carrierId) ||
+          carrier.locationId !== locationId) {
+        throw new Error(`Agent ${agentId} has an invalid physical parent carrier.`);
+      }
     }
     const position = asRecord(agent.position, `Agent ${agentId}.position`);
     finiteNumber(position.x, `Agent ${agentId}.position.x`);
@@ -4865,6 +4943,7 @@ export class WorldEngine {
     | Map<string, Map<string, string[]>>
     | undefined;
   private residentsByLocation: Map<string, AgentState[]> | undefined;
+  private remainsByLocation: Map<string, V16RemainsState[]> | undefined;
   private relationshipKeysByResident?: Map<string, Set<string>>;
   private familyLifecyclesByAgentId:
     | Map<string, V16FamilyLifecycleState[]>
@@ -5801,6 +5880,7 @@ export class WorldEngine {
       const livingAgents = Object.values(this.state.agents)
         .filter((agent) => agent.life.alive)
         .sort((left, right) => left.id.localeCompare(right.id));
+      const foundingStudentIds = new Set(this.state.iskorkaMentorsV1?.cohortStudentIds ?? []);
       // Build population/location summaries before food and land accounting.
       // Previously every meal rescanned every resident, turning one quantum
       // into O(population²) work once the civilization passed one thousand.
@@ -5817,8 +5897,10 @@ export class WorldEngine {
       // indexes/caches optimize work without dropping resident opportunities.
       for (const agent of livingAgents) {
         const sleeping = advanceBodySleepV21(this.state, agent);
-        const foundingSpark = isFoundingCohortStudentV1(this.state, agent.id);
-        if (!sleeping && !foundingSpark) {
+        const foundingSpark = foundingStudentIds.has(agent.id);
+        const descendantSelfCare = (agent.race ?? 'human') === 'human' &&
+          agent.life.generation > 0 && agent.life.ageYears >= 15;
+        if (!sleeping && !foundingSpark && !descendantSelfCare) {
           this.applyPassiveNeeds(agent, effectiveEnvironment);
         }
         // Founding Sparks deliberately never use applyPassiveNeeds(): that
@@ -5855,7 +5937,7 @@ export class WorldEngine {
       const agents = this.shuffled(livingAgents);
       this.beginSecretLibraryYearV18(
         livingAgents.filter(
-          (agent) => !isFoundingCohortStudentV1(this.state, agent.id),
+          (agent) => !foundingStudentIds.has(agent.id),
         ),
         now,
       );
@@ -5870,7 +5952,8 @@ export class WorldEngine {
           recordResidentActionEvidenceV16(this.state, agent);
           continue;
         }
-        if (isFoundingCohortStudentV1(this.state, agent.id)) {
+        if (foundingStudentIds.has(agent.id) ||
+            ((agent.race ?? 'human') === 'human' && agent.life.generation > 0)) {
           // No inherited resident task loop at any age. During childhood the
           // guardian acts; after 18 the old Ainkrad adult script still stays
           // off. The next project stage must produce actions from the Spark's
@@ -5885,14 +5968,15 @@ export class WorldEngine {
         }
         recordResidentActionEvidenceV16(this.state, agent);
       }
-      // Legacy Ainkrad reproduction would manufacture adult/family choices
-      // after age 18. Keep it disabled for the Iskorka founding experiment
-      // until voluntary reproduction is driven by the native finite brain.
-      if (
-        !livingAgents.some((agent) =>
-          isFoundingCohortStudentV1(this.state, agent.id),
-        )
-      ) {
+      // Defer births while mentors still have founding minors in care. Adult
+      // relationships and family choices become a real world process as soon
+      // as the cohort reaches adulthood; one elderly or surviving adult must
+      // not keep reproduction disabled forever.
+      const releaseAge = this.state.iskorkaMentorsV1?.releaseAgeYears ?? 18;
+      const foundingMinorsRemain = livingAgents.some((agent) =>
+        foundingStudentIds.has(agent.id) && agent.life.ageYears < releaseAge,
+      );
+      if (!foundingMinorsRemain) {
         this.advanceBirths(now, elapsedWorldMinutes);
       }
       this.advanceSettlementsV18(now);
@@ -7224,20 +7308,118 @@ export class WorldEngine {
   }
 
 
-  private refreshSparkPerception(agent: AgentState, priorOutcome?: Readonly<ActionOutcomeV1>) {
+  private buildSparkPerception(
+    agent: AgentState,
+    priorOutcome?: Readonly<ActionOutcomeV1>,
+  ): PerceptBatchV1 | undefined {
     if ((agent.race ?? 'human') !== 'human' || !agent.life.alive) return undefined;
+    if (!this.residentsByLocation || !this.remainsByLocation) {
+      this.buildResidentDecisionIndexes(
+        Object.values(this.state.agents).filter((candidate) => candidate.life.alive),
+      );
+    }
     const brain =
       brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
       ensureBrainForAgentV1(this.state, agent);
     if (!brain) return undefined;
     const percept = perceptBatchForAgentV1(this.state, agent.id, {
-      localAgents: this.agentsAtLocation(agent.locationId),
+      localAgents: this.perceptionAgentsAtLocation(agent, this.state.calendar.elapsedWorldMinutes),
+      localPlaces: this.placesByKind?.get('well') ?? [],
+      localRemains: this.perceptionRemainsAtLocation(
+        agent,
+        this.state.calendar.elapsedWorldMinutes,
+      ),
       receivedMessages:
         this.perceptionMessagesByAgentId?.get(agent.id) ?? [],
       ...(priorOutcome ? { priorOutcome } : {}),
     });
+    return percept;
+  }
+
+  private refreshSparkPerception(agent: AgentState, priorOutcome?: Readonly<ActionOutcomeV1>) {
+    const percept = this.buildSparkPerception(agent, priorOutcome);
+    if (!percept) return undefined;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain) return undefined;
     acceptPersonalPerceptBatchV1(brain, percept);
     return percept;
+  }
+
+  /** Store only a real conversation or a real guided physical attempt as experience. */
+  private learnFromFoundingMentorLessonV1(
+    agent: AgentState,
+    lesson: ReturnType<typeof applyFoundingMentorLessonV1>,
+    before: ReturnType<typeof this.refreshSparkPerception>,
+  ): void {
+    // A physically co-located lesson or guided attempt is a real social/physical
+    // experience. The remembered action is selectable later only from this
+    // brain's own recorded outcome.
+    if (!lesson.taught || !before) return;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain) return;
+
+    const practice = lesson.physicalPractice;
+    const action = practice?.action ?? 'socialize';
+    beginBrainActionAttemptV1(brain, before, action, practice?.targetPlaceId);
+    // This is the actual outcome frame for one teaching event. Persistent
+    // object references are refreshed on the world scheduler, not once per
+    // arbitrary caller time partition.
+    const after = this.buildSparkPerception(agent);
+    if (!after) return;
+    const effects = practice?.externalEffects ?? [
+      { channel: 'world:conversation', direction: 'better' as const },
+    ];
+    const outcome = buildPerceivedActionOutcomeV1(
+      before,
+      after,
+      action,
+      practice && !practice.completed ? 'failed' : 'completed',
+      effects,
+    );
+    finishBrainActionAttemptV1(brain, after, outcome);
+  }
+
+  private physicalFoodAvailableToSparkV1(agent: Readonly<AgentState>): number {
+    const carriedGoods = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id]?.carriedGoods;
+    const carried = Math.max(0, carriedGoods?.food ?? 0) + Math.max(0, carriedGoods?.meat ?? 0);
+    if (agent.locationId !== agent.homeId) return carried;
+    const economy = this.settlementEconomyForAgent(agent);
+    return carried + Math.max(0, economy?.stocks.food ?? 0);
+  }
+
+  /** Consume a real personal or household food stock and return perceived meal value. */
+  private consumePhysicalFoodForSparkV1(agent: AgentState): number {
+    const wallet = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id];
+    const goods = wallet?.carriedGoods;
+    const food = Math.max(0, goods?.food ?? 0);
+    const meat = Math.max(0, goods?.meat ?? 0);
+    const carried = food + meat;
+    const consumed = Math.min(0.09, carried);
+    if (consumed > 0 && goods) {
+      const fromFood = Math.min(food, consumed);
+      goods.food = food - fromFood;
+      const fromMeat = consumed - fromFood;
+      if (fromMeat > 0) goods.meat = Math.max(0, meat - fromMeat);
+    } else if (agent.locationId === agent.homeId) {
+      const economy = this.settlementEconomyForAgent(agent);
+      const sharedMeal = Math.min(0.09, Math.max(0, economy?.stocks.food ?? 0));
+      if (economy && sharedMeal > 0) economy.stocks.food -= sharedMeal;
+      if (!(sharedMeal > 0)) return 0;
+      const satietyGain = 0.42 * sharedMeal / 0.09;
+      recordBodyMealV1(this.state, agent, satietyGain);
+      recordMealV18(this.state, agent, satietyGain);
+      return satietyGain;
+    } else {
+      return 0;
+    }
+    const satietyGain = 0.42 * consumed / 0.09;
+    recordBodyMealV1(this.state, agent, satietyGain);
+    recordMealV18(this.state, agent, satietyGain);
+    return satietyGain;
   }
 
   /**
@@ -7257,7 +7439,8 @@ export class WorldEngine {
     if (!brain) return false;
 
     const alreadyKnows = (action: 'drink' | 'eat') =>
-      brain.learning?.methods.some((method) => method.action === action && method.successes > 0) ?? false;
+      brain.learning?.methods.some((method) => method.action === action &&
+        (method.expectedSignalRelief[action === 'eat' ? 'hunger' : 'thirst'] ?? 0) >= 0.04) ?? false;
     const before = this.refreshSparkPerception(agent);
     if (!before) return false;
     const intensity = (key: 'thirst' | 'hunger'): number => {
@@ -7265,13 +7448,18 @@ export class WorldEngine {
       return signal.availability === 'available' ? signal.intensity : 0;
     };
 
-    if (!alreadyKnows('drink') && intensity('thirst') >= 0.12) {
+    if (intensity('thirst') >= (agent.life.ageYears >= 15 ? 0.35 : 0.12)) {
       const place = this.state.places[agent.locationId];
       const targetPlaceId =
         place?.kind === 'well' ? place.id :
         agent.locationId === agent.homeId ? agent.homeId :
         undefined;
-      if (targetPlaceId) {
+      const learnedAtThisSource = brain.learning?.methods.some(
+        (method) => method.action === 'drink' &&
+          method.targetObjectId === targetPlaceId &&
+          (method.expectedSignalRelief.thirst ?? 0) >= 0.04,
+      ) ?? false;
+      if (targetPlaceId && !learnedAtThisSource) {
         beginBrainActionAttemptV1(brain, before, 'drink', targetPlaceId);
         const litres = place?.kind === 'well'
           ? drawWellWaterLitresV1(this.state, place.id, 0.22, worldMinute)
@@ -7288,27 +7476,38 @@ export class WorldEngine {
           const perceived = this.refreshSparkPerception(agent, outcome) ?? after;
           finishBrainActionAttemptV1(brain, perceived, outcome);
         }
-        return litres > 0;
+        // An empty cistern teaches a failed drinking attempt, but it must not
+        // hide the child's other immediate need from the same real lesson.
+        if (litres > 0) return true;
       }
     }
 
-    if (agent.life.ageYears >= 2 && !alreadyKnows('eat') && intensity('hunger') >= 0.12 && agent.locationId === agent.homeId) {
-      const resources = this.state.v15?.renewableResources;
-      if (resources?.storedResources && resources.storedResources > 0.001) {
-        beginBrainActionAttemptV1(brain, before, 'eat', agent.homeId);
-        const portion = Math.min(0.0012, resources.storedResources);
-        Object.assign(resources, consumeStoredResources(resources, portion));
-        this.resourceProjectionDirty = true;
-        recordBodyMealV1(this.state, agent, 0.18);
-        recordMealV18(this.state, agent, 0.18);
-        const after = this.refreshSparkPerception(agent);
-        if (after) {
-          const outcome = buildPerceivedActionOutcomeV1(before, after, 'eat', 'completed');
-          const perceived = this.refreshSparkPerception(agent, outcome) ?? after;
-          finishBrainActionAttemptV1(brain, perceived, outcome);
-        }
-        return true;
+    const householdMealAvailable = this.physicalFoodAvailableToSparkV1(agent);
+    if (
+      agent.life.ageYears >= 2 &&
+      !alreadyKnows('eat') &&
+      intensity('hunger') >= (agent.life.ageYears >= 15 ? 0.35 : 0.12) &&
+      householdMealAvailable > 0
+    ) {
+      beginBrainActionAttemptV1(
+        brain,
+        before,
+        'eat',
+        agent.locationId === agent.homeId ? agent.homeId : undefined,
+      );
+      const satietyGain = this.consumePhysicalFoodForSparkV1(agent);
+      const after = this.refreshSparkPerception(agent);
+      if (after) {
+        const outcome = buildPerceivedActionOutcomeV1(
+          before,
+          after,
+          'eat',
+          satietyGain > 0 ? 'completed' : 'failed',
+        );
+        const perceived = this.refreshSparkPerception(agent, outcome) ?? after;
+        finishBrainActionAttemptV1(brain, perceived, outcome);
       }
+      return satietyGain > 0;
     }
     return false;
   }
@@ -7328,6 +7527,46 @@ export class WorldEngine {
       );
       if (students.length === 0) continue;
 
+      const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
+      const atSharedStation = students.every(
+        (child) => child.locationId === students[0]?.locationId && !child.movement,
+      );
+      const stationId = students[0]?.locationId;
+      const station = stationId ? this.state.places[stationId] : undefined;
+      const practiceAction: PortableHumanActionKindV1 | undefined =
+        station?.kind === 'resource_field' ? 'gather' :
+        station?.kind === 'well' ? 'fetch_water' :
+        ['foundation_lake', 'river', 'lake'].includes(stationId ?? '') ? 'fish' :
+        ['outskirts', 'forest', 'meadow'].includes(stationId ?? '') ? 'hunt' :
+        undefined;
+      if (
+        atSharedStation &&
+        practiceAction &&
+        worldMinute - (mentor.lastLessonWorldMinute ?? Number.NEGATIVE_INFINITY) >= 6 * 60
+      ) {
+        let offeredPhysicalPractice = false;
+        for (const child of students) {
+          if (child.life.ageYears < 8) continue;
+          const brain =
+            brainForLiveOwnerV1(this.state, child.id, child.life.generation) ??
+            ensureBrainForAgentV1(this.state, child);
+          if (
+            brain?.learning?.methods.some(
+              (method) => method.action === practiceAction && method.successes > 0,
+            )
+          ) continue;
+          const before = this.buildSparkPerception(child);
+          const lesson = applyFoundingMentorLessonV1(this.state, child, mentor);
+          this.learnFromFoundingMentorLessonV1(child, lesson, before);
+          if (lesson.physicalPractice?.action === practiceAction) {
+            offeredPhysicalPractice = true;
+          }
+        }
+        if (offeredPhysicalPractice) mentor.lastLessonWorldMinute = worldMinute;
+      }
+
+      // The pupil gets the real well lesson first. Only after that physical
+      // attempt may the guardian top up the shared household reserve.
       const currentPlaceId = students[0]?.locationId;
       if (
         currentPlaceId &&
@@ -7346,18 +7585,6 @@ export class WorldEngine {
             worldMinute,
           );
           if (fetchedLitres > 0) {
-            for (const child of students) {
-              if (child.life.ageYears < 8) continue;
-              recordBodyMovementV1(this.state, child, 20, 0.16);
-              recordGuidedPracticeExperienceV1(this.state, child, {
-                domain: 'household',
-                action: 'fetch_water',
-                placeId: currentPlaceId,
-                mentorId: mentor.id,
-                worldMinute,
-                succeeded: true,
-              });
-            }
             this.stageEvent({
               eventId: this.nextId('mentor-water'),
               worldId: this.state.id,
@@ -7367,19 +7594,17 @@ export class WorldEngine {
               occurredWorldMinutes: worldMinute,
               payload: {
                 mentorId: mentor.id,
-                studentIds: students.map((child) => child.id).join(','),
                 homeId,
                 wellId: currentPlaceId,
                 fetchedLitres,
                 worldMinutes: worldMinute,
-                childTaskScriptUsed: false,
+                actor: 'mentor',
               },
             });
           }
         }
       }
 
-      const youngestAge = Math.min(...students.map((child) => child.life.ageYears));
       const destinationId = foundingMentorRoutineDestinationAtV1(
         this.state,
         mentor,
@@ -7475,7 +7700,14 @@ export class WorldEngine {
         if (child.movement) continue;
         mentor.locationId = child.locationId;
         mentor.position = { x: child.position.x + 0.12, y: child.position.y + 0.08 };
+        // One real lesson when severe need exposes a gap in personal practice:
+        // the teenager drinks or eats available material themselves and their
+        // brain receives the actual sensory result. No routine meal or later
+        // guardian decision is created by this educational encounter.
+        this.mentorGuidedSelfCarePracticeAt(child, this.state.calendar.elapsedWorldMinutes);
+        const before = this.buildSparkPerception(child);
         const lesson = applyFoundingMentorLessonV1(this.state, child, mentor);
+        this.learnFromFoundingMentorLessonV1(child, lesson, before);
         if (lesson.taught) {
           child.lastMeaningfulEventAt = now;
           this.stageEvent({
@@ -7518,12 +7750,13 @@ export class WorldEngine {
       mentor.locationId = currentPlaceId;
       updateMentorTeachingPositionsV1(this.state);
       for (const child of awake) {
-        this.refreshSparkPerception(child);
+        const before = this.buildSparkPerception(child);
         const lesson = applyFoundingMentorLessonV1(
           this.state,
           child,
           mentor,
         );
+        this.learnFromFoundingMentorLessonV1(child, lesson, before);
         if (!lesson.taught) continue;
         child.lastMeaningfulEventAt = now;
         child.energy = clamp01(
@@ -7825,6 +8058,8 @@ export class WorldEngine {
 
   private applyPassiveNeeds(agent: AgentState, environment: WorldEnvironment): void {
     const weather = worldWeatherV21(this.state);
+    const bornSparkSelfCare = (agent.race ?? 'human') === 'human' &&
+      agent.life.generation > 0 && agent.life.ageYears >= 15;
     const placeKind = this.state.places[agent.locationId]?.kind;
     const sheltered = placeKind !== undefined &&
       ['home', 'workshop', 'village', 'city'].includes(placeKind);
@@ -7837,7 +8072,7 @@ export class WorldEngine {
     const core = body?.bodyCore;
     if (body && core) {
       const signals = bodySignalsV1(agent, body, core);
-      if (signals.thirst >= 0.24) {
+      if (!bornSparkSelfCare && signals.thirst >= 0.24) {
         const freshWaterHere = placeKind === 'river' || placeKind === 'lake';
         const settlementWater = this.canAccessHomeSettlementStores(agent);
         const carriedWater = !freshWaterHere && !settlementWater && agent.resources >= 0.006;
@@ -7870,7 +8105,7 @@ export class WorldEngine {
     // extinction cycle. Meals remain physical, but the units now match that
     // canonical clock.
     const rhythm = missMealV18(this.state, agent, 0.038);
-    if (rhythm.satiety < 0.62) {
+    if (!bornSparkSelfCare && rhythm.satiety < 0.62) {
       const settlementId = this.homeSettlementId(agent);
       const localResources = this.settlementResourcesForAgent(agent);
       const economy = settlementId
@@ -8765,6 +9000,13 @@ export class WorldEngine {
       bySettlementRace.set(raceKey, (bySettlementRace.get(raceKey) ?? 0) + 1);
     }
     this.residentsByLocation = byLocation;
+    const remainsByLocation = new Map<string, V16RemainsState[]>();
+    for (const remains of Object.values(this.state.v16?.remainsById ?? {})) {
+      const local = remainsByLocation.get(remains.currentPlaceId) ?? [];
+      local.push(remains);
+      remainsByLocation.set(remains.currentPlaceId, local);
+    }
+    this.remainsByLocation = remainsByLocation;
     this.residentCountByHomeSettlement = bySettlement;
     this.residentCountByHomeRace = bySettlementRace;
     this.agricultureKnowledgeByHomeSettlement = agricultureBySettlement;
@@ -8789,6 +9031,29 @@ export class WorldEngine {
       ? this.residentsByLocation.get(locationId) ?? []
       : Object.values(this.state.agents);
     return candidates.filter(agent => agent.life.alive && !agent.movement && agent.locationId === locationId);
+  }
+
+  /** A rotating bounded view prevents crowded-place perception from becoming O(N²). */
+  private perceptionAgentsAtLocation(agent: AgentState, worldMinute: number): AgentState[] {
+    const candidates = this.residentsByLocation?.get(agent.locationId) ?? [];
+    if (candidates.length <= 24) {
+      return candidates.filter((other) =>
+        other.id !== agent.id && other.life.alive && !other.movement && other.locationId === agent.locationId,
+      );
+    }
+    return rotatingPerceptionSampleV1(candidates, agent.id, worldMinute)
+      .filter((other) =>
+        other.id !== agent.id && other.life.alive && !other.movement && other.locationId === agent.locationId,
+      );
+  }
+
+  /** Keep the remains scan bounded while rotating complete local coverage. */
+  private perceptionRemainsAtLocation(
+    agent: AgentState,
+    worldMinute: number,
+  ): V16RemainsState[] {
+    const candidates = this.remainsByLocation?.get(agent.locationId) ?? [];
+    return rotatingPerceptionSampleV1(candidates, agent.id, worldMinute);
   }
 
   private moveResidentLocationIndex(
@@ -13684,6 +13949,19 @@ export class WorldEngine {
       agent.life.stage = ageless
         ? 'adult'
         : lifeStageForRaceV16(agent.race ?? 'human', agent.life.ageYears);
+      if (previousAgeYears < 18 && agent.life.ageYears >= 18) {
+        // Childhood carries no adult intimacy openness or parenthood intent.
+        // At physical adulthood, initialize those separate personal family
+        // preferences from the resident's already formed values and temperament;
+        // sexual desire itself remains a BodyCore signal.
+        const familyAgency = this.state.v15?.familyAgencyByAgentId[agent.id];
+        if (familyAgency) {
+          const adultProfile = v15FamilyAgencyForAgent(agent);
+          familyAgency.physicalIntimacyInclination =
+            adultProfile.physicalIntimacyInclination;
+          familyAgency.childDesire = adultProfile.childDesire;
+        }
+      }
       if (agent.life.stage !== previousStage) {
         this.recordAgentEvent(agent, now, 'agent.life.stage_changed', {
           previousStage,
@@ -13700,7 +13978,9 @@ export class WorldEngine {
       const releasedSurvival =
         this.state.v21?.bodiesByAgentId[agent.id]?.bodyCore
           ?.releasedAdultSurvivalV1;
-      const releasedSpark = isReleasedFoundingSparkV1(this.state, agent);
+      const releasedSpark = isReleasedFoundingSparkV1(this.state, agent) ||
+        ((agent.race ?? 'human') === 'human' && agent.life.generation > 0 &&
+          agent.life.ageYears >= 15);
       const releasedRhythm = releasedSpark
         ? ensureLifeRhythmV18(this.state, agent)
         : undefined;
@@ -13722,7 +14002,9 @@ export class WorldEngine {
         Math.max(0, 0.1 - agent.energy) * 0.012 +
         (releasedSpark
           ? Math.max(0, 0.22 - releasedHydration) * 0.035 +
-            Math.max(0, 0.1 - (releasedRhythm?.satiety ?? 0)) * 0.018
+            // Stomach emptiness at one six-day health sample is not chronic
+            // starvation. Long-term nutritional reserve is the body measure.
+            Math.max(0, 0.1 - (releasedSurvival?.metabolicReserve ?? 1)) * 0.018
           : 0);
       const elderAge =
         SAPIENT_RACE_LIFE_PROFILES_V16[agent.race ?? 'human'].elderAtAge;
@@ -14095,7 +14377,9 @@ export class WorldEngine {
     const asFamilyPerson = (
       agent: AgentState,
       agency: WorldV15State['familyAgencyByAgentId'][string],
-    ): FamilyPerson => ({
+    ): FamilyPerson => {
+      const bodyCore = this.state.v21?.bodiesByAgentId[agent.id]?.bodyCore;
+      return ({
       id: agent.id,
       sex: agent.sex === 'female' ? 'female' : 'male',
       ageYears: agent.life.ageYears,
@@ -14103,8 +14387,12 @@ export class WorldEngine {
       health: agent.life.health,
       stress: agent.stress,
       resources: agent.resources,
+      physicalSexualDesire:
+        selectedRace === 'human' && bodyCore
+          ? bodySexualDesireV1(agent, bodyCore)
+          : 1,
       personality: {
-        physicalIntimacyInclination: agency.physicalIntimacyInclination,
+        intimacyOpenness: agency.physicalIntimacyInclination,
         childDesire: agency.childDesire,
         autonomy: agency.autonomy,
       },
@@ -14113,7 +14401,8 @@ export class WorldEngine {
       ...(agent.life.lastChildWorldMinute === undefined
         ? {}
         : { lastChildWorldMinute: agent.life.lastChildWorldMinute }),
-    });
+      });
+    };
     const familyA = asFamilyPerson(a, aAgency);
     const familyB = asFamilyPerson(b, bAgency);
     const relationship =
@@ -14993,9 +15282,18 @@ export class WorldEngine {
       goal: { kind: 'recover', strength: 0.66, since: now },
       homeId: blueprint.homeId,
       locationId: physicalBirthPlaceId,
+      ...(a.sex === 'female' && a.locationId === physicalBirthPlaceId
+        ? { carriedByParentId: a.id }
+        : b.sex === 'female' && b.locationId === physicalBirthPlaceId
+          ? { carriedByParentId: b.id }
+          : {}),
       position: {
-        x: this.state.places[physicalBirthPlaceId].mapX,
-        y: this.state.places[physicalBirthPlaceId].mapY,
+        x: a.sex === 'female' && a.locationId === physicalBirthPlaceId
+          ? a.position.x : b.sex === 'female' && b.locationId === physicalBirthPlaceId
+            ? b.position.x : this.state.places[physicalBirthPlaceId].mapX,
+        y: a.sex === 'female' && a.locationId === physicalBirthPlaceId
+          ? a.position.y : b.sex === 'female' && b.locationId === physicalBirthPlaceId
+            ? b.position.y : this.state.places[physicalBirthPlaceId].mapY,
         layerId: 'surface',
       },
       lastMeaningfulEventAt: now,
@@ -16329,6 +16627,7 @@ export class WorldEngine {
     const present = others.filter(
       (other) =>
         other.life.alive &&
+        other.id !== agent.id &&
         other.locationId === agent.locationId,
     );
     if (present.length === 0) return undefined;
@@ -16424,7 +16723,7 @@ export class WorldEngine {
     return weighted[weighted.length - 1].other;
   }
 
-  private interact(a: AgentState, b: AgentState, now: number): void {
+  private interact(a: AgentState, b: AgentState, now: number): number | undefined {
     if (!a.life.alive || !b.life.alive || a.movement || b.movement || a.locationId !== b.locationId) return;
     const key = relationshipKey(a.id, b.id);
     const current = this.relationshipFor(a, b, now);
@@ -16709,6 +17008,7 @@ export class WorldEngine {
     }
 
     this.recordRelationshipEvent(next, sentiment, now);
+    return sentiment;
   }
 
   private relationshipsForResident(agentId: string): RelationshipState[] {
@@ -16813,6 +17113,7 @@ export class WorldEngine {
       return;
     }
     if (agent.locationId === locationId && !agent.movement) return;
+    if (agent.carriedByParentId && agent.life.ageYears < 3) return;
 
     if (availableBoat(this.state, agent) || Object.values(this.state.v15?.items ?? {}).some(i=>i.boat?.journey?.originPlaceId===agent.locationId)) {
       const direct = residentKnownPath(this.state, agent, locationId);
@@ -16872,6 +17173,39 @@ export class WorldEngine {
   private advancePhysicalMovementForWorldMinutes(elapsedWorldMinutes: number): void {
     if (elapsedWorldMinutes <= PHYSICAL_TIME_EPSILON) return;
     let minute = this.state.calendar.elapsedWorldMinutes;
+    const worldAgents = Object.values(this.state.agents);
+    const carriedChildren = worldAgents.filter((agent) => agent.carriedByParentId);
+    const cohortStudentIds = new Set(this.state.iskorkaMentorsV1?.cohortStudentIds ?? []);
+    const selfCareSparks = worldAgents.filter((agent) =>
+      isSparkSelfCareV1(this.state, agent, cohortStudentIds),
+    );
+    const hasIndependentSparks = hasReleasedFoundingSparksV1(this.state, cohortStudentIds) ||
+      selfCareSparks.some((agent) => agent.life.generation > 0 && agent.life.ageYears >= 18);
+    const brainChoiceAgents = worldAgents.filter((agent) => {
+      if (!agent.life.alive) return false;
+      const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
+      return Boolean(
+        ((agent.race ?? 'human') === 'human' && agent.life.generation > 0 &&
+          agent.life.ageYears >= 1.25) ||
+        brain?.learning?.pending ||
+        brain?.learning?.methods.some((method) => method.successes > 0),
+      );
+    });
+    const hasBrainChoice = brainChoiceAgents.length > 0;
+    const brainReviewQueue = new BrainReviewQueueV1();
+    if (hasBrainChoice) {
+      for (const agent of brainChoiceAgents) {
+        const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
+        const due = brain?.learning?.nextReviewWorldMinute;
+        brainReviewQueue.push({
+          agent,
+          worldMinute: due === undefined ? minute : Math.max(minute, due),
+        });
+      }
+    }
+    const movingAgents = new Set(
+      worldAgents.filter((agent) => canResidentAct(agent) && agent.movement),
+    );
     const end = minute + elapsedWorldMinutes;
     this.finishSecretLibraryAdmissions(minute, this.state.now);
     while (minute < end - PHYSICAL_TIME_EPSILON) {
@@ -16881,16 +17215,14 @@ export class WorldEngine {
       const nextMentorBoundary = this.state.iskorkaMentorsV1?.active
         ? nextFoundingMentorRoutineBoundaryV1(minute)
         : Number.POSITIVE_INFINITY;
-      const nextReleasedBodyBoundary = hasReleasedFoundingSparksV1(this.state)
+      const nextReleasedBodyBoundary = hasIndependentSparks
         ? nextReleasedSparkBodyBoundaryV1(minute)
         : Number.POSITIVE_INFINITY;
-      const hasBrainChoice = Object.values(this.state.agents).some((agent) => {
-        const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
-        return Boolean(agent.life.alive && brain?.learning?.methods.some((method) => method.successes > 0));
-      });
-      const nextBrainReviewBoundary = hasBrainChoice
-        ? (Math.floor(Math.max(0, minute) / 240) + 1) * 240
-        : Number.POSITIVE_INFINITY;
+      // Each Spark owns one persisted next-review time. The heap wakes only
+      // the people due for deliberation, instead of rescanning every calm
+      // brain at a shared four-hour boundary.
+      const nextBrainReviewBoundary = brainReviewQueue.peek()?.worldMinute ??
+        Number.POSITIVE_INFINITY;
       const nextWake = nextBodyWakeWorldMinuteV21(this.state);
       const next = Math.min(
         end,
@@ -16917,23 +17249,46 @@ export class WorldEngine {
         this.recordAgentEvent(resident, this.state.now, 'agent.boat.arrived', {...arrival});
         if (arrival.onwardPlaceId && resident.life.alive) this.moveAgent(resident, arrival.onwardPlaceId);
       }
-      for (const agent of Object.values(this.state.agents)) {
+      for (const agent of movingAgents) {
         if (!canResidentAct(agent) || !agent.movement || agent.movement.boatId || arrivedByBoat.has(agent.id)) continue;
         this.advanceAgentMovement(agent, next - minute, minute);
+        if (!agent.movement) movingAgents.delete(agent);
+      }
+      // A baby shares its carrier's actual position at each movement segment,
+      // including boat travel and intermediate route progress. No independent
+      // child movement or inherited destination is created.
+      for (const child of carriedChildren) {
+        if (!child.carriedByParentId) continue;
+        const parent = this.state.agents[child.carriedByParentId];
+        if (!child.life.alive || !parent?.life.alive || child.life.ageYears >= 3) {
+          delete child.carriedByParentId;
+          continue;
+        }
+        if (child.locationId !== parent.locationId) {
+          const previous = child.locationId;
+          child.locationId = parent.locationId;
+          this.moveResidentLocationIndex(child, previous, parent.locationId);
+          observeLocalPlacesV20(this.state, child);
+        }
+        child.position = { ...parent.position };
       }
       if (this.state.iskorkaMentorsV1?.active) {
         updateMentorTeachingPositionsV1(this.state);
+        for (const agentId of cohortStudentIds) {
+          const student = this.state.agents[agentId];
+          if (student?.movement) movingAgents.add(student);
+        }
       }
 
-      if (hasReleasedFoundingSparksV1(this.state)) {
-        for (const agent of Object.values(this.state.agents)) {
-          if (!isReleasedFoundingSparkV1(this.state, agent)) continue;
+      if (selfCareSparks.length > 0) {
+        for (const agent of selfCareSparks) {
           const survival = advanceReleasedSparkSurvivalV1(
             this.state,
             agent,
             minute,
             next,
             isBodySleepingV21(this.state, agent.id),
+            cohortStudentIds,
           );
           if (
             survival.forceSleep &&
@@ -16947,12 +17302,27 @@ export class WorldEngine {
           }
         }
       }
-      if (hasBrainChoice && Math.abs(next % 240) < 1e-7) {
-        for (const agent of Object.values(this.state.agents)) {
-          const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
-          if (!brain?.learning?.methods.some((method) => method.successes > 0)) continue;
-          this.executeLearnedBrainIntentAt(agent, next);
-        }
+      while ((brainReviewQueue.peek()?.worldMinute ?? Number.POSITIVE_INFINITY) <= next + PHYSICAL_TIME_EPSILON) {
+        const due = brainReviewQueue.pop();
+        if (!due) break;
+        const agent = due.agent;
+        const brain = brainForLiveOwnerV1(this.state, agent.id, agent.life.generation);
+        if (!agent.life.alive || !brain ||
+            (!(agent.life.generation > 0 && (agent.race ?? 'human') === 'human') &&
+              !brain.learning?.pending &&
+              !brain.learning?.methods.some((method) => method.successes > 0))) continue;
+        this.executeLearnedBrainIntentAt(agent, next);
+        if (agent.movement) movingAgents.add(agent);
+        const nextDue = brain.learning?.nextReviewWorldMinute;
+        brainReviewQueue.push({
+          agent,
+          // A brain without a BodyCore cannot currently receive new sensory
+          // evidence. Retry at the steady interval rather than spinning here.
+          worldMinute: nextDue !== undefined &&
+            nextDue > next + PHYSICAL_TIME_EPSILON
+            ? nextDue
+            : next + STEADY_BRAIN_REVIEW_INTERVAL_WORLD_MINUTES_V1,
+        });
       }
 
       minute = next;
@@ -16964,39 +17334,136 @@ export class WorldEngine {
     synchronizeFoundationWellWaterV1(this.state, end);
   }
 
+  /** The world offers reachable physical affordances; the brain decides which
+   * to test and owns the result. No parent method or adult task is copied. */
+  private childExploratoryPossibilitiesV1(
+    agent: AgentState,
+    percept: Readonly<PerceptBatchV1>,
+  ): ActionIntentV1[] {
+    const age = agent.life.ageYears;
+    const motor = humanMotorDevelopmentV1(age);
+    if (motor.walkingCapacity < 0.45 || motor.coordination < 0.4) return [];
+    const place = this.state.places[agent.locationId];
+    const cues = percept.environmentalCues;
+    const choices: ActionIntentV1[] = [];
+    const offer = (action: PortableHumanActionKindV1, placeId?: string): void => {
+      choices.push({
+        version: PORTABLE_HUMAN_CONTRACT_VERSION_V1,
+        ownerAgentId: agent.id,
+        action,
+        ...(placeId ? { target: { kind: 'place', objectId: placeId } } : {}),
+        maxWorldMinutes: 360,
+        stopConditions: ['body_limit', 'target_missing', 'new_danger', 'reconsider'],
+      });
+    };
+    if ((cues?.foodAtHand ?? 0) > 0.04 && age >= 2) offer('eat');
+    if ((cues?.waterHere ?? 0) > 0 &&
+        (place?.kind === 'well' ||
+          (agent.locationId === agent.homeId &&
+            (place?.medievalInfrastructureV1?.waterReserveLitres ?? 0) > 0))) {
+      offer('drink', place?.id);
+    }
+    if (age >= 3) {
+      for (const observed of percept.localObservations) {
+        if (choices.length >= 8) break;
+        if (observed.kind !== 'place' ||
+            observed.relation !== 'connected_visible' ||
+            observed.confidence < 0.35 ||
+            observed.objectId === agent.locationId) continue;
+        const destination = this.state.places[observed.objectId];
+        if (!destination || destination.danger >= 0.58 ||
+            !this.youngChildMayTravelTo(agent, destination.id) ||
+            !residentKnownPath(this.state, agent, destination.id)) continue;
+        offer('explore', destination.id);
+      }
+      if (percept.localObservations.some((observed) =>
+        observed.kind === 'person' && observed.relation === 'co_located'
+      )) offer('socialize');
+    }
+    if (age >= 13) {
+      if ((cues?.foodGatherableHere ?? 0) > 0) offer('gather', place?.id);
+      if (place?.kind === 'well') offer('fetch_water', place.id);
+    }
+    if (age >= 15 && place?.kind === 'workshop' &&
+        placeSupportsCapabilityV1(place, 'general_craft')) offer('work', place.id);
+    return choices;
+  }
+
   private executeLearnedBrainIntentAt(
     agent: AgentState,
     worldMinute: number,
   ): void {
+    if (!agent.life.alive) return;
+
+    const bornHuman = (agent.race ?? 'human') === 'human' && agent.life.generation > 0;
+    const brain =
+      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
+      ensureBrainForAgentV1(this.state, agent);
+    if (!brain || (!bornHuman && !brain.learning?.pending &&
+      !brain.learning?.methods.some((method) => method.successes > 0))) return;
+    const body = this.state.v21?.bodiesByAgentId[agent.id];
+    if (!body?.bodyCore) return;
+    const learning = ensureBrainLearningV1(brain);
     if (
-      !agent.life.alive ||
+      learning.nextReviewWorldMinute !== undefined &&
+      worldMinute < learning.nextReviewWorldMinute - PHYSICAL_TIME_EPSILON
+    ) return;
+    const signals = bodySignalsV1(agent, body, body.bodyCore);
+    const urgentBodyPressure = Math.max(signals.thirst, signals.hunger, signals.weakness) >=
+      URGENT_BRAIN_BODY_SIGNAL_V1;
+    const reviewInterval = urgentBodyPressure
+      ? URGENT_BRAIN_REVIEW_INTERVAL_WORLD_MINUTES_V1
+      : STEADY_BRAIN_REVIEW_INTERVAL_WORLD_MINUTES_V1;
+    learning.lastReviewWorldMinute = worldMinute;
+    learning.nextReviewWorldMinute = worldMinute + reviewInterval;
+    invalidateBrainLogicalByteCacheV1(brain);
+
+    // Deliberation cadence is independent for every person. If the body is
+    // asleep, the person is traveling, or health prevents action, defer the
+    // next thought; the schedule never wakes the body or chooses for it.
+    if (
       agent.life.health <= 0.015 ||
       isBodySleepingV21(this.state, agent.id) ||
       agent.movement
     ) return;
 
+    // The executor exposes only age- and body-capable actions to the brain;
+    // this constrains movement/work capability without selecting the action.
+    const allowedActions = agent.life.ageYears < 15
+      ? PRETEEN_LEARNED_ACTIONS_V1
+      : agent.life.ageYears < 18
+        ? TEEN_LEARNED_ACTIONS_V1
+        : undefined;
     const percept = this.refreshSparkPerception(agent);
     if (!percept) return;
-    const brain =
-      brainForLiveOwnerV1(this.state, agent.id, agent.life.generation) ??
-      ensureBrainForAgentV1(this.state, agent);
-    if (!brain) return;
-    const brainIntent = chooseLearnedBrainIntentV1(brain, percept);
+    const learnedIntent = chooseLearnedBrainIntentV1(brain, percept, allowedActions);
+    const brainIntent = bornHuman && !brain.learning?.pending
+      ? chooseExploratoryBrainIntentV1(
+          brain,
+          percept,
+          this.childExploratoryPossibilitiesV1(agent, percept),
+          learnedIntent,
+        )
+      : learnedIntent;
     if (!brainIntent) return;
     const mappedKind =
       brainIntent.action === 'gather' ? 'gather_food' : brainIntent.action;
-    if (!['drink','eat','gather_food','hunt','rest','work','explore','reflect'].includes(mappedKind)) {
+    if (!['drink','eat','fetch_water','gather_food','hunt','fish','rest','work','explore','reflect','socialize'].includes(mappedKind)) {
       return;
     }
     const intent = {
-      kind: mappedKind as 'drink' | 'eat' | 'gather_food' | 'hunt' | 'rest' | 'work' | 'explore' | 'reflect',
+      kind: mappedKind as 'drink' | 'eat' | 'fetch_water' | 'gather_food' | 'hunt' | 'fish' | 'rest' | 'work' | 'explore' | 'reflect' | 'socialize',
       targetPlaceId: brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
       score: 1,
-      evidence: ['brain:lived-outcome'],
+      evidence: [learning.methods.some((method) =>
+        method.action === brainIntent.action && method.successes > 0 &&
+        method.targetObjectId === brainIntent.target?.objectId)
+        ? 'brain:lived-outcome' : 'brain:exploratory-trial'],
     };
 
     const travelTo = (targetPlaceId: string | undefined): boolean => {
       if (!targetPlaceId || targetPlaceId === agent.locationId) return false;
+      if (agent.carriedByParentId && agent.life.ageYears < 3) return true;
       this.moveAgent(agent, targetPlaceId);
       if (!agent.movement) {
         setBrainWorkingStepV1(brain, undefined);
@@ -17028,16 +17495,50 @@ export class WorldEngine {
       return true;
     };
 
-    if (travelTo(intent.targetPlaceId)) return;
-
-    beginBrainActionAttemptV1(
-      brain,
-      percept,
-      brainIntent.action,
-      brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
+    // Eating learned at home remains physically possible while carrying
+    // gathered food elsewhere. A method remembers where it was learned; it
+    // does not make the food in the person's hands inaccessible.
+    const carriedGoods = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id]?.carriedGoods;
+    const localWater = this.state.places[agent.locationId];
+    const canDrinkHere = intent.kind === 'drink' && (
+      localWater?.kind === 'well' ||
+      (agent.locationId === agent.homeId &&
+        (localWater?.medievalInfrastructureV1?.waterReserveLitres ?? 0) > 0)
     );
+    const explorationTrip = bornHuman && brainIntent.action === 'explore' &&
+      brainIntent.target?.kind === 'place' &&
+      brainIntent.target.objectId !== agent.locationId;
+    if (explorationTrip) {
+      beginBrainActionAttemptV1(brain, percept, 'explore', brainIntent.target!.objectId);
+    }
+    if (
+      !canDrinkHere &&
+      !(intent.kind === 'eat' &&
+        (Math.max(0, carriedGoods?.food ?? 0) +
+          Math.max(0, carriedGoods?.meat ?? 0)) > 0) &&
+      travelTo(intent.targetPlaceId)
+    ) return;
+
+    const completedExploration = brain.learning?.pending?.action === 'explore' &&
+      brain.learning.pending.targetObjectId === agent.locationId &&
+      brain.learning.pending.startedWorldMinute < worldMinute;
+    if (!completedExploration) {
+      beginBrainActionAttemptV1(
+        brain,
+        percept,
+        brainIntent.action,
+        intent.kind === 'drink' && canDrinkHere
+          ? agent.locationId
+          : intent.kind === 'eat' &&
+              (Math.max(0, carriedGoods?.food ?? 0) +
+                Math.max(0, carriedGoods?.meat ?? 0)) > 0
+            ? undefined
+            : brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
+      );
+    }
 
     let succeeded = false;
+    const externalEffects: ActionOutcomeV1['perceivedEffects'][number][] = [];
     const place = this.state.places[agent.locationId];
     if (intent.kind === 'drink') {
       const litres = place?.kind === 'well'
@@ -17050,33 +17551,18 @@ export class WorldEngine {
         succeeded = true;
       }
     } else if (intent.kind === 'eat') {
-      const wallet = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id];
-      const goods = wallet?.carriedGoods;
-      if (goods) {
-        const food = Math.max(0, goods.food ?? 0);
-        const meat = Math.max(0, goods.meat ?? 0);
-        const available = food + meat;
-        const consumed = Math.min(0.09, available);
-        if (consumed > 0) {
-          const fromFood = Math.min(food, consumed);
-          goods.food = food - fromFood;
-          const remainder = consumed - fromFood;
-          if (remainder > 0) goods.meat = Math.max(0, meat - remainder);
-          recordBodyMealV1(this.state, agent, 0.28);
-          recordMealV18(this.state, agent, 0.28);
-          succeeded = true;
-        }
-      }
-      if (!succeeded && agent.locationId === agent.homeId) {
-        const resources = this.state.v15?.renewableResources;
-        if (resources && resources.storedResources > 0.001) {
-          const portion = Math.min(0.0012, resources.storedResources);
-          Object.assign(resources, consumeStoredResources(resources, portion));
-          this.resourceProjectionDirty = true;
-          recordBodyMealV1(this.state, agent, 0.28);
-          recordMealV18(this.state, agent, 0.28);
-          succeeded = true;
-        }
+      succeeded = this.consumePhysicalFoodForSparkV1(agent) > 0;
+    } else if (intent.kind === 'fetch_water') {
+      if (place?.kind === 'well') {
+        const fetched = refillHomeWaterFromWellV1(
+          this.state,
+          agent.homeId,
+          place.id,
+          4,
+          worldMinute,
+        );
+        succeeded = fetched > 0;
+        if (succeeded) externalEffects.push({ channel: 'world:water', direction: 'better' });
       }
     } else if (intent.kind === 'gather_food') {
       if (
@@ -17088,6 +17574,18 @@ export class WorldEngine {
         ensureAgentV15State(this.state, agent);
         const localResources = this.settlementResourcesForAgent(agent);
         const profile = this.v15World().knowledgeByAgentId[agent.id];
+        const economy = this.settlementEconomyForAgent(agent);
+        const residents = Math.max(
+          1,
+          this.residentCountByHomeSettlement?.get(this.homeSettlementId(agent) ?? '') ?? 1,
+        );
+        const effort = clamp01(
+          (0.46 +
+            agent.skills.gathering * 0.3 +
+            agent.life.physiology.strength * 0.14 +
+            agent.personality.diligence * 0.1) *
+            productiveCapacityScaleV16(agent.race ?? 'human', agent.life.ageYears),
+        );
         const harvested = harvestRenewably(
           localResources,
           {
@@ -17098,53 +17596,73 @@ export class WorldEngine {
           {
             eventId: `native-food:${agent.id}:${Math.floor(worldMinute)}`,
             worldMinutes: worldMinute,
-            effort: clamp01(
-              0.1 +
-                agent.skills.gathering * 0.18 +
-                profile.agriculture * 0.12 +
-                agent.personality.diligence * 0.08,
-            ),
+            effort,
           },
         );
-        const personalFood = harvested.harvested * 0.72;
-        const afterPersonalShare = consumeStoredResources(
-          harvested.next,
-          personalFood,
-        );
+        const personalShare = harvested.harvested * 0.72;
+        const communityShare = harvested.harvested - personalShare;
+        const foodYield = harvested.harvested * (1.8 + profile.agriculture * 1.2);
+        const storedFood = economy
+          ? Math.min(foodYield, Math.max(0, economy.storageCapacity.food - economy.stocks.food))
+          : 0;
+        if (economy && storedFood > 0) {
+          economy.stocks.food += storedFood;
+          economy.harvestEvents += 1;
+          economy.harvestEventsByMaterial.food += 1;
+          economy.lastHarvestWorldMinute = worldMinute;
+        }
         Object.assign(localResources, {
-          ...afterPersonalShare,
-          storedResources: clamp01(afterPersonalShare.storedResources),
+          renewableBase: clamp01(
+            // The settlement resource index describes several outdoor plots;
+            // a 45-minute forage damages only the visited share of that area.
+            localResources.renewableBase - harvested.renewableBaseDamage / (residents * 4),
+          ),
+          fertility: clamp01(
+            localResources.fertility - harvested.fertilityDamage / residents,
+          ),
+          storedResources: clamp01(localResources.storedResources + communityShare),
         });
-        if (personalFood > 0) {
+        const carriedFood = economy
+          ? Math.min(personalShare, foodYield * 0.35)
+          : foodYield * 0.72;
+        if (carriedFood > 0) {
           recordPhysicalGoodsV21(
             this.state,
             agent,
             'food',
-            personalFood,
+            carriedFood,
           );
+        }
+        if (foodYield > 0) {
           agent.skills.gathering = clamp01(agent.skills.gathering + 0.0025);
-          agent.energy = clamp01(agent.energy - 0.025);
+          agent.resources = clamp01(agent.resources + personalShare);
+          agent.energy = clamp01(agent.energy - 0.035);
+          recordBodyMovementV1(this.state, agent, 45, 0.24);
           succeeded = true;
+          externalEffects.push({ channel: 'world:food', direction: 'better' });
         }
       }
-    } else if (intent.kind === 'hunt') {
+    } else if (intent.kind === 'hunt' || intent.kind === 'fish') {
+      const fishing = intent.kind === 'fish';
       const target = Object.values(this.state.wildlife).find(
         (population) =>
           !population.isMonster &&
           population.habitatId === agent.locationId &&
           population.count > 0 &&
-          ['rabbit', 'deer', 'boar', 'bird'].includes(population.species),
+          (fishing
+            ? population.species === 'fish'
+            : ['rabbit', 'deer', 'boar', 'bird'].includes(population.species)),
       );
       if (target && target.habitatId === agent.locationId && target.count > 0) {
         const successChance = clamp01(
-          0.15 +
+          (fishing ? 0.42 : 0.15) +
             agent.skills.hunting * 0.42 +
             agent.personality.riskTolerance * 0.08 +
             agent.life.physiology.strength * 0.08 +
             agent.life.physiology.endurance * 0.07 +
             (agent.progression?.combatMastery ?? 0) * 0.08 -
-            target.alertness * 0.25 -
-            target.threat * 0.24,
+            target.alertness * (fishing ? 0.14 : 0.25) -
+            target.threat * (fishing ? 0.05 : 0.24),
         );
         const harvested = this.rng.next() < successChance;
         const reserveFloor = Math.max(1, Math.floor(target.carryingCapacity * 0.22));
@@ -17154,10 +17672,11 @@ export class WorldEngine {
           const meat = target.species === 'deer' ? 0.18
             : target.species === 'boar' ? 0.17
               : target.species === 'rabbit' ? 0.075
-                : target.species === 'fish' ? 0.06
+            : target.species === 'fish' ? 0.06
                   : 0.045;
           recordPhysicalGoodsV21(this.state, agent, 'meat', meat);
           succeeded = true;
+          externalEffects.push({ channel: 'world:food', direction: 'better' });
         }
         // Missing the animal is still a real lived attempt and can improve
         // technique a little; it does not conjure food.
@@ -17166,7 +17685,7 @@ export class WorldEngine {
         );
         agent.energy = clamp01(agent.energy - 0.045);
         agent.stress = clamp01(agent.stress + (succeeded ? -0.004 : 0.008));
-        recordBodyMovementV1(this.state, agent, 60, fishing ? 0.18 : 0.3);
+        recordBodyMovementV1(this.state, agent, fishing ? 45 : 60, fishing ? 0.18 : 0.3);
 
         // Combat experience is not awarded for "hunting knowledge".  It is
         // earned only when a chosen hunt produces a real defensive encounter
@@ -17198,9 +17717,34 @@ export class WorldEngine {
       }
     } else if (intent.kind === 'explore') {
       // Reaching a remembered outdoor place is already a genuine outcome.
-      succeeded = place !== undefined && place.kind !== 'home';
+      succeeded = place !== undefined && completedExploration;
+      if (succeeded && completedExploration &&
+          !brain.learning?.methods.some((method) =>
+            method.action === 'explore' &&
+            method.targetObjectId === agent.locationId && method.successes > 0)) {
+        externalEffects.push({ channel: 'world:discovery', direction: 'better' });
+      }
     } else if (intent.kind === 'reflect') {
       succeeded = true;
+    } else if (intent.kind === 'socialize') {
+      const observedIds = new Set(
+        percept.localObservations
+          .filter((observation) => observation.kind === 'person' && observation.relation === 'co_located')
+          .map((observation) => observation.objectId),
+      );
+      const observedPeople = this.perceptionAgentsAtLocation(agent, worldMinute)
+        .filter((candidate) => observedIds.has(candidate.id));
+      const target = this.chooseSocialTarget(agent, observedPeople);
+      if (target) {
+        const sentiment = this.interact(agent, target, this.state.now);
+        if (sentiment !== undefined) {
+          succeeded = true;
+          externalEffects.push({
+            channel: 'world:conversation',
+            direction: sentiment > 0.03 ? 'better' : sentiment < -0.03 ? 'worse' : 'same',
+          });
+        }
+      }
     }
 
     if (succeeded) {
@@ -17208,20 +17752,32 @@ export class WorldEngine {
       agent.lastMeaningfulEventAt = this.state.now;
     }
     const afterPercept = this.refreshSparkPerception(agent);
+    let journalOutcome = false;
     if (afterPercept) {
       const outcome = buildPerceivedActionOutcomeV1(
         percept,
         afterPercept,
         brainIntent.action,
         succeeded ? 'completed' : 'failed',
+        externalEffects,
       );
       const perceivedOutcome = this.refreshSparkPerception(agent, outcome) ?? afterPercept;
-      finishBrainActionAttemptV1(brain, perceivedOutcome, outcome);
+      const learned = finishBrainActionAttemptV1(brain, perceivedOutcome, outcome);
+      if (
+        learned &&
+        (learned.lastJournaledWorldMinute === undefined ||
+          worldMinute - learned.lastJournaledWorldMinute >= NATIVE_INTENT_JOURNAL_INTERVAL_WORLD_MINUTES_V1)
+      ) {
+        learned.lastJournaledWorldMinute = worldMinute;
+        invalidateBrainLogicalByteCacheV1(brain);
+        journalOutcome = true;
+      }
     }
     setBrainWorkingStepV1(brain, undefined);
     delete agent.lastDecision;
     delete agent.plan;
 
+    if (!journalOutcome) return;
     this.stageEvent({
       eventId: this.nextId('native-intent'),
       worldId: this.state.id,

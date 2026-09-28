@@ -22,6 +22,7 @@ import {
   recordSocialTouchBodyResponseV1,
   resolveBodyEliminationV1,
 } from '../../src/iskorka/BodyActionsV1';
+import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
 import { assertEmbodiedWorldV21 } from '../../src/v21/EmbodiedWorldV21';
 
 async function create(seed='body-core-seed', id='body-core-world') {
@@ -123,6 +124,31 @@ test('derived body signals are bounded and do not mutate persisted physiology', 
     assert.ok(value >= 0 && value <= 1);
   }
   assert.deepEqual(core, before);
+});
+
+test('adult sexual desire and pleasure reach perception as body signals only', async () => {
+  const { world } = await create('sexual-signal-seed', 'sexual-signal-world');
+  const child = world.agents.agent_1;
+  const childBody = world.v21!.bodiesByAgentId[child.id];
+  assert.equal(bodySignalsV1(child, childBody, childBody.bodyCore!).sexualDesire, 0);
+
+  const { agent, body, core } = makeAdult(world, 'agent_2');
+  core.homeostasis.hydration = 0.9;
+  core.homeostasis.energyReserve = 0.9;
+  core.homeostasis.muscleFatigue = 0;
+  core.homeostasis.muscleTension = 0;
+  const desire = bodySignalsV1(agent, body, core).sexualDesire;
+  assert.ok(desire > 0);
+  const perception = perceptBatchForAgentV1(world, agent.id);
+  assert.equal(perception.body.interoception.sexualDesire.availability, 'available');
+  assert.equal(
+    perception.body.interoception.sexualArousal.availability,
+    'available',
+  );
+  assert.equal(
+    perception.body.interoception.physicalPleasure.availability,
+    'available',
+  );
 });
 
 

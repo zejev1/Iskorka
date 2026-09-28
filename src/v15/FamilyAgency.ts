@@ -1,9 +1,6 @@
 export interface FamilyPersonality {
-  /**
-   * Protected personal inclination. It changes only through the resident's
-   * own lived state and ordinary relationship experience.
-   */
-  physicalIntimacyInclination: number;
+  /** Personal openness/boundaries around intimacy; bodily desire is supplied separately. */
+  intimacyOpenness: number;
 
   /**
    * Independent personal preference/intent toward having a child.
@@ -37,6 +34,8 @@ export interface FamilyPerson {
   health: number;
   stress: number;
   resources: number;
+  /** Current adult physiological signal from HumanBodyCore, not a brain choice. */
+  physicalSexualDesire: number;
   personality: FamilyPersonality;
   parentIds: string[];
   childIds: string[];
@@ -123,9 +122,9 @@ export function evaluateFamilyAgency(
   // likely, but never acts as a hard ban.
   const mutualIntimacyInterest = clamp01(
     Math.min(
-      a.personality.physicalIntimacyInclination,
-      b.personality.physicalIntimacyInclination,
-    ) *
+      a.personality.intimacyOpenness,
+      b.personality.intimacyOpenness,
+    ) * Math.min(a.physicalSexualDesire, b.physicalSexualDesire) *
       (0.38 + mutualAttachment * 0.62) *
       (1 - meanStress * 0.34) *
       (0.18 + developmentalReadiness * 0.82),

@@ -1,4 +1,5 @@
 import type { AgentState, WildlifePopulation, WorldState } from '../world/types';
+import type { ActionOutcomeV1, PortableHumanActionKindV1 } from './PortableHumanCoreV1';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
 import { ensureBrainForAgentV1 } from './BrainStateAdapterV1';
 import { tryStoreBrainDatumV1 } from './BrainStateV1';
@@ -762,15 +763,24 @@ function performGuidedPhysicalPracticeV1(
   student: AgentState,
   mentor: FoundingMentorStateV1,
   domain: GenesisDomain,
-): boolean {
+): {
+  succeeded: boolean;
+  action: GuidedPracticeExperienceV1['action'];
+  placeId: string;
+  targetPopulationId?: string;
+  harvested?: boolean;
+  externalEffects: ActionOutcomeV1['perceivedEffects'];
+} | undefined {
   const place = world.places[student.locationId];
-  if (!place || mentor.locationId !== student.locationId) return false;
+  if (!place || mentor.locationId !== student.locationId) return undefined;
   let succeeded = false;
   let action = practiceActionForDomainV1(domain);
   let targetPopulationId: string | undefined;
   let targetSpecies: string | undefined;
   let harvested: boolean | undefined;
   let defensiveEncounter: boolean | undefined;
+  let usefulFood = false;
+  let usefulWater = false;
 
   if (domain === 'agriculture' && place.kind === 'resource_field') {
     const resources = world.v15?.renewableResources;
@@ -794,6 +804,12 @@ function performGuidedPhysicalPracticeV1(
         storedResources: clamp01(harvestedResult.next.storedResources),
       });
       succeeded = harvestedResult.harvested > 0;
+      const personalFood = harvestedResult.harvested * 0.72;
+      if (personalFood > 0) {
+        Object.assign(resources, consumeStoredResources(resources, personalFood));
+        recordPhysicalGoodsV21(world, student, 'food', personalFood);
+        usefulFood = true;
+      }
     }
     recordBodyMovementV1(world, student, 45, 0.24);
   } else if (
@@ -812,6 +828,7 @@ function performGuidedPhysicalPracticeV1(
     );
     recordBodyMovementV1(world, student, 25, 0.18);
     succeeded = fetched > 0;
+    usefulWater = fetched > 0;
   } else if (
     domain === 'survival' &&
     (
@@ -846,6 +863,7 @@ function performGuidedPhysicalPracticeV1(
       succeeded = outcome.attempted;
       harvested = outcome.harvested;
       defensiveEncounter = outcome.defensiveEncounter;
+      usefulFood = outcome.harvested;
     } else {
       recordBodyMovementV1(world, student, 50, 0.24);
       succeeded = true;
@@ -864,7 +882,17 @@ function performGuidedPhysicalPracticeV1(
     ...(harvested === undefined ? {} : { harvested }),
     ...(defensiveEncounter === undefined ? {} : { defensiveEncounter }),
   });
-  return succeeded;
+  return {
+    succeeded,
+    action,
+    placeId: place.id,
+    ...(targetPopulationId ? { targetPopulationId } : {}),
+    ...(harvested === undefined ? {} : { harvested }),
+    externalEffects: [
+      ...(usefulFood ? [{ channel: 'world:food', direction: 'better' as const }] : []),
+      ...(usefulWater ? [{ channel: 'world:water', direction: 'better' as const }] : []),
+    ],
+  };
 }
 
 export type FoundingMentorEducationDomainV1 =
@@ -879,6 +907,12 @@ export interface FoundingMentorLessonResultV1 {
   reproductiveEducationStage?: ReproductiveEducationStageV1;
   mode?: 'demonstration' | 'guided_practice';
   gained: number;
+  physicalPractice?: {
+    action: PortableHumanActionKindV1;
+    targetPlaceId: string;
+    completed: boolean;
+    externalEffects: ActionOutcomeV1['perceivedEffects'];
+  };
 }
 
 export function applyFoundingMentorLessonV1(
@@ -928,6 +962,7 @@ export function applyFoundingMentorLessonV1(
     student.life.ageYears,
   );
   const primaryDomain = lessonDomain === 'language' ? undefined : lessonDomain;
+  let physicalPractice: ReturnType<typeof performGuidedPhysicalPracticeV1> = undefined;
 
   if (lessonDomain === 'language') {
     gained = teachLanguageV1(world, student, mentor);
@@ -957,12 +992,13 @@ export function applyFoundingMentorLessonV1(
       if (acceptedPractice) {
         // First do the physical attempt.  Knowledge-transfer credit is only
         // granted afterwards when that attempt actually happened in the world.
-        physicalPracticeSucceeded = performGuidedPhysicalPracticeV1(
+        physicalPractice = performGuidedPhysicalPracticeV1(
           world,
           student,
           mentor,
           primaryDomain,
         );
+        physicalPracticeSucceeded = physicalPractice?.succeeded ?? false;
         if (physicalPracticeSucceeded) {
           const practice = applyIndependentPractice(
             learner,
@@ -1031,7 +1067,31 @@ export function applyFoundingMentorLessonV1(
     kind: 'lesson',
   });
 
-  return { taught: true, mentorId: mentor.id, domain, mode, gained };
+  const practiceAction = physicalPractice?.action;
+  const portablePracticeAction: PortableHumanActionKindV1 | undefined =
+    practiceAction === 'gather_food' ? 'gather' :
+    practiceAction === 'fetch_water' ? 'fetch_water' :
+    practiceAction === 'fish' ? 'fish' :
+    practiceAction === 'hunt' ? 'hunt' :
+    practiceAction === 'work' ? 'work' :
+    practiceAction === 'explore' ? 'explore' : undefined;
+  return {
+    taught: true,
+    mentorId: mentor.id,
+    domain,
+    mode,
+    gained,
+    ...(physicalPractice && portablePracticeAction
+      ? {
+          physicalPractice: {
+            action: portablePracticeAction,
+            targetPlaceId: physicalPractice.placeId,
+            completed: physicalPractice.succeeded,
+            externalEffects: physicalPractice.externalEffects,
+          },
+        }
+      : {}),
+  };
 }
 
 export interface FoundingMentorCareResultV1 {

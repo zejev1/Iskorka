@@ -69,10 +69,7 @@ export interface ParentForInheritanceV15 {
 }
 
 export interface ProtectedFamilyPersonalityV15 {
-  /**
-   * Protected individual inclination. It is generated independently rather
-   * than copied from either parent or derived from child desire.
-   */
+  /** Personal intimacy openness/boundaries; not physiological sexual desire. */
   physicalIntimacyInclination: number;
 
   /**

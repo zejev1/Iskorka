@@ -81,7 +81,7 @@ export interface BodyHomeostasisV1 {
   tearDrive: number;
   physicalPleasure: number;
 
-  /** Adult physical signal only. It is not desire, consent or a decision. */
+  /** Adult physical arousal after a bodily/social event; never consent. */
   sexualArousal?: number;
 }
 
@@ -174,6 +174,8 @@ export interface BodySignalsV1 {
   dryMouth: number;
   startle: number;
   physicalPleasure: number;
+  /** Derived adult bodily desire. It never chooses an action or implies consent. */
+  sexualDesire: number;
   sexualArousal: number;
   postPleasureRelaxation: number;
 }
@@ -638,7 +640,7 @@ export function bodySignalsV1(
     h.muscleFatigue * 0.08,
   );
   const thirst = clamp01(
-    (1 - h.hydration) * 0.68 +
+    (1 - h.hydration) * 0.92 +
     Math.abs(h.electrolyteDeviation) * 0.12 +
     heatStress * 0.11 +
     h.exertionDebt * 0.09,
@@ -673,6 +675,7 @@ export function bodySignalsV1(
     h.tearDrive * (0.72 + core.phenotype.painSensitivity * 0.28),
   );
   const physicalPleasure = clamp01(h.physicalPleasure);
+  const sexualDesire = bodySexualDesireV1(agent, core);
   return {
     thirst,
     hunger,
@@ -703,11 +706,51 @@ export function bodySignalsV1(
       agent.mind.emotions.fear * 0.56 + h.autonomicArousal * 0.28,
     ),
     physicalPleasure,
+    sexualDesire,
     sexualArousal: clamp01(h.sexualArousal ?? 0),
     postPleasureRelaxation: clamp01(
       physicalPleasure * (1 - h.muscleTension * 0.45),
     ),
   };
+}
+
+/**
+ * Adult sexual desire is a body signal, derived without reading BrainState or
+ * making an intimacy/consent choice. The slow deterministic wave represents
+ * changing bodily state without a per-minute hormone simulation.
+ */
+export function bodySexualDesireV1(
+  agent: Readonly<AgentState>,
+  core: Readonly<BodyCoreV1>,
+): number {
+  if (agent.life.ageYears < 18 || core.homeostasis.sexualArousal === undefined) return 0;
+  const h = core.homeostasis;
+  const reproductive = core.reproductive;
+  const health = clamp01(
+    agent.life.health * 0.42 + reproductive.reproductiveHealth * 0.36 +
+    Math.min(h.hydration, h.energyReserve) * 0.22,
+  );
+  const phaseOffset = stableUnit(`${agent.id}:sexual-drive-phase`) * Math.PI * 2;
+  const slowCycle = 0.5 + 0.5 * Math.sin(
+    (core.lastAdvancedWorldMinute / (8 * DAY)) * Math.PI * 2 + phaseOffset,
+  );
+  const cycleModulation = reproductive.type === 'female' && reproductive.cyclePhase !== undefined
+    ? 0.82 + 0.18 * Math.sin(reproductive.cyclePhase * Math.PI * 2 - Math.PI / 2)
+    : 1;
+  const pregnancyModulation = reproductive.type === 'female' && reproductive.pregnancy
+    ? 0.72
+    : reproductive.type === 'female' && reproductive.postpartum
+      ? 0.78
+      : 1;
+  const refractoryModulation = reproductive.type === 'male'
+    ? 1 - clamp01(reproductive.refractoryLoad ?? 0) * 0.7
+    : 1;
+  const physicalStrain = clamp01(
+    h.muscleFatigue * 0.22 + h.physicalPleasure * 0.08 + h.muscleTension * 0.12,
+  );
+  const baseline = (0.15 + slowCycle * 0.55 + (h.sexualArousal ?? 0) * 0.22) *
+    cycleModulation * pregnancyModulation * refractoryModulation;
+  return clamp01(health * baseline * (1 - physicalStrain * 0.5));
 }
 
 /** Utility for later analytic catch-up. Kept pure so large dt never needs microticks. */

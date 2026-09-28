@@ -1,4 +1,4 @@
-import type { AgentState, WorldState } from '../world/types';
+import type { AgentState, V16RemainsState, WorldPlace, WorldState } from '../world/types';
 import type { BodyCoreV1 } from './BodyCoreV1';
 import { bodySignalsV1, type BodySignalsV1 } from './BodyCoreV1';
 import { brainDevelopmentProfileV1 } from './BrainLifecycleV1';
@@ -12,6 +12,7 @@ import {
   availableSignalV1,
   unavailableSignalV1,
   type ActionOutcomeV1,
+  type HumanEnvironmentalCueKindV1,
   type HumanBodyPerceptV1,
   type HumanBodySignalKindV1,
   type LocalObservationV1,
@@ -40,12 +41,43 @@ const BODY_SIGNAL_KEYS: readonly HumanBodySignalKindV1[] = [
   'dryMouth',
   'startle',
   'physicalPleasure',
+  'sexualDesire',
   'sexualArousal',
   'postPleasureRelaxation',
 ] as const;
 
 const LOCAL_VISIBILITY_RADIUS = 45;
 const MAX_LOCAL_OBSERVATIONS = 24;
+
+/**
+ * Bounded, deterministic rotating sample for crowded locations. Every call
+ * examines at most twice the returned capacity; changing the absolute review
+ * window eventually exposes each co-located person/remains without scanning
+ * the full bucket for every Spark.
+ */
+export function rotatingPerceptionSampleV1<T>(
+  candidates: readonly T[],
+  observerId: string,
+  worldMinute: number,
+  maximum = MAX_LOCAL_OBSERVATIONS,
+): T[] {
+  const capacity = Math.max(0, Math.trunc(maximum));
+  if (candidates.length <= capacity) return candidates.slice();
+  if (capacity === 0) return [];
+  let hash = 2166136261;
+  for (let index = 0; index < observerId.length; index += 1) {
+    hash ^= observerId.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const review = Math.floor(Math.max(0, worldMinute) / 240);
+  const start = ((hash >>> 0) + review * capacity) % candidates.length;
+  const result: T[] = [];
+  const scanLimit = Math.min(candidates.length, capacity * 2);
+  for (let offset = 0; offset < scanLimit && result.length < capacity; offset += 1) {
+    result.push(candidates[(start + offset) % candidates.length]);
+  }
+  return result;
+}
 const MAX_FIXTURE_OBSERVATIONS = 8;
 const MAX_RECEIVED_MESSAGES = 8;
 const MESSAGE_WINDOW_WORLD_MINUTES = 8_760;
@@ -231,6 +263,8 @@ function localObservationsV1(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
   localAgents?: readonly Readonly<AgentState>[],
+  localRemains?: readonly Readonly<V16RemainsState>[],
+  localPlaces?: readonly Readonly<WorldPlace>[],
 ): LocalObservationV1[] {
   const result: LocalObservationV1[] = [];
   const current = world.places[agent.locationId];
@@ -259,7 +293,28 @@ function localObservationsV1(
     // Co-located remains are immediate physical evidence and must not be
     // crowded out by distant place labels or a busy room.
     const remainsById = world.v16?.remainsById;
-    if (remainsById) {
+    if (localRemains) {
+      for (const entry of localRemains) {
+        if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
+        const assessment = visualAssessmentV1(
+          noise,
+          entry.id,
+          0,
+          vision.capacity,
+          Math.max(8, vision.reach),
+        );
+        if (!assessment.recognized) continue;
+        result.push({
+          objectId: entry.id,
+          kind: 'remains',
+          relation: 'co_located',
+          channel: 'vision',
+          confidence: assessment.confidence,
+          subjectObjectId: entry.agentId,
+          eventKind: 'apparent_death',
+        });
+      }
+    } else if (remainsById) {
       for (const entryId in remainsById) {
         if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
         const entry = remainsById[entryId];
@@ -363,7 +418,13 @@ function localObservationsV1(
     }
   }
 
-  for (const id of current.connectedPlaceIds) {
+  // Road topology cannot hide a nearby well from eyesight. The executor
+  // supplies a kind-indexed shortlist; vision and distance still gate it.
+  const nearbyPlaceIds = new Set([
+    ...(localPlaces ?? []).map((place) => place.id),
+    ...current.connectedPlaceIds,
+  ]);
+  for (const id of nearbyPlaceIds) {
     if (result.length >= MAX_LOCAL_OBSERVATIONS) break;
     const place = world.places[id];
     if (!place) continue;
@@ -488,8 +549,86 @@ export function buildReceivedMessageIndexV1(
 
 export interface PerceptionAdapterOptionsV1 {
   localAgents?: readonly Readonly<AgentState>[];
+  localPlaces?: readonly Readonly<WorldPlace>[];
+  /** A place-indexed bucket supplied by WorldEngine for bounded hot-path work. */
+  localRemains?: readonly Readonly<V16RemainsState>[];
   receivedMessages?: readonly ReceivedMessageV1[];
   priorOutcome?: Readonly<ActionOutcomeV1>;
+}
+
+const MAX_KNOWN_AFFORDANCE_PLACES_V1 = 24;
+
+function placeSupportsFoodGatheringV1(
+  world: Readonly<WorldState>,
+  placeId: string,
+): boolean {
+  const place = world.places[placeId];
+  if (!place || place.surface === 'water') return false;
+  if (!(place.kind === 'resource_field' || place.kind === 'meadow' || place.biome === 'plains')) {
+    return false;
+  }
+  const resources = place.settlementId
+    ? world.v16?.settlementResourcesById[place.settlementId]
+    : world.v15?.renewableResources;
+  return (resources?.renewableBase ?? 0) > 0.001 && place.fertility > 0.02;
+}
+
+function placeHasPotableWaterV1(
+  world: Readonly<WorldState>,
+  placeId: string,
+): boolean {
+  const place = world.places[placeId];
+  return Boolean(
+    place?.kind === 'well' &&
+    place.wellWaterV1?.potable &&
+    place.wellWaterV1.waterLitres > 0.01,
+  );
+}
+
+/**
+ * Small, current affordances that a person could observe around them or recall
+ * from an actually visited place. These are not world-wide resource maps.
+ */
+function environmentalCuesV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  localAgents?: readonly Readonly<AgentState>[],
+): Readonly<Partial<Record<HumanEnvironmentalCueKindV1, number>>> {
+  const place = world.places[agent.locationId];
+  const home = world.places[agent.homeId];
+  const wallet = world.v19?.adventureEconomy.adventurersByAgentId[agent.id];
+  const carried = Math.max(0, wallet?.carriedGoods.food ?? 0) +
+    Math.max(0, wallet?.carriedGoods.meat ?? 0);
+  const settlementId = home?.settlementId;
+  const homeFood = agent.locationId === agent.homeId && settlementId
+    ? Math.max(0, world.v16?.settlementEconomyById[settlementId]?.stocks.food ?? 0)
+    : 0;
+  const homeWater = agent.locationId === agent.homeId
+    ? Math.max(0, home?.medievalInfrastructureV1?.waterReserveLitres ?? 0)
+    : 0;
+  const currentWater = placeHasPotableWaterV1(world, agent.locationId) || homeWater > 0.01;
+  const knownPlaces = rotatingPerceptionSampleV1(
+    agent.knownPlaceIds ?? [],
+    `${agent.id}:affordance`,
+    world.calendar.elapsedWorldMinutes,
+    MAX_KNOWN_AFFORDANCE_PLACES_V1,
+  );
+  const knownWater = knownPlaces.some((placeId) => placeHasPotableWaterV1(world, placeId));
+  const currentFoodSource = placeSupportsFoodGatheringV1(world, agent.locationId);
+  const knownFoodSource = knownPlaces.some((placeId) => placeSupportsFoodGatheringV1(world, placeId));
+  const nearbyPeople = localAgents?.reduce(
+    (count, other) => count + Number(other.id !== agent.id && other.life.alive && other.locationId === agent.locationId),
+    0,
+  ) ?? 0;
+
+  return {
+    foodAtHand: clamp01((carried + homeFood) / 0.12),
+    foodGatherableHere: Number(currentFoodSource),
+    knownFoodSource: Number(knownFoodSource || currentFoodSource),
+    waterHere: Number(currentWater),
+    knownWaterSource: Number(knownWater),
+    socialOpportunity: clamp01(nearbyPeople / 2),
+  };
 }
 
 function directReceivedMessagesForAgentV1(
@@ -550,10 +689,13 @@ export function perceptBatchForAgentV1(
     ownerAgentId: agent.id,
     worldMinute: world.calendar.elapsedWorldMinutes,
     body: humanBodyPerceptV1(world, agent),
+    environmentalCues: environmentalCuesV1(world, agent, options.localAgents),
     localObservations: localObservationsV1(
       world,
       agent,
       options.localAgents,
+      options.localRemains,
+      options.localPlaces,
     ),
     receivedMessages:
       options.receivedMessages ??

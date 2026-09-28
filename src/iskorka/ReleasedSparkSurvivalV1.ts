@@ -42,6 +42,7 @@ export interface ReleasedSparkSurvivalAdvanceV1 {
 export function isReleasedFoundingSparkV1(
   world: Readonly<WorldState>,
   agent: Readonly<AgentState>,
+  cohortStudentIds?: ReadonlySet<string>,
 ): boolean {
   const mentors = world.iskorkaMentorsV1;
   if (
@@ -53,16 +54,59 @@ export function isReleasedFoundingSparkV1(
   return (
     agent.life.alive &&
     agent.life.ageYears >= mentors.releaseAgeYears &&
-    mentors.cohortStudentIds.includes(agent.id)
+    (cohortStudentIds?.has(agent.id) ?? mentors.cohortStudentIds.includes(agent.id))
+  );
+}
+
+/** The last three years of guided practice have real hunger, thirst and
+ * fatigue. Guardians are still present, so the fatal exposure clock starts
+ * only when they have actually left. */
+export function isFoundingSparkSelfCareV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  cohortStudentIds?: ReadonlySet<string>,
+): boolean {
+  const mentors = world.iskorkaMentorsV1;
+  return Boolean(mentors && agent.life.alive && agent.life.ageYears >= 15 &&
+    (cohortStudentIds?.has(agent.id) ?? mentors.cohortStudentIds.includes(agent.id)));
+}
+
+/** Descendants enter the same body-only independence transition at fifteen;
+ * founding guardian membership must never determine whether they can starve. */
+export function isSparkSelfCareV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  cohortStudentIds?: ReadonlySet<string>,
+): boolean {
+  return isFoundingSparkSelfCareV1(world, agent, cohortStudentIds) || Boolean(
+    agent.life.alive && (agent.race ?? 'human') === 'human' &&
+    agent.life.generation > 0 && agent.life.ageYears >= 15,
+  );
+}
+
+function isIndependentSparkV1(
+  world: Readonly<WorldState>,
+  agent: Readonly<AgentState>,
+  cohortStudentIds?: ReadonlySet<string>,
+): boolean {
+  return isReleasedFoundingSparkV1(world, agent, cohortStudentIds) || Boolean(
+    agent.life.alive && (agent.race ?? 'human') === 'human' &&
+    agent.life.generation > 0 && agent.life.ageYears >= 18,
   );
 }
 
 export function hasReleasedFoundingSparksV1(
   world: Readonly<WorldState>,
+  cohortStudentIds?: ReadonlySet<string>,
 ): boolean {
-  return Object.values(world.agents).some((agent) =>
-    isReleasedFoundingSparkV1(world, agent),
-  );
+  if (cohortStudentIds) {
+    for (const agentId of cohortStudentIds) {
+      const agent = world.agents[agentId];
+      if (agent && isReleasedFoundingSparkV1(world, agent, cohortStudentIds)) return true;
+    }
+    return false;
+  }
+  return Object.values(world.agents).some((agent) => isReleasedFoundingSparkV1(world, agent));
 }
 
 /**
@@ -87,9 +131,10 @@ export function advanceReleasedSparkSurvivalV1(
   fromWorldMinute: number,
   toWorldMinute: number,
   sleeping: boolean,
+  cohortStudentIds?: ReadonlySet<string>,
 ): ReleasedSparkSurvivalAdvanceV1 {
   if (
-    !isReleasedFoundingSparkV1(world, agent) ||
+    !isSparkSelfCareV1(world, agent, cohortStudentIds) ||
     !(toWorldMinute > fromWorldMinute)
   ) {
     return { advancedWorldMinutes: 0, forceSleep: false };
@@ -97,6 +142,7 @@ export function advanceReleasedSparkSurvivalV1(
 
   const body = world.v21?.bodiesByAgentId[agent.id];
   if (!body) return { advancedWorldMinutes: 0, forceSleep: false };
+  const released = isIndependentSparkV1(world, agent, cohortStudentIds);
   const core = ensureBodyCoreV1(world, agent, body);
   if (!core) return { advancedWorldMinutes: 0, forceSleep: false };
 
@@ -206,9 +252,10 @@ export function advanceReleasedSparkSurvivalV1(
   survival.criticalStarvationWorldMinutes =
     Math.round(survival.criticalStarvationWorldMinutes * 1e9) / 1e9;
 
-  if (
-    survival.criticalDehydrationWorldMinutes >= 18 * HOUR
-  ) {
+  if (!released) {
+    survival.criticalDehydrationWorldMinutes = 0;
+    survival.criticalStarvationWorldMinutes = 0;
+  } else if (survival.criticalDehydrationWorldMinutes >= 48 * HOUR) {
     survival.fatalCause = 'dehydration';
     agent.life.health = Math.min(agent.life.health, 0.01);
   } else if (

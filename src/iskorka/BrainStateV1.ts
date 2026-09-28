@@ -287,6 +287,14 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
     if (brain.learning.version !== 1 || brain.learning.methods.length > 12) {
       throw new Error('Brain learning state is invalid.');
     }
+    if (
+      brain.learning.lastReviewWorldMinute !== undefined &&
+      (!Number.isFinite(brain.learning.lastReviewWorldMinute) || brain.learning.lastReviewWorldMinute < 0)
+    ) throw new Error('Brain learning review time is invalid.');
+    if (
+      brain.learning.nextReviewWorldMinute !== undefined &&
+      (!Number.isFinite(brain.learning.nextReviewWorldMinute) || brain.learning.nextReviewWorldMinute < 0)
+    ) throw new Error('Brain learning next review time is invalid.');
     const methodIds = new Set<string>();
     for (const method of brain.learning.methods) {
       if (!method.id.trim() || methodIds.has(method.id)) throw new Error('Brain learned method IDs must be unique.');
@@ -296,6 +304,10 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
       }
       if (method.successes + method.failures !== method.trials) throw new Error('Brain learned method outcomes do not match trials.');
       if (!Number.isFinite(method.confidence) || method.confidence < 0 || method.confidence > 1) throw new Error('Brain learned method confidence is invalid.');
+      if (
+        method.lastJournaledWorldMinute !== undefined &&
+        (!Number.isFinite(method.lastJournaledWorldMinute) || method.lastJournaledWorldMinute < 0)
+      ) throw new Error('Brain learned method journal time is invalid.');
     }
   }
   if (brain.workingStep) {

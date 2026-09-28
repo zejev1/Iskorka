@@ -72,6 +72,28 @@ test('released Spark body deteriorates without choosing or receiving resources',
   assert.ok(signals.hunger > 0.08);
 });
 
+test('the self-care years expose real hunger before guardians leave without a survival script', async () => {
+  const store = new InMemoryWorldStore();
+  const runtime = await IskorkaRuntime.openOrCreate(store, 'teen-body-seed', 'teen-body-world');
+  const world = runtime.snapshot();
+  const spark = world.agents.agent_1;
+  spark.life.ageYears = 15;
+  const core = ensureBodyCoreV1(world, spark, world.v21!.bodiesByAgentId[spark.id])!;
+  const rhythm = ensureLifeRhythmV18(world, spark);
+  rhythm.satiety = 0.88;
+  const mealsBefore = rhythm.mealsConsumed;
+  const foodBefore = world.v16!.settlementEconomyById.settlement_ainkrad.stocks.food;
+
+  advanceReleasedSparkSurvivalV1(world, spark, 0, 2 * DAY, false);
+
+  assert.ok(rhythm.satiety < 0.1, 'the teenager must perceive hunger before adulthood');
+  assert.ok(bodySignalsV1(spark, world.v21!.bodiesByAgentId[spark.id], core).hunger > 0.25);
+  assert.equal(rhythm.mealsConsumed, mealsBefore);
+  assert.equal(world.v16!.settlementEconomyById.settlement_ainkrad.stocks.food, foodBefore);
+  assert.equal(core.releasedAdultSurvivalV1?.fatalCause, undefined);
+  assert.equal(core.releasedAdultSurvivalV1?.criticalStarvationWorldMinutes, 0);
+});
+
 test('released Spark reaches lethal dehydration in days if nobody actually drinks', async () => {
   const { world, spark, core } = await releasedWorld();
   let minute = 0;

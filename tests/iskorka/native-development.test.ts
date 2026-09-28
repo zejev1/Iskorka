@@ -27,6 +27,8 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
   let successfulPracticeOwners = 0;
   let huntingPracticeOwners = 0;
   let fishingPracticeOwners = 0;
+  let gatheringPracticeOwners = 0;
+  let learnedMealOwners = 0;
   let defensiveExperienceOwners = 0;
   for (const spark of Object.values(world.agents)) {
     assert.ok(spark.life.ageYears >= 13);
@@ -45,7 +47,11 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
     });
     if (decoded.some((experience) => experience.action === 'hunt')) huntingPracticeOwners += 1;
     if (decoded.some((experience) => experience.action === 'fish')) fishingPracticeOwners += 1;
+    if (decoded.some((experience) => experience.action === 'gather_food')) gatheringPracticeOwners += 1;
     if (decoded.some((experience) => experience.defensiveEncounter === true)) defensiveExperienceOwners += 1;
+    if (brain.learning?.methods.some((method) => method.action === 'eat' && method.successes > 0)) {
+      learnedMealOwners += 1;
+    }
     if (lived.some((datum) => {
       try {
         return (JSON.parse(datum.encoded) as { succeeded?: boolean }).succeeded === true;
@@ -62,8 +68,16 @@ test('mentor childhood forms values and lived practice instead of a data-only fo
     }
   }
   assert.ok(successfulPracticeOwners >= 8, String(successfulPracticeOwners));
-  assert.ok(huntingPracticeOwners >= 7, `hunting owners: ${huntingPracticeOwners}`);
+  assert.ok(huntingPracticeOwners >= 7, JSON.stringify({
+    huntingPracticeOwners,
+    fishingPracticeOwners,
+    gatheringPracticeOwners,
+    learnedMealOwners,
+    defensiveExperienceOwners,
+  }));
   assert.ok(fishingPracticeOwners >= 8, `fishing owners: ${fishingPracticeOwners}`);
+  assert.ok(gatheringPracticeOwners >= 7, `gathering owners: ${gatheringPracticeOwners}`);
+  assert.ok(learnedMealOwners >= 7, `brains that learned a physically successful meal: ${learnedMealOwners}`);
   assert.ok(defensiveExperienceOwners >= 1, 'no real defensive wildlife experience');
 });
 
@@ -105,6 +119,7 @@ test('after guardian departure Sparks can act from lived learning without legacy
   // Allow farewell, physical departure and several weeks of independent life.
   await runtime.advanceTo(adulthoodFromStart + 55 * DAY);
   const world = runtime.snapshot();
+  const departureMinute = world.iskorkaMentorsV1?.deactivatedWorldMinute ?? adulthoodFromStart;
   const history = await store.history(world.id);
   const native = history.filter(
     (event) =>
@@ -116,7 +131,15 @@ test('after guardian departure Sparks can act from lived learning without legacy
       event.kind === 'agent.native_intent.resolved' &&
       event.payload.succeeded === true,
   );
-  const survivalActions = resolved.filter((event) =>
+  const independentNative = native.filter(
+    (event) => event.occurredWorldMinutes >= departureMinute,
+  );
+  const independentResolved = independentNative.filter(
+    (event) =>
+      event.kind === 'agent.native_intent.resolved' &&
+      event.payload.succeeded === true,
+  );
+  const survivalActions = independentResolved.filter((event) =>
     ['drink', 'eat', 'gather_food', 'hunt', 'fish', 'rest'].includes(
       String(event.payload.intent),
     ),
@@ -125,11 +148,14 @@ test('after guardian departure Sparks can act from lived learning without legacy
     ['hunt', 'fish'].includes(String(event.payload.intent)),
   );
 
-  assert.ok(native.length > 0, 'no native intents');
-  assert.ok(native.length < 8_000, 'native deliberation repeated too often: ' + native.length);
+  assert.ok(independentNative.length > 0, 'no native intents after the mentors physically left');
+  assert.ok(
+    independentNative.length < 8_000,
+    'native deliberation repeated too often after release: ' + independentNative.length,
+  );
   assert.ok(survivalActions.length > 0, 'no successful native survival action');
   assert.ok(
-    resolved.some((event) => String(event.payload.intent) === 'drink'),
+    independentResolved.some((event) => String(event.payload.intent) === 'drink'),
     'no successful drinking from lived water practice',
   );
   assert.ok(wildlifeChoices.length > 0, 'learned hunting/fishing never became a native choice');
@@ -144,13 +170,42 @@ test('after guardian departure Sparks can act from lived learning without legacy
   );
   const deathCauses = Object.values(world.agents)
     .filter((agent) => !agent.life.alive)
-    .map((agent) => ({
+    .map((agent) => ({ id: agent.id, cause: agent.life.deathCause, ageYears: agent.life.ageYears }));
+  const survivalSnapshot = Object.values(world.agents).map((agent) => {
+    const body = world.v21?.bodiesByAgentId[agent.id]?.bodyCore;
+    const brain = world.iskorkaBrainV1?.brainsByAgentId[agent.id];
+    const home = world.places[agent.homeId];
+    const settlementId = home?.settlementId;
+    return {
       id: agent.id,
-      cause: world.v21?.bodiesByAgentId[agent.id]?.bodyCore?.releasedAdultSurvivalV1?.fatalCause ?? 'other',
-    }));
+      alive: agent.life.alive,
+      locationId: agent.locationId,
+      health: agent.life.health,
+      resources: agent.resources,
+      hydration: body?.homeostasis.hydration,
+      satiety: world.v18?.lifeRhythmsByAgentId?.[agent.id]?.satiety,
+      waterAtHome: home?.medievalInfrastructureV1?.waterReserveLitres,
+      foodAtHome: settlementId
+        ? world.v16?.settlementEconomyById[settlementId]?.stocks.food
+        : undefined,
+      survival: body?.releasedAdultSurvivalV1,
+      methods: brain?.learning?.methods.map((method) => ({
+        action: method.action,
+        target: method.targetObjectId,
+        successes: method.successes,
+        failures: method.failures,
+        relief: method.expectedSignalRelief,
+        cues: method.expectedContextCues,
+      })),
+    };
+  });
   assert.ok(
-    world.population.deaths < 10,
-    'all Sparks died: ' + JSON.stringify({ intentCounts, deathCauses }),
+    world.population.deaths <= 2,
+    'adult survival failed: ' + JSON.stringify({ intentCounts, independentIntents: Object.fromEntries([...new Set(independentNative.map((event) => String(event.payload.intent)))].map((intent) => [intent, independentNative.filter((event) => String(event.payload.intent) === intent).length])), departureMinute, deathCauses, survivalSnapshot }),
+  );
+  assert.ok(
+    Object.values(world.agents).filter((spark) => spark.life.alive).length >= 8,
+    'fewer than eight of ten adults survived 55 days independently',
   );
 
   for (const spark of Object.values(world.agents).filter((agent) => agent.life.alive)) {

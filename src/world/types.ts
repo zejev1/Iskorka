@@ -259,6 +259,8 @@ export interface AgentState {
   locationId: string;
   position: AgentPositionState;
   movement?: AgentMovementState;
+  /** A dependent child travels at the physical position of this living parent. */
+  carriedByParentId?: string;
 
   lastMeaningfulEventAt: number;
   lastAction?: AgentActionKind;
@@ -589,6 +591,7 @@ export interface V15KnowledgeState {
 }
 
 export interface V15FamilyAgencyState {
+  /** Legacy save key; now interpreted only as personal intimacy openness, not desire. */
   physicalIntimacyInclination: number;
   childDesire: number;
   autonomy: number;

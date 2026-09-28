@@ -5,11 +5,13 @@ export const PORTABLE_HUMAN_CONTRACT_VERSION_V1 = 1 as const;
 export type PortableHumanActionKindV1 =
   | 'drink'
   | 'eat'
+  | 'fetch_water'
   | 'rest'
   | 'relax'
   | 'walk'
   | 'gather'
   | 'hunt'
+  | 'fish'
   | 'work'
   | 'socialize'
   | 'help'
@@ -38,8 +40,17 @@ export type HumanBodySignalKindV1 =
   | 'dryMouth'
   | 'startle'
   | 'physicalPleasure'
+  | 'sexualDesire'
   | 'sexualArousal'
   | 'postPleasureRelaxation';
+
+export type HumanEnvironmentalCueKindV1 =
+  | 'foodAtHand'
+  | 'foodGatherableHere'
+  | 'knownFoodSource'
+  | 'waterHere'
+  | 'knownWaterSource'
+  | 'socialOpportunity';
 
 export type SubjectiveSignalV1 =
   | { availability: 'available'; intensity: number }
@@ -82,6 +93,8 @@ export interface PerceptBatchV1 {
   ownerAgentId: string;
   worldMinute: number;
   body: HumanBodyPerceptV1;
+  /** Current physical affordances the resident can sense, never hidden stock maps. */
+  environmentalCues?: Readonly<Partial<Record<HumanEnvironmentalCueKindV1, number>>>;
   localObservations: readonly LocalObservationV1[];
   receivedMessages: readonly ReceivedMessageV1[];
   priorOutcome?: ActionOutcomeV1;
