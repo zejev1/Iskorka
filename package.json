@@ -8,6 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
+    "deploycheck": "npm run typecheck && npm run build && npm run standalonecheck",
     "test": "node scripts/run-tests.mjs",
     "check": "npm run typecheck && npm test",
     "verify": "npm run standalonecheck && npm run check && npm run build && npm run standalonecheck",

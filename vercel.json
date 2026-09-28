@@ -1,5 +1,5 @@
 {
   "framework": null,
-  "buildCommand": "npm run verify",
+  "buildCommand": "npm run deploycheck",
   "outputDirectory": "dist"
 }
