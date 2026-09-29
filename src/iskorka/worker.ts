@@ -12,8 +12,8 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let serial: Promise<void> = Promise.resolve();
 let interruption = 0;
 let lastFrame = 0;
-let previousWall = 0;
-let previousMinutes = 0;
+let measuredAt = performance.now();
+let measuredMinutes = 0;
 let requestedTarget: number | undefined;
 let remainingSlice = 0;
 
@@ -24,33 +24,38 @@ function fail(error: unknown): void {
 }
 function frame(force = false): void {
   if (!runtime || (!force && performance.now() - lastFrame < 450)) return;
-  lastFrame = performance.now();
+  const now = performance.now();
+  const wallMs = now - measuredAt;
+  const simulatedMinutes = runtime.elapsedMinutes - measuredMinutes;
+  measuredAt = now;
+  measuredMinutes = runtime.elapsedMinutes;
+  lastFrame = now;
   scope.postMessage({ type: 'frame', world: runtime.presentationSnapshot(), paused, speed, saved: true,
-    wallMs: previousWall, simulatedMinutes: previousMinutes });
+    wallMs, simulatedMinutes });
 }
 function enqueue(work: () => Promise<void>): void {
   serial = serial.then(work).catch(fail);
 }
-function schedule(): void {
+function schedule(delayMs = 100): void {
   if (timer) clearTimeout(timer);
   if (!runtime || paused) return;
   // Each paced slice is fully consumed. Slow CPUs reduce achieved speed, never life opportunities.
-  timer = setTimeout(() => enqueue(tick), 100);
+  timer = setTimeout(() => enqueue(tick), delayMs);
 }
 async function tick(): Promise<void> {
   if (!runtime || paused) return;
-  const before = runtime.elapsedMinutes;
   const began = performance.now();
   const ticket = interruption;
-  if (requestedTarget === undefined) requestedTarget = before + (remainingSlice || MINUTES_PER_SECOND[speed] * .1);
+  if (requestedTarget === undefined) requestedTarget = runtime.elapsedMinutes + (remainingSlice || MINUTES_PER_SECOND[speed] * .1);
   remainingSlice = 0;
   await runtime.advanceTo(requestedTarget, cooperativeWorldTimeExecution(() => ticket !== interruption || performance.now() - began > 80, 10));
   // Persisted time is the actual completed portion, not the requested target.
-  if (runtime.elapsedMinutes + 1e-8 >= requestedTarget) requestedTarget = undefined;
-  previousMinutes = runtime.elapsedMinutes - before;
-  previousWall = performance.now() - began + 100;
+  const completedSlice = runtime.elapsedMinutes + 1e-8 >= requestedTarget;
+  if (completedSlice) requestedTarget = undefined;
   frame();
-  schedule();
+  // Processing counts toward the 100 ms slice. If it took longer, continue
+  // immediately; a fixed extra delay would halve the achievable rate.
+  schedule(completedSlice ? Math.max(0, 100 - (performance.now() - began)) : 0);
 }
 
 scope.onmessage = (event: MessageEvent) => {

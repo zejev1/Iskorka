@@ -17209,8 +17209,15 @@ export class WorldEngine {
     const end = minute + elapsedWorldMinutes;
     this.finishSecretLibraryAdmissions(minute, this.state.now);
     while (minute < end - PHYSICAL_TIME_EPSILON) {
+      this.state.calendar.elapsedWorldMinutes = minute;
       if (this.state.iskorkaMentorsV1?.active) {
         this.applyFoundingMentorPhysicalRoutineAt(minute);
+        // A trip created at this boundary must move during the following
+        // interval, independent of where the caller splits advanceTo().
+        for (const agentId of cohortStudentIds) {
+          const student = this.state.agents[agentId];
+          if (student?.movement) movingAgents.add(student);
+        }
       }
       const nextMentorBoundary = this.state.iskorkaMentorsV1?.active
         ? nextFoundingMentorRoutineBoundaryV1(minute)
@@ -17272,6 +17279,9 @@ export class WorldEngine {
         }
         child.position = { ...parent.position };
       }
+      // Body and brain observations at this boundary must see the actual
+      // canonical minute, not the start of the caller's arbitrary slice.
+      this.state.calendar.elapsedWorldMinutes = next;
       if (this.state.iskorkaMentorsV1?.active) {
         updateMentorTeachingPositionsV1(this.state);
         for (const agentId of cohortStudentIds) {
@@ -17329,6 +17339,7 @@ export class WorldEngine {
       wakeDueSleepingBodiesV21(this.state, minute);
       this.finishSecretLibraryAdmissions(minute, this.state.now);
     }
+    this.state.calendar.elapsedWorldMinutes = end;
     // Water volume is a deterministic projection of canonical elapsed time
     // and cumulative withdrawals, never of how the caller partitioned frames.
     synchronizeFoundationWellWaterV1(this.state, end);

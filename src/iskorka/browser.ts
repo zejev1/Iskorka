@@ -340,9 +340,13 @@ function display(frame:WorldFrame):void {
   ($('speed') as HTMLSelectElement).value=frame.speed;
   ($('step') as HTMLButtonElement).disabled=!ready||!frame.paused;
   updateSaveState(w);
-  $('pace').textContent=frame.paused?'На паузе':
-    frame.speed==='realtime'?'1 мин мира = 1 мин реального времени':
-    `Цель: ${frame.speed==='fast'?'10 лет':frame.speed==='slow'?'день':'год'} / мин`;
+  const target=frame.speed==='fast'?'10 лет':frame.speed==='slow'?'1 день':frame.speed==='normal'?'1 год':'1 мин';
+  const unitMinutes=frame.speed==='slow'?1440:frame.speed==='realtime'?1:525600;
+  const unit=frame.speed==='slow'?'дн.':frame.speed==='realtime'?'мин':'лет';
+  const actual=frame.wallMs>0&&frame.simulatedMinutes>0
+    ? ` · факт: ${(frame.simulatedMinutes*60000/frame.wallMs/unitMinutes).toFixed(2)} ${unit}/мин`
+    : '';
+  $('pace').textContent=frame.paused?'На паузе':`Цель: ${target} / мин${actual}`;
   try { localStorage.setItem('iskorka-view-settings',JSON.stringify({paused:frame.paused,speed:frame.speed})); } catch { /* World durability is IndexedDB, not this convenience preference. */ }
   if(!focused)center();renderPanel();requestRender();
 }

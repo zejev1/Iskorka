@@ -116,6 +116,14 @@ export interface BrainStateV1 {
 const encoder = new TextEncoder();
 const logicalByteCache = new WeakMap<object, number>();
 const logicalBaseByteCache = new WeakMap<object, number>();
+// A clone of the world gives every brain a new object identity, while the
+// identifiers and most acquired text remain identical. Cache exact UTF-8
+// lengths across those clones without retaining an unbounded text archive.
+const utf8LengthCache = new Map<string, number>();
+const UTF8_CACHE_MAX_ENTRIES = 4096;
+const UTF8_CACHE_MAX_CHARS = 1024 * 1024;
+const UTF8_CACHE_MAX_ITEM_CHARS = 128 * 1024;
+let cachedUtf8Chars = 0;
 
 const BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 = 192;
 const BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 = 24;
@@ -125,7 +133,22 @@ const BRAIN_PERCEPTION_REFERENCE_FIXED_LOGICAL_BYTES_V1 = 32;
 const BRAIN_MESSAGE_FIXED_LOGICAL_BYTES_V1 = 28;
 const BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 = 4;
 
-const utf8BytesV1 = (value: string): number => encoder.encode(value).byteLength;
+const utf8BytesV1 = (value: string): number => {
+  const cached = utf8LengthCache.get(value);
+  if (cached !== undefined) return cached;
+  const bytes = encoder.encode(value).byteLength;
+  if (value.length > UTF8_CACHE_MAX_ITEM_CHARS) return bytes;
+  while (utf8LengthCache.size >= UTF8_CACHE_MAX_ENTRIES ||
+    cachedUtf8Chars + value.length > UTF8_CACHE_MAX_CHARS) {
+    const first = utf8LengthCache.keys().next().value;
+    if (first === undefined) break;
+    cachedUtf8Chars -= first.length;
+    utf8LengthCache.delete(first);
+  }
+  utf8LengthCache.set(value, bytes);
+  cachedUtf8Chars += value.length;
+  return bytes;
+};
 
 /**
  * Logical brain bytes are an explicit allocator, not JSON file size or JS heap
