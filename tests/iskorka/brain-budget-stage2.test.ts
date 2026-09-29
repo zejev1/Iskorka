@@ -206,6 +206,9 @@ test('old-age death removes own brain and managed recovery without erasing ident
   assert.deepEqual(deadLanguage.teacherIds, []);
   assert.equal(after.v21!.appliedKnowledgeByAgentId[dying.id], undefined);
   assert.equal(after.v21!.bodiesByAgentId[dying.id], undefined);
+  const reopened = await IskorkaRuntime.openOrCreate(store, 'ignored', world.id);
+  assert.deepEqual(reopened.snapshot(), after,
+    'reopen repeated the dead owner purge or changed the saved world');
 
   const recoveries = store.migrationBackups.filter((entry) => entry.id === world.id);
   assert.equal(recoveries.length, 1);

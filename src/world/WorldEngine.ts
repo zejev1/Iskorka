@@ -17392,7 +17392,22 @@ export class WorldEngine {
       )) offer('socialize');
     }
     if (age >= 13) {
-      if ((cues?.foodGatherableHere ?? 0) > 0) offer('gather', place?.id);
+      if ((cues?.foodGatherableHere ?? 0) > 0) {
+        offer('gather', place?.id);
+      } else if ((cues?.knownFoodSource ?? 0) > 0) {
+        // Offer a previously seen, reachable food source as an affordance.
+        // The brain still chooses whether to try it; food is only acquired by
+        // the real gather action after travelling there.
+        const knownSource = (agent.knownPlaceIds ?? []).find((id) => {
+          const candidate = this.state.places[id];
+          return candidate && candidate.danger < 0.58 &&
+            (candidate.kind === 'resource_field' || candidate.kind === 'meadow' ||
+              candidate.biome === 'plains') &&
+            this.youngChildMayTravelTo(agent, id) &&
+            Boolean(residentKnownPath(this.state, agent, id));
+        });
+        if (knownSource) offer('gather', knownSource);
+      }
       if (place?.kind === 'well') offer('fetch_water', place.id);
     }
     if (age >= 15 && place?.kind === 'workshop' &&
@@ -17510,6 +17525,8 @@ export class WorldEngine {
     // gathered food elsewhere. A method remembers where it was learned; it
     // does not make the food in the person's hands inaccessible.
     const carriedGoods = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id]?.carriedGoods;
+    const carriedFood = Math.max(0, carriedGoods?.food ?? 0) +
+      Math.max(0, carriedGoods?.meat ?? 0);
     const localWater = this.state.places[agent.locationId];
     const canDrinkHere = intent.kind === 'drink' && (
       localWater?.kind === 'well' ||
@@ -17524,10 +17541,10 @@ export class WorldEngine {
     }
     if (
       !canDrinkHere &&
-      !(intent.kind === 'eat' &&
-        (Math.max(0, carriedGoods?.food ?? 0) +
-          Math.max(0, carriedGoods?.meat ?? 0)) > 0) &&
-      travelTo(intent.targetPlaceId)
+      !(intent.kind === 'eat' && carriedFood > 0) &&
+      travelTo(intent.kind === 'eat' && carriedFood <= 0 &&
+        agent.locationId !== agent.homeId
+        ? agent.homeId : intent.targetPlaceId)
     ) return;
 
     const completedExploration = brain.learning?.pending?.action === 'explore' &&
@@ -17540,9 +17557,7 @@ export class WorldEngine {
         brainIntent.action,
         intent.kind === 'drink' && canDrinkHere
           ? agent.locationId
-          : intent.kind === 'eat' &&
-              (Math.max(0, carriedGoods?.food ?? 0) +
-                Math.max(0, carriedGoods?.meat ?? 0)) > 0
+          : intent.kind === 'eat' && carriedFood > 0
             ? undefined
             : brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
       );

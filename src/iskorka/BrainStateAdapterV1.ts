@@ -270,7 +270,10 @@ export function ensureBrainForAgentV1(
   ) {
     throw new Error(`Brain ownership mismatch for ${agent.id}.`);
   }
-  if (options.importLegacy !== false) {
+  // A descendant's existing packet was born blank and has lived its own
+  // experience. Reopening must never reinterpret legacy agent mirrors as a
+  // new import merely because its migration flag is still false.
+  if (options.importLegacy !== false && (!existing || brain.ownerGeneration === 0)) {
     importLegacyOwnedStateV1(world, agent, brain);
   }
   assertBrainStateV1(brain);
@@ -462,14 +465,22 @@ export function retireBrainOwnerV1(
   diedWorldMinute: number,
 ): void {
   const registry = world.iskorkaBrainV1 ??= createWorldBrainRegistryV1();
-  delete registry.brainsByAgentId[agent.id];
   const prior = registry.retiredOwnersByAgentId[agent.id];
-  if (prior && prior.ownerGeneration !== agent.life.generation) {
-    throw new Error(`Retired owner generation mismatch for ${agent.id}.`);
+  if (prior) {
+    if (prior.ownerGeneration !== agent.life.generation) {
+      throw new Error(`Retired owner generation mismatch for ${agent.id}.`);
+    }
+    if (registry.brainsByAgentId[agent.id]) {
+      throw new Error(`Retired owner ${agent.id} cannot regain a brain.`);
+    }
+    // The death transaction already purged private state. Reopening a saved
+    // world must not run the purge again against later public world evidence.
+    return;
   }
+  delete registry.brainsByAgentId[agent.id];
   registry.retiredOwnersByAgentId[agent.id] = {
     ownerGeneration: agent.life.generation,
-    diedWorldMinute: prior?.diedWorldMinute ?? diedWorldMinute,
+    diedWorldMinute,
   };
   purgeLegacyOwnedStateV1(world, agent.id);
 }

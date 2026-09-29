@@ -22,6 +22,7 @@ class ProfileWorldStore extends InMemoryWorldStore {
   readonly eventPath = OUTPUT + '.events.jsonl';
   readonly eventKinds = new Map<string, number>();
   readonly signals: WorldEvent[] = [];
+  readonly otherEventIds = new Set<string>();
   eventCount = 0;
   lastEventSequence = 0;
   constructor(resume: boolean) {
@@ -33,11 +34,15 @@ class ProfileWorldStore extends InMemoryWorldStore {
     const staged = new Set<string>();
     let nextSequence = this.lastEventSequence;
     for (const event of batch.events) {
-      const sequence = parseInt(event.eventId.split(':').at(-1) ?? '', 36);
+      const suffix = event.eventId.split(':').at(-1) ?? '';
+      const sequence = /^[0-9a-z]+$/.test(suffix) ? parseInt(suffix, 36) : NaN;
+      const canonical = Number.isSafeInteger(sequence) &&
+        sequence <= batch.nextState.determinism.eventSequence &&
+        event.eventId.includes(`:${batch.worldId}:`);
       if (event.worldId !== batch.worldId || staged.has(event.eventId) ||
-          !Number.isSafeInteger(sequence) || sequence <= nextSequence)
-        throw new Error('Duplicate, out-of-order or foreign profile event.');
-      nextSequence = sequence;
+          (canonical ? sequence <= nextSequence : this.otherEventIds.has(event.eventId)))
+        throw new Error(`Duplicate, out-of-order or foreign profile event: ${event.eventId}.`);
+      if (canonical) nextSequence = sequence;
       staged.add(event.eventId);
     }
     const result = await super.commit({...batch, events: []});
@@ -46,6 +51,10 @@ class ProfileWorldStore extends InMemoryWorldStore {
       appendFileSync(this.eventPath, batch.events.map(event => JSON.stringify(event)).join('\n')+'\n');
       for (const event of batch.events) {
         this.eventKinds.set(event.kind, (this.eventKinds.get(event.kind) ?? 0) + 1);
+        const suffix = event.eventId.split(':').at(-1) ?? '';
+        const sequence = /^[0-9a-z]+$/.test(suffix) ? parseInt(suffix, 36) : NaN;
+        if (!Number.isSafeInteger(sequence) || sequence > batch.nextState.determinism.eventSequence)
+          this.otherEventIds.add(event.eventId);
         if (event.activeUntil !== undefined || event.activeUntilWorldMinutes !== undefined)
           this.signals.push(structuredClone(event));
       }
@@ -80,7 +89,7 @@ const resume = process.env.ISKORKA_PROFILE_RESUME === '1' && existsSync(CHECKPOI
 const prior = resume ? deserialize(readFileSync(CHECKPOINT)) as {
   year: number; world: import('../src/world/types').WorldState;
   eventCount: number; eventKinds: [string, number][]; signals: WorldEvent[];
-  eventBytes?: number; outputBytes?: number;
+  eventBytes?: number; outputBytes?: number; otherEventIds?: string[];
 } : undefined;
 const store = new ProfileWorldStore(resume);
 if (prior) {
@@ -97,6 +106,7 @@ if (prior) {
   store.lastEventSequence = prior.world.determinism.eventSequence;
   for (const [kind, count] of prior.eventKinds) store.eventKinds.set(kind, count);
   store.signals.push(...prior.signals);
+  for (const id of prior.otherEventIds ?? []) store.otherEventIds.add(id);
 }
 const storeCounters = store as unknown as {
   operations: Map<string, unknown>;
@@ -159,6 +169,7 @@ try {
       const temporary = CHECKPOINT + '.tmp';
       writeFileSync(temporary, serialize({year, world, eventCount: store.eventCount,
         eventKinds: [...store.eventKinds], signals: store.signals,
+        otherEventIds: [...store.otherEventIds],
         eventBytes: statSync(store.eventPath).size, outputBytes: statSync(OUTPUT).size}));
       renameSync(temporary, CHECKPOINT);
     }

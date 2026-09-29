@@ -2,13 +2,47 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { IskorkaRuntime } from '../../src/iskorka/WorldRuntime';
 import { InMemoryWorldStore } from '../../src/world/InMemoryWorldStore';
+import { perceptBatchForAgentV1 } from '../../src/iskorka/PerceptionAdapterV1';
+import type { ActionIntentV1, PerceptBatchV1 } from '../../src/iskorka/PortableHumanCoreV1';
 import type { AgentState, WorldState } from '../../src/world/types';
 
 type BirthFixtureEngine = {
   state: WorldState;
   mutate(id: string, fingerprint: string, apply: () => Promise<void>): Promise<boolean>;
   createChild(a: AgentState, b: AgentState, now: number, placeId: string): string;
+  childExploratoryPossibilitiesV1(agent: AgentState, percept: PerceptBatchV1): ActionIntentV1[];
 };
+
+test('a teenager can consider a physically known food source from another place', async () => {
+  const runtime = await IskorkaRuntime.openOrCreate(
+    new InMemoryWorldStore(), 'teen-food-affordance', 'teen-food-affordance-world',
+  );
+  const engine = (runtime as unknown as {world: BirthFixtureEngine}).world;
+  let childId = '';
+  await engine.mutate('teen-food-birth', 'teen-food-birth', async () => {
+    const world = engine.state;
+    childId = engine.createChild(world.agents.agent_1, world.agents.agent_2,
+      world.now, world.agents.agent_1.homeId);
+    const child = world.agents[childId];
+    child.life.ageYears = 13.5;
+    child.life.stage = 'adolescent';
+    child.locationId = 'commons';
+    child.position = {x: world.places.commons.mapX, y: world.places.commons.mapY, layerId:'surface'};
+    child.knownPlaceIds = [child.homeId, 'commons', 'resource_field'];
+    delete child.carriedByParentId;
+  });
+  let options: ActionIntentV1[] = [];
+  await engine.mutate('teen-food-observation', 'teen-food-observation', async () => {
+    const world = engine.state;
+    const percept = perceptBatchForAgentV1(world, childId);
+    options = engine.childExploratoryPossibilitiesV1(world.agents[childId], percept);
+  });
+  const world = runtime.snapshot();
+  assert.ok(options.some(option => option.action === 'gather' &&
+    option.target?.kind === 'place' && option.target.objectId === 'resource_field'));
+  assert.equal(world.v19?.adventureEconomy.adventurersByAgentId[childId]?.carriedGoods?.food ?? 0, 0,
+    'perceiving food did not physically produce it');
+});
 
 test('a born Spark owns blank acquired knowledge, then learns only from physical trials and keeps it on reopen', async () => {
   const store = new InMemoryWorldStore();
@@ -32,6 +66,11 @@ test('a born Spark owns blank acquired knowledge, then learns only from physical
   assert.ok(blank);
   assert.equal(blank.learning?.methods.length ?? 0, 0);
   assert.deepEqual(newborn.agents[childId].life.parentIds, ['agent_1','agent_2']);
+  const reopenedNewborn = await IskorkaRuntime.openOrCreate(
+    store, 'second-generation-methods', 'second-generation-methods-world',
+  );
+  assert.deepEqual(reopenedNewborn.snapshot(), newborn,
+    'reopen imported legacy acquired state into a newborn brain');
 
   await engine.mutate('test-second-gen-toddler','test-second-gen-toddler', async () => {
     const world = engine.state;
@@ -58,6 +97,11 @@ test('a born Spark owns blank acquired knowledge, then learns only from physical
   const reopened = await IskorkaRuntime.openOrCreate(
     store, 'second-generation-methods', 'second-generation-methods-world',
   );
+  assert.equal(reopened.snapshot().revision, lived.revision,
+    'reopen fabricated a migration for an existing descendant brain');
+  assert.deepEqual(reopened.snapshot().iskorkaBrainV1!.brainsByAgentId[childId],
+    lived.iskorkaBrainV1!.brainsByAgentId[childId],
+    'reopen rewrote the descendant’s personal brain');
   assert.deepEqual(reopened.snapshot().iskorkaBrainV1!.brainsByAgentId[childId].learning?.methods,
     methods, 'reopen replaced or fabricated the child’s lived methods');
 });
