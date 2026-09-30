@@ -122,7 +122,11 @@ export function recordGuidedPracticeExperienceV1(
   const brain = ensureBrainForAgentV1(world, student);
   if (!brain) return false;
   const slot = Math.floor(experience.worldMinute / (30 * 24 * 60)) % 12;
-  const id = `guided-practice:${experience.domain}:${experience.action}:${slot}`;
+  // An ordinary repeat must not immediately erase a dangerous encounter in
+  // the same month. Retain at most twelve such episodes, still charged to the
+  // existing finite brain budget and subject to its normal forgetting.
+  const salience = experience.defensiveEncounter ? ':defence' : '';
+  const id = `guided-practice:${experience.domain}:${experience.action}:${slot}${salience}`;
   brain.data = brain.data.filter(
     (datum) =>
       datum.kind !== 'mentor_guided_physical_practice' ||

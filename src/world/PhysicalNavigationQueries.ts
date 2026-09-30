@@ -74,7 +74,7 @@ class PhysicalNavigationQueries {
     // These are the non-indexed inputs read by buildRoute/organicStreetPath.
     // All A*/detour water and building reads are captured separately below.
     const geometry = (p: Readonly<WorldPlace> | undefined) => p ? [p.id,p.kind,p.biome,p.surface,p.mapX,p.mapY,
-      p.settlementId,p.urbanLayoutVersion,p.urbanLot,p.rotation] : undefined;
+      p.settlementId,p.urbanLayoutVersion,p.urbanLot,p.rotation,p.outdoorAccessPointV1] : undefined;
     const all = Object.values(this.places);
     const town = from.settlementId ?? (from.id === 'secret_library_v18' ? this.places.commons?.settlementId : undefined);
     const townCenter = town ? all.find(p => p.settlementId === town && ['commons','city','village'].includes(p.kind)) : undefined;

@@ -123,7 +123,7 @@ export function dryBuildingPlot(point: WorldPoint2D, halfX: number, halfY: numbe
   });
 }
 export function nextUrbanHomeLot(places: Readonly<Record<string, WorldPlace>>, center: WorldPoint2D,
-  settlementId: string): (WorldPoint2D & { lot: number; rotation: number }) | undefined {
+  settlementId: string, preserveFoundingLayout = false): (WorldPoint2D & { lot: number; rotation: number }) | undefined {
   const all=Object.values(places);
   const used=new Set(all.filter(p=>p.settlementId===settlementId && p.urbanLayoutVersion===3 && p.urbanLot!==undefined).map(p=>p.urbanLot!));
   const buildings=all.filter(p=>buildingRadius(p)>0 && (p.urbanLayoutVersion===3 || p.kind==='library'));
@@ -135,7 +135,7 @@ export function nextUrbanHomeLot(places: Readonly<Record<string, WorldPlace>>, c
     if(!terrainPlotIsDry(places,point)||!dryBuildingPlot(point,.06,.05,water,point.rotation))continue;
     const candidate={kind:'home',mapX:point.x,mapY:point.y,rotation:point.rotation} as WorldPlace;
     if(buildings.some(p=>!buildingsHaveClearance(candidate,p)))continue;
-    if(outdoor.some(p=>Math.hypot(p.mapX-point.x,p.mapY-point.y)<0.15))continue;
+    if(!preserveFoundingLayout && outdoor.some(p=>Math.hypot(p.mapX-point.x,p.mapY-point.y)<0.15))continue;
     return {x:point.x,y:point.y,lot,rotation:point.rotation};
   }
   return undefined;

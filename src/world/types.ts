@@ -382,7 +382,7 @@ export interface WorldPlace {
    * proof that a resident can sleep, cook, wash or practise a craft there.
    */
   /** Original surveyed point when an outdoor access marker overlapped a building. */
-  outdoorAccessOriginV1?: WorldPoint2D;
+  outdoorAccessPointV1?: WorldPoint2D;
   medievalInfrastructureV1?: import('../iskorka/MedievalPlaceInfrastructureV1').MedievalPlaceInfrastructureV1;
   /** Potable groundwater state for explicit settlement wells. */
   wellWaterV1?: import('../iskorka/FoundationWaterV1').FoundationWellWaterV1;

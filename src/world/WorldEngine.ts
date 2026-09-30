@@ -17512,7 +17512,7 @@ export class WorldEngine {
     if (agent.life.ageYears >= 3 && agent.clothingV1?.spare) capabilities.add('wear_clothes');
     else capabilities.delete('wear_clothes');
     const learnedIntent = chooseLearnedBrainIntentV1(brain, percept, capabilities);
-    const brainIntent = !brain.learning?.pending
+    const brainIntent = (bornHuman || agent.life.ageYears >= 15) && !brain.learning?.pending
       ? chooseExploratoryBrainIntentV1(
           brain,
           percept,
@@ -18043,8 +18043,8 @@ export class WorldEngine {
               priorLocationId,
               movement.targetPlaceId,
             );
-            agent.position.x = place.mapX;
-            agent.position.y = place.mapY;
+            agent.position.x = place.outdoorAccessPointV1?.x ?? place.mapX;
+            agent.position.y = place.outdoorAccessPointV1?.y ?? place.mapY;
           }
           for (const id of movement.routeIds ?? []) {
             const route = this.state.routes[id];

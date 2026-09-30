@@ -45,7 +45,7 @@ export function updateSettlementGeometry(world:WorldState,move:(id:string,point:
     }
     for(const home of members.filter(p=>p.kind==='home'||p.kind==='construction_site').sort((a,b)=>a.id.localeCompare(b.id))) {
       if(home.urbanLayoutVersion===3)continue;
-      const plot=nextUrbanHomeLot(world.places,origin,town.id);
+      const plot=nextUrbanHomeLot(world.places,origin,town.id,true);
       if(plot){home.rotation=plot.rotation;move(home.id,plot);home.urbanLot=plot.lot;}
     }
     const buildings=members.filter(p=>buildingRadius(p)>0);

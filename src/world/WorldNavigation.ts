@@ -79,6 +79,8 @@ export function buildRoute(
   traversal: WorldTraversalKind = 'walk',
   terrain: Readonly<Record<string, WorldPlace>> = {},
 ): WorldRouteState {
+  if (from.outdoorAccessPointV1) from = {...from, mapX:from.outdoorAccessPointV1.x, mapY:from.outdoorAccessPointV1.y};
+  if (to.outdoorAccessPointV1) to = {...to, mapX:to.outdoorAccessPointV1.x, mapY:to.outdoorAccessPointV1.y};
   const start = { x: from.mapX, y: from.mapY };
   const end = { x: to.mapX, y: to.mapY };
   const directDistance = Math.max(0.001, pointDistance(start, end));
@@ -163,7 +165,7 @@ function rebuildIndexedWorldRoutes(
         const first=explicit.waypoints[0],last=explicit.waypoints.at(-1)!;
         const direct=explicit.fromPlaceId===place.id;
         const a=direct?place:connected,b=direct?connected:place;
-        if (pointDistance(first,{x:a.mapX,y:a.mapY}) < 1e-8 && pointDistance(last,{x:b.mapX,y:b.mapY}) < 1e-8) {
+        if (pointDistance(first,a.outdoorAccessPointV1 ?? {x:a.mapX,y:a.mapY}) < 1e-8 && pointDistance(last,b.outdoorAccessPointV1 ?? {x:b.mapX,y:b.mapY}) < 1e-8) {
           const key = signature(explicit);
           // Runtime evidence, not a trusted field from a save. Only the actual
           // path, its endpoints, terrain recipe and nearby physical blockers
