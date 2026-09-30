@@ -1,3 +1,4 @@
+import { repairOutdoorPlaceAccess } from './OutdoorPlaceAccess';
 import {repairWorldTerrain,bindWorldTerrain} from './geography/WorldTerrain';
 import {hash} from './geography/TerrainMath';
 import { updateSettlementGeometry } from './SettlementGeometryV21';
@@ -236,8 +237,9 @@ export function repairCompactSettlementLayout(world:WorldState):boolean {
     alignFreshFoundersWithHomes(world);
   }
 
+  const outdoorAccessChanged=repairOutdoorPlaceAccess(world,moved);
   const geographyChanged=finishWorldGeography(world);
-  if(!terrainChanged&&!naturalChanged&&!civicCenterChanged&&!foundingSpreadChanged&&!freshLibraryChanged&&!moved.size&&!geographyChanged)return false;
+  if(!outdoorAccessChanged&&!terrainChanged&&!naturalChanged&&!civicCenterChanged&&!foundingSpreadChanged&&!freshLibraryChanged&&!moved.size&&!geographyChanged)return false;
   world.routes=rebuildWorldRoutes(world.places,world.routes);
   reconcileRouteGeometry(world,oldRoutes,moved);
   return true;

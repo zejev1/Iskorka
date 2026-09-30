@@ -1,7 +1,7 @@
 name: Iskorka deploy build
 on:
   push:
-    branches: [main, bootstrap/iskorka-human-lab, bootstrap/iskorka-stage1-spck-20260918, fix/mentor-transition-perception-perf-lake-20260922]
+    branches: [main, bootstrap/iskorka-human-lab, bootstrap/iskorka-stage1-spck-20260918, fix/mentor-transition-perception-perf-lake-20260922, fix/autonomy-housing-clothing-20260930]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,7 +20,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm run deploycheck
+      - run: npm run verify
       - name: Keep deployment output
         uses: actions/upload-artifact@v4
         with:

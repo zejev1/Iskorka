@@ -1,4 +1,4 @@
-import type { BrainLearningStateV1 } from './BrainLearningTypesV1';
+import { MAX_BRAIN_LEARNED_METHODS_V1, type BrainLearningStateV1 } from './BrainLearningTypesV1';
 export const BRAIN_STATE_VERSION_V1 = 1 as const;
 export const BRAIN_LOGICAL_BUDGET_BYTES_V1 = 256 * 1024;
 
@@ -307,7 +307,7 @@ export function assertBrainStateV1(brain: Readonly<BrainStateV1>): void {
     if (!datum.encoded.trim()) throw new Error(`Brain datum ${datum.id} has empty encoded content.`);
   }
   if (brain.learning) {
-    if (brain.learning.version !== 1 || brain.learning.methods.length > 12) {
+    if (brain.learning.version !== 1 || brain.learning.methods.length > MAX_BRAIN_LEARNED_METHODS_V1) {
       throw new Error('Brain learning state is invalid.');
     }
     if (

@@ -1,3 +1,4 @@
+import { MAX_BRAIN_LEARNED_METHODS_V1 } from '../../src/iskorka/BrainLearningTypesV1';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -200,7 +201,7 @@ test('bounded brain memory keeps personally useful methods ahead of failed novel
         confidence: 0.88,
         lastWorldMinute: 1,
       },
-      ...Array.from({ length: 11 }, (_, index) => ({
+      ...Array.from({ length: MAX_BRAIN_LEARNED_METHODS_V1 - 1 }, (_, index) => ({
         id: `drink@failed_place_${index}`,
         action: 'drink' as const,
         targetObjectId: `failed_place_${index}`,
@@ -226,7 +227,7 @@ test('bounded brain memory keeps personally useful methods ahead of failed novel
     outcome('spark_memory', 'drink', 100, 101),
   );
 
-  assert.equal(brain.learning.methods.length, 12);
+  assert.equal(brain.learning.methods.length, MAX_BRAIN_LEARNED_METHODS_V1);
   assert.ok(brain.learning.methods.some((method) => method.id === 'eat'));
 });
 
@@ -251,4 +252,22 @@ test('a scarce food outcome learned by one person matters during hunger without 
   const choicesWhenSupplied = Array.from({ length: 100 }, () => chooseLearnedBrainIntentV1(brain, supplied)?.action);
   assert.ok(choicesWhenEmpty.filter((action) => action === 'gather').length >
     choicesWhenSupplied.filter((action) => action === 'gather').length);
+});
+
+
+test('neutral repetitions without thirst preserve learned water relief; thirst without relief still counts as failure', () => {
+  const brain = createBrainStateV1('neutral', 0, 21, 0);
+  beginBrainActionAttemptV1(brain, percept('neutral', 1, { thirst: 0.8 }), 'drink', 'well_a');
+  finishBrainActionAttemptV1(brain, percept('neutral', 2, { thirst: 0.2 }), outcome('neutral', 'drink', 1, 2));
+  for (let i=3; i<203; i+=2) {
+    beginBrainActionAttemptV1(brain, percept('neutral', i, { thirst: 0 }), 'drink', 'well_a');
+    finishBrainActionAttemptV1(brain, percept('neutral', i+1, { thirst: 0 }), outcome('neutral', 'drink', i, i+1));
+  }
+  const method = brain.learning!.methods[0];
+  assert.ok(method.expectedSignalRelief.thirst! > 0.5);
+  assert.equal(method.failures, 0);
+  beginBrainActionAttemptV1(brain, percept('neutral', 204, { thirst: 0.8 }), 'drink', 'well_a');
+  finishBrainActionAttemptV1(brain, percept('neutral', 205, { thirst: 0.8 }), outcome('neutral', 'drink', 204, 205));
+  assert.equal(method.failures, 1);
+  assert.ok(method.expectedSignalRelief.thirst! < 0.5);
 });

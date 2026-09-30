@@ -1,3 +1,4 @@
+import { clothingProtectionV1 } from './ClothingV1';
 import type { AgentState, V21BodyState, WorldState } from '../world/types';
 import { WORLD_MINUTES_PER_YEAR } from '../world/WorldClock';
 import { worldWeatherV21 } from '../v21/WeatherV21';
@@ -112,7 +113,9 @@ export function advanceBodyPhysiologyV1(
   const sleeping = (body as SleepAwareBody).sleep?.status === 'sleeping';
   const sheltered = isSheltered(world, agent);
   const weather = worldWeatherV21(world);
-  const thermalExposure = sheltered ? 0.18 : 1;
+  const clothing = clothingProtectionV1(agent, world.calendar.elapsedWorldMinutes);
+  const thermalExposure = (sheltered ? 0.18 : 1) *
+    (weather.temperatureC < 20 ? 1 - clothing : 1);
 
   const diseaseLoad = clamp01(
     body.diseases.reduce((sum, disease) => sum + disease.severity, 0),

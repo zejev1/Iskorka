@@ -119,7 +119,10 @@ export function finishBrainActionAttemptV1(
     // can make fatigue worse; that must lower the value of the action instead
     // of teaching the brain that it helped.
     if (relief >= 0.002) meaningful = true;
-    observedRelief[key] = relief;
+    // Absence of a sensation cannot disprove a previously experienced remedy.
+    // Still learn harm, and failed relief when the sensation was present.
+    if (before >= 0.04 || relief < -0.002 || relief >= 0.002)
+      observedRelief[key] = relief;
   }
 
   // The body can improve through a world change (for example food or water
@@ -132,6 +135,15 @@ export function finishBrainActionAttemptV1(
   const success = outcome.status === 'completed' && (meaningful || externalReward > 0.002);
   const id = methodId(pending.action, pending.targetObjectId);
   let method = state.methods.find((candidate) => candidate.id === id);
+  const relevantSensation = method && ACTION_DRIVE_KEYS.some(key =>
+    (method?.expectedSignalRelief[key] ?? 0) > 0.002 &&
+    (pending.beforeSignals[key] ?? 0) >= 0.04);
+  if (method && outcome.status === 'completed' && !meaningful &&
+      externalReward === 0 && !relevantSensation) {
+    delete state.pending;
+    invalidateBrainLogicalByteCacheV1(brain);
+    return method;
+  }
   if (!method) {
     if (state.methods.length >= MAX_BRAIN_LEARNED_METHODS_V1) {
       const rememberedValue = (candidate: Readonly<BrainLearnedMethodV1>): number => {
@@ -219,7 +231,7 @@ export function finishBrainActionAttemptV1(
     (method.expectedExternalReward ?? 0) * (1 - learningRate) + externalReward * learningRate,
   );
   method.expectedWorldEffects ??= {};
-  for (const channel of ['world:food', 'world:water'] as const) {
+  for (const channel of ['world:food', 'world:water', 'world:shelter', 'world:materials', 'world:clothing'] as const) {
     const observed = outcome.perceivedEffects
       .filter((effect) => effect.channel === channel)
       .reduce((sum, effect) => sum + (effect.direction === 'better' ? 1 : effect.direction === 'worse' ? -1 : 0), 0);
@@ -348,6 +360,17 @@ export function chooseLearnedBrainIntentV1(
         Math.max(0, method.expectedWorldEffects?.['world:food'] ?? 0) * foodNeed +
         Math.max(0, method.expectedWorldEffects?.['world:water'] ?? 0) * waterNeed
       ) * Math.max(0.75, contextSimilarity) * affordanceSimilarity * 0.14;
+      // The name of an action has no assigned value: only a personally
+      // observed product/progress can acquire value for a perceived need.
+      const safety = 1 - Math.pow(Math.max(current.thirst ?? 0, current.hunger ?? 0), 3);
+      score += (
+        Math.max(0, method.expectedWorldEffects?.['world:shelter'] ?? 0) *
+          (0.2 + (currentCues.housingPressure ?? 0)) +
+        Math.max(0, method.expectedWorldEffects?.['world:materials'] ?? 0) *
+          (0.12 + (currentCues.housingPressure ?? 0)) +
+        Math.max(0, method.expectedWorldEffects?.['world:clothing'] ?? 0) *
+          (currentCues.clothingNeed ?? 0)
+      ) * safety * method.confidence * reliability * 0.12;
       score += Math.max(0, method.expectedExternalReward ?? 0) *
         currentPressure * contextSimilarity * affordanceSimilarity * 0.001;
       // Preserve some chance to revisit a personally useful method in a
@@ -397,7 +420,12 @@ export function chooseExploratoryBrainIntentV1(
   learnedIntent?: Readonly<ActionIntentV1>,
 ): ActionIntentV1 | undefined {
   if (brain.ownerAgentId !== batch.ownerAgentId) throw new Error('Brain/percept owner mismatch.');
-  if (possibilities.length === 0 || (learnedIntent && nextBrainUnit(brain) >= 0.12)) {
+  const pressure = Math.max(...['thirst','hunger','weakness'].map(key => {
+    const signal = batch.body.interoception[key as HumanBodySignalKindV1];
+    return signal.availability === 'available' ? signal.intensity : 0;
+  }));
+  const explorationChance = 0.12 * (1 - Math.pow(pressure, 4));
+  if (possibilities.length === 0 || (learnedIntent && nextBrainUnit(brain) >= explorationChance)) {
     return learnedIntent ? { ...learnedIntent } : undefined;
   }
   const methods = ensureBrainLearningV1(brain).methods;

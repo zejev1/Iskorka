@@ -1,3 +1,4 @@
+import { MAX_BRAIN_LEARNED_METHODS_V1 } from '../../src/iskorka/BrainLearningTypesV1';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { IskorkaRuntime } from '../../src/iskorka/WorldRuntime';
@@ -92,7 +93,7 @@ test('a born Spark owns blank acquired knowledge, then learns only from physical
   assert.ok(methods.some((method) => method.action === 'drink' && method.successes > 0),
     'a physical drink did not become the child’s own learned method');
   assert.ok(methods.every((method) => method.trials === method.successes + method.failures));
-  assert.ok(methods.length <= 12, 'personal methods exceeded the finite brain cap');
+  assert.ok(methods.length <= MAX_BRAIN_LEARNED_METHODS_V1, 'personal methods exceeded the finite brain cap');
 
   const reopened = await IskorkaRuntime.openOrCreate(
     store, 'second-generation-methods', 'second-generation-methods-world',

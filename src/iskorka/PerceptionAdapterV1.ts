@@ -1,3 +1,4 @@
+import { garmentConditionV1 } from './ClothingV1';
 import type { AgentState, V16RemainsState, WorldPlace, WorldState } from '../world/types';
 import type { BodyCoreV1 } from './BodyCoreV1';
 import { bodySignalsV1, type BodySignalsV1 } from './BodyCoreV1';
@@ -628,6 +629,11 @@ function environmentalCuesV1(
     waterHere: Number(currentWater),
     knownWaterSource: Number(knownWater),
     socialOpportunity: clamp01(nearbyPeople / 2),
+    clothingNeed: 1 - garmentConditionV1(agent.clothingV1?.worn, world.calendar.elapsedWorldMinutes),
+    // Only bodies currently perceived at home, never a global population quota.
+    housingPressure: agent.locationId === agent.homeId
+      ? clamp01((nearbyPeople + 1 - (home?.capacity ?? 1)) / Math.max(1, home?.capacity ?? 1))
+      : 0,
   };
 }
 

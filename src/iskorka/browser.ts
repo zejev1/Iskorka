@@ -1,3 +1,4 @@
+import { garmentConditionV1 } from './ClothingV1';
 import { WorldAtlasRenderer } from '../presentation/WorldAtlasRenderer';
 import { WorldMapCamera } from '../presentation/WorldMapCamera';
 import { installWorldMapGestures } from '../presentation/WorldMapGestures';
@@ -303,7 +304,7 @@ function renderPanel():void {
       const body=w.v21?.bodiesByAgentId[a.id];
       const evidence=w.v16?.residentEvidenceByAgentId[a.id];
       const livelihood=w.v18?.livelihoodByAgentId[a.id];
-      html=`<section class="resident-detail"><div class="detail-heading"><div><span class="eyebrow">${a.sex==='male'?'МУЖЧИНА':'ЖЕНЩИНА'} · ${precise(a.life.ageYears,2)} лет</span><h2>${escape(a.name)}</h2></div><button id="follow" aria-label="Найти жителя на карте">⌖</button></div><p class="activity">${escape(activity(a,w))} · ${escape(w.places[a.locationId]?.name??a.locationId)}</p><span class="job">${escape(jobs[livelihood?.primary??'undecided']??'Развивает своё дело')}</span><div class="metrics">${cell('Здоровье',percent(a.life.health))}${cell('Энергия',percent(a.energy))}${cell('Стресс',percent(a.stress))}${cell('Действий',evidence?.recordedDecisionCount??0)}${cell('Раны / болезни',`${body?.wounds.length??0} / ${body?.diseases.length??0}`)}${cell('Ревизия мира',w.revision)}</div>${renderAgentAnalytics(a,w)}</section>`;
+      html=`<section class="resident-detail"><div class="detail-heading"><div><span class="eyebrow">${a.sex==='male'?'МУЖЧИНА':'ЖЕНЩИНА'} · ${precise(a.life.ageYears,2)} лет</span><h2>${escape(a.name)}</h2></div><button id="follow" aria-label="Найти жителя на карте">⌖</button></div><p class="activity">${escape(activity(a,w))} · ${escape(w.places[a.locationId]?.name??a.locationId)}</p><span class="job">${escape(jobs[livelihood?.primary??'undecided']??'Развивает своё дело')}</span><div class="metrics">${cell('Одежда',garmentConditionV1(a.clothingV1?.worn,w.calendar.elapsedWorldMinutes)>0?'Ткань · '+percent(garmentConditionV1(a.clothingV1?.worn,w.calendar.elapsedWorldMinutes)):'Нет пригодной одежды')}${cell('Изготовлено вещей',a.clothingV1?.madeCount??0)}${cell('Здоровье',percent(a.life.health))}${cell('Энергия',percent(a.energy))}${cell('Стресс',percent(a.stress))}${cell('Действий',evidence?.recordedDecisionCount??0)}${cell('Раны / болезни',`${body?.wounds.length??0} / ${body?.diseases.length??0}`)}${cell('Ревизия мира',w.revision)}</div>${renderAgentAnalytics(a,w)}</section>`;
     } else {
       html='<p class="panel-intro">Нажмите на Искру. Здесь появится живой аналитический срез её мозга, тела, ощущений, памяти, навыков и текущего состояния.</p>';
     }

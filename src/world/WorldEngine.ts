@@ -1,3 +1,4 @@
+import { assertClothingV1, gatherClothingFibreV1, makeClothingV1, wearClothingV1, isFibreSourceV1 } from '../iskorka/ClothingV1';
 import { ISKORKA_FOUNDER_NAMES, ISKORKA_PROFILE, initializeIskorkaWorld, isIskorkaWorld, assertIskorkaProfile } from '../iskorka/Profile';
 import {
   bodySignalsV1,
@@ -1623,6 +1624,7 @@ function assertWorldState(value: unknown): asserts value is WorldState {
       throw new Error(`Agent key ${agentId} does not match its id.`);
     }
     requiredString(agent.name, `Agent ${agentId}.name`);
+    assertClothingV1(agent.clothingV1 as AgentState['clothingV1']);
     if (!['native', 'external_resident'].includes(agent.origin as string)) {
       throw new Error(`Agent ${agentId}.origin is invalid.`);
     }
@@ -10396,8 +10398,10 @@ export class WorldEngine {
   private tryPerformHumanConstructionWork(
     agent: AgentState,
     now: number,
+    chosenLaborMinutes?: number,
   ): boolean {
     if ((agent.race ?? 'human') !== 'human') return false;
+    if (chosenLaborMinutes !== undefined && (agent.life.ageYears < 15 || agent.movement)) return false;
     const settlementId = this.homeSettlementId(agent);
     if (!settlementId) return false;
     const economy = ensureSettlementEconomyV16(this.state, settlementId);
@@ -10422,7 +10426,9 @@ export class WorldEngine {
       householdMember,
       localCrowding,
     );
-    if (willingness < 0.38 || this.rng.next() >= 0.12 + willingness * 0.62) {
+    if (chosenLaborMinutes !== undefined && agent.locationId !== project.homeId) return false;
+    if (chosenLaborMinutes === undefined &&
+        (willingness < 0.38 || this.rng.next() >= 0.12 + willingness * 0.62)) {
       return false;
     }
 
@@ -10435,7 +10441,7 @@ export class WorldEngine {
 
     ensureAgentV15State(this.state, agent);
     const constructionKnowledge = this.v15World().knowledgeByAgentId[agent.id].construction;
-    const contribution = humanConstructionLaborV21({
+    const contribution = (chosenLaborMinutes === undefined ? 1 : chosenLaborMinutes / (3.4 * 1440)) * humanConstructionLaborV21({
       agent,
       constructionKnowledge,
       hasConstructionTool: economy.constructionTools > 0,
@@ -11176,9 +11182,9 @@ export class WorldEngine {
     }
   }
 
-  private advanceSettlementMaterialProjects(now: number): void {
+  private advanceSettlementMaterialProjects(now: number, chosenWorker?: AgentState): void {
     const scheduleTick = this.v15ScheduleTick(now);
-    if (!Number.isInteger(scheduleTick)) return;
+    if (!chosenWorker && !Number.isInteger(scheduleTick)) return;
     const worldMinutes = this.state.calendar.elapsedWorldMinutes;
 
     for (const settlement of Object.values(this.state.settlements).sort((a, b) =>
@@ -11245,6 +11251,7 @@ export class WorldEngine {
       const workers = this.shuffled(
         residents.filter(
           (agent) =>
+            (!chosenWorker || agent.id === chosenWorker.id) &&
             agent.life.stage === 'adult' &&
             agent.life.health >= 0.48 &&
             agent.energy >= 0.24 &&
@@ -13999,7 +14006,7 @@ export class WorldEngine {
         : this.v15EffectiveResourceSecurity(agent);
       const deprivation =
         Math.max(0, 0.12 - effectiveResourceSecurity) * 0.014 +
-        Math.max(0, 0.1 - agent.energy) * 0.012 +
+        (isBodySleepingV21(this.state, agent.id) ? 0 : Math.max(0, 0.1 - agent.energy) * 0.012) +
         (releasedSpark
           ? Math.max(0, 0.22 - releasedHydration) * 0.035 +
             // Stomach emptiness at one six-day health sample is not chronic
@@ -14026,7 +14033,7 @@ export class WorldEngine {
       const recovery =
         !releasedSurvival?.fatalCause &&
         effectiveResourceSecurity > 0.35 &&
-        agent.energy > 0.3
+        (agent.energy > 0.3 || isBodySleepingV21(this.state, agent.id))
           ? (0.0018 + agent.personality.resilience * 0.0014) *
             agent.life.physiology.recovery *
             Math.max(0.4, 1 - frailtyBurden * 0.45)
@@ -14206,6 +14213,15 @@ export class WorldEngine {
       );
     }
 
+    const deathBody = this.state.v21?.bodiesByAgentId[agent.id];
+    const deathPhysiology = deathBody?.bodyCore ? {
+      hydration: deathBody.bodyCore.homeostasis.hydration,
+      satiety: this.state.v18?.lifeRhythmByAgentId[agent.id]?.satiety ?? null,
+      energyReserve: deathBody.bodyCore.homeostasis.energyReserve,
+      survival: deathBody.bodyCore.releasedAdultSurvivalV1 ? { ...deathBody.bodyCore.releasedAdultSurvivalV1 } : null,
+      sleeping: isBodySleepingV21(this.state, agent.id),
+      diseases: deathBody.diseases.map(disease => ({ ...disease })),
+    } : null;
     recordDeathRemainsV16(this.state, agent);
 
     agent.life.alive = false;
@@ -14243,6 +14259,7 @@ export class WorldEngine {
         generation: agent.life.generation,
         worldMinutes,
         primaryMechanism: telemetry.primaryMechanism,
+        bodyAtDeath: deathPhysiology,
         summary: telemetry.humanSummary,
       },
     });
@@ -17410,8 +17427,29 @@ export class WorldEngine {
       }
       if (place?.kind === 'well') offer('fetch_water', place.id);
     }
-    if (age >= 15 && place?.kind === 'workshop' &&
-        placeSupportsCapabilityV1(place, 'general_craft')) offer('work', place.id);
+    const knownPlaces = [...new Set([agent.locationId, ...(agent.knownPlaceIds ?? [])])]
+      .map(id => this.state.places[id]).filter(candidate => candidate &&
+        candidate.danger < 0.58 && Boolean(residentKnownPath(this.state, agent, candidate.id)));
+    if (age >= 15) {
+      for (const candidate of knownPlaces) {
+        if (candidate.kind === 'workshop' && placeSupportsCapabilityV1(candidate, 'general_craft'))
+          offer('work', candidate.id);
+        if (candidate.kind === 'construction_site') offer('work', candidate.id);
+        if (candidate.kind === 'forest' || candidate.biome === 'forest') offer('gather', candidate.id);
+      }
+    }
+    if (age >= 13 && place && (place.kind === 'outskirts' ||
+        this.state.growth.discoveredRegionIds.includes(place.id))) offer('explore', place.id);
+    const kit = agent.clothingV1;
+    if (age >= 13 && (kit?.fibre ?? 0) < 12) {
+      const source = knownPlaces.find(candidate => isFibreSourceV1(this.state, candidate.id));
+      if (source) offer('gather_fibre', source.id);
+    }
+    if (age >= 15 && !kit?.spare && ((kit?.fibre ?? 0) >= 4 || (kit?.workMinutes ?? 0) > 0)) {
+      const workshop = knownPlaces.find(candidate => candidate.kind === 'workshop');
+      if (workshop) offer('make_clothes', workshop.id);
+    }
+    if (age >= 3 && kit?.spare) offer('wear_clothes');
     return choices;
   }
 
@@ -17462,8 +17500,19 @@ export class WorldEngine {
         : undefined;
     const percept = this.refreshSparkPerception(agent);
     if (!percept) return;
-    const learnedIntent = chooseLearnedBrainIntentV1(brain, percept, allowedActions);
-    const brainIntent = bornHuman && !brain.learning?.pending
+    const capabilities = new Set<PortableHumanActionKindV1>(allowedActions ??
+      ['drink','eat','fetch_water','gather','hunt','fish','rest','work','explore','reflect','socialize',
+       'gather_fibre','make_clothes','wear_clothes']);
+    if (agent.life.ageYears >= 13 && (agent.clothingV1?.fibre ?? 0) < 12) capabilities.add('gather_fibre');
+    else capabilities.delete('gather_fibre');
+    if (agent.life.ageYears >= 15 && !agent.clothingV1?.spare &&
+        ((agent.clothingV1?.fibre ?? 0) >= 4 || (agent.clothingV1?.workMinutes ?? 0) > 0))
+      capabilities.add('make_clothes');
+    else capabilities.delete('make_clothes');
+    if (agent.life.ageYears >= 3 && agent.clothingV1?.spare) capabilities.add('wear_clothes');
+    else capabilities.delete('wear_clothes');
+    const learnedIntent = chooseLearnedBrainIntentV1(brain, percept, capabilities);
+    const brainIntent = !brain.learning?.pending
       ? chooseExploratoryBrainIntentV1(
           brain,
           percept,
@@ -17474,11 +17523,11 @@ export class WorldEngine {
     if (!brainIntent) return;
     const mappedKind =
       brainIntent.action === 'gather' ? 'gather_food' : brainIntent.action;
-    if (!['drink','eat','fetch_water','gather_food','hunt','fish','rest','work','explore','reflect','socialize'].includes(mappedKind)) {
+    if (!['drink','eat','fetch_water','gather_food','hunt','fish','rest','work','explore','reflect','socialize','gather_fibre','make_clothes','wear_clothes'].includes(mappedKind)) {
       return;
     }
     const intent = {
-      kind: mappedKind as 'drink' | 'eat' | 'fetch_water' | 'gather_food' | 'hunt' | 'fish' | 'rest' | 'work' | 'explore' | 'reflect' | 'socialize',
+      kind: mappedKind as 'drink' | 'eat' | 'fetch_water' | 'gather_food' | 'hunt' | 'fish' | 'rest' | 'work' | 'explore' | 'reflect' | 'socialize' | 'gather_fibre' | 'make_clothes' | 'wear_clothes',
       targetPlaceId: brainIntent.target?.kind === 'place' ? brainIntent.target.objectId : undefined,
       score: 1,
       evidence: [learning.methods.some((method) =>
@@ -17533,11 +17582,14 @@ export class WorldEngine {
       (agent.locationId === agent.homeId &&
         (localWater?.medievalInfrastructureV1?.waterReserveLitres ?? 0) > 0)
     );
-    const explorationTrip = bornHuman && brainIntent.action === 'explore' &&
+    const explorationTrip = !canDrinkHere && !(intent.kind === 'eat' && carriedFood > 0) &&
       brainIntent.target?.kind === 'place' &&
       brainIntent.target.objectId !== agent.locationId;
     if (explorationTrip) {
-      beginBrainActionAttemptV1(brain, percept, 'explore', brainIntent.target!.objectId);
+      if (!brain.learning?.pending) {
+        beginBrainActionAttemptV1(brain, percept, brainIntent.action, brainIntent.target!.objectId);
+        brain.learning!.pending!.executionPhase = 'travel';
+      }
     }
     if (
       !canDrinkHere &&
@@ -17550,7 +17602,12 @@ export class WorldEngine {
     const completedExploration = brain.learning?.pending?.action === 'explore' &&
       brain.learning.pending.targetObjectId === agent.locationId &&
       brain.learning.pending.startedWorldMinute < worldMinute;
-    if (!completedExploration) {
+    const completedRest = brain.learning?.pending?.action === 'rest' &&
+      brain.learning.pending.executionPhase === 'sleeping' &&
+      brain.learning.pending.startedWorldMinute < worldMinute;
+    // The journey retains the intention. Immediate action learning starts at
+    // arrival so travel dehydration is not attributed to drinking itself.
+    if (!completedExploration && !completedRest) {
       beginBrainActionAttemptV1(
         brain,
         percept,
@@ -17591,7 +17648,26 @@ export class WorldEngine {
         if (succeeded) externalEffects.push({ channel: 'world:water', direction: 'better' });
       }
     } else if (intent.kind === 'gather_food') {
-      if (
+      if (place && (place.kind === 'forest' || place.biome === 'forest') && agent.life.ageYears >= 15) {
+        const land = this.settlementResourcesForAgent(agent);
+        const economy = this.settlementEconomyForAgent(agent);
+        const carriedWood = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id]?.carriedGoods.wood ?? 0;
+        const amount = Math.min(0.025 + agent.skills.gathering * 0.02,
+          Math.max(0, land.renewableBase - 0.02) / 0.01,
+          Math.max(0, 0.72 - carriedWood));
+        if (economy && amount > 0) {
+          land.renewableBase = clamp01(land.renewableBase - amount * 0.01);
+          recordPhysicalGoodsV21(this.state, agent, 'wood', amount);
+          economy.harvestEvents += 1;
+          economy.harvestEventsByMaterial.wood += 1;
+          economy.lastHarvestWorldMinute = worldMinute;
+          agent.skills.gathering = clamp01(agent.skills.gathering + 0.0015);
+          agent.energy = clamp01(agent.energy - 0.035);
+          recordBodyMovementV1(this.state, agent, 60, 0.3);
+          succeeded = true;
+          externalEffects.push({ channel: 'world:materials', direction: 'better' });
+        }
+      } else if (
         place &&
         (place.kind === 'resource_field' ||
           place.kind === 'meadow' ||
@@ -17628,8 +17704,11 @@ export class WorldEngine {
         const personalShare = harvested.harvested * 0.72;
         const communityShare = harvested.harvested - personalShare;
         const foodYield = harvested.harvested * (1.8 + profile.agriculture * 1.2);
+        const carriedFood = economy
+          ? Math.min(personalShare, foodYield * 0.35)
+          : foodYield * 0.72;
         const storedFood = economy
-          ? Math.min(foodYield, Math.max(0, economy.storageCapacity.food - economy.stocks.food))
+          ? Math.min(Math.max(0, foodYield - carriedFood), Math.max(0, economy.storageCapacity.food - economy.stocks.food))
           : 0;
         if (economy && storedFood > 0) {
           economy.stocks.food += storedFood;
@@ -17648,9 +17727,6 @@ export class WorldEngine {
           ),
           storedResources: clamp01(localResources.storedResources + communityShare),
         });
-        const carriedFood = economy
-          ? Math.min(personalShare, foodYield * 0.35)
-          : foodYield * 0.72;
         if (carriedFood > 0) {
           recordPhysicalGoodsV21(
             this.state,
@@ -17728,26 +17804,78 @@ export class WorldEngine {
         }
       }
     } else if (intent.kind === 'rest') {
-      if (agent.locationId === agent.homeId) {
+      if (completedRest) succeeded = true;
+      else if (agent.locationId === agent.homeId) {
         succeeded = startBodySleepV21(this.state, agent, false, worldMinute);
+        // Sleep relief is observed after waking, not at the moment of lying down.
+        if (succeeded) {
+          brain.learning!.pending!.executionPhase = 'sleeping';
+          return;
+        }
       }
+    } else if (intent.kind === 'gather_fibre') {
+      succeeded = gatherClothingFibreV1(this.state, agent) > 0;
+      if (succeeded) {
+        agent.energy = clamp01(agent.energy - 0.02);
+        recordBodyMovementV1(this.state, agent, 45, 0.2);
+        externalEffects.push({ channel: 'world:clothing', direction: 'better' });
+      }
+    } else if (intent.kind === 'make_clothes') {
+      succeeded = makeClothingV1(this.state, agent);
+      if (succeeded) {
+        agent.energy = clamp01(agent.energy - 0.018);
+        recordBodyMovementV1(this.state, agent, 60, 0.12);
+        externalEffects.push({ channel: 'world:clothing', direction: 'better' });
+      }
+    } else if (intent.kind === 'wear_clothes') {
+      succeeded = wearClothingV1(this.state, agent);
+      if (succeeded) externalEffects.push({ channel: 'world:clothing', direction: 'better' });
     } else if (intent.kind === 'work') {
-      if (
-        place?.kind === 'workshop' &&
-        placeSupportsCapabilityV1(place, 'general_craft')
-      ) {
+      if (place?.kind === 'construction_site') {
+        succeeded = this.tryPerformHumanConstructionWork(agent, this.state.now, 60);
+        if (succeeded) externalEffects.push({ channel: 'world:shelter', direction: 'better' });
+      } else if (place?.kind === 'workshop' && placeSupportsCapabilityV1(place, 'general_craft')) {
         recordMaterialPracticeV21(this.state, agent.id, 0.015);
         agent.skills.craft = clamp01(agent.skills.craft + 0.0018);
         agent.energy = clamp01(agent.energy - 0.018);
+        agent.lastAction = 'work';
+        agent.lastWorkKind = 'ordinary';
+        ensureAgentV15State(this.state, agent);
+        const knowledge = this.v15World().knowledgeByAgentId[agent.id];
+        knowledge.construction = clamp01(knowledge.construction + 0.0005);
         succeeded = true;
+        const economy = this.settlementEconomyForAgent(agent);
+        const goods = this.state.v19?.adventureEconomy.adventurersByAgentId[agent.id]?.carriedGoods;
+        if (economy && goods && place.settlementId === this.homeSettlementId(agent)) {
+          const delivered = Math.min(goods.wood ?? 0, Math.max(0, economy.storageCapacity.wood - economy.stocks.wood));
+          economy.stocks.wood += delivered;
+          goods.wood = Math.max(0, (goods.wood ?? 0) - delivered);
+          if (delivered > 0) externalEffects.push({ channel: 'world:materials', direction: 'better' });
+        }
+        const beforeProject = economy?.activeHumanHomeProject?.id;
+        this.advanceSettlementMaterialProjects(this.state.now, agent);
+        externalEffects.push({
+          channel: economy?.activeHumanHomeProject?.id !== beforeProject ? 'world:shelter' : 'world:practice',
+          direction: 'better',
+        });
       }
     } else if (intent.kind === 'explore') {
-      // Reaching a remembered outdoor place is already a genuine outcome.
       succeeded = place !== undefined && completedExploration;
-      if (succeeded && completedExploration &&
-          !brain.learning?.methods.some((method) =>
-            method.action === 'explore' &&
-            method.targetObjectId === agent.locationId && method.successes > 0)) {
+      if (place && agent.life.ageYears >= 13 &&
+          (place.kind === 'outskirts' || this.state.growth.discoveredRegionIds.includes(place.id))) {
+        const mapped = recordResidentSurvey(this.state, agent, place.id);
+        const discovered = this.advanceWorldGrowth(agent, 0.035 + agent.skills.exploration * 0.01, this.state.now);
+        agent.energy = clamp01(agent.energy - 0.02);
+        agent.skills.exploration = clamp01(agent.skills.exploration + 0.001);
+        recordBodyMovementV1(this.state, agent, 60, 0.2);
+        if (discovered) {
+          agent.knownPlaceIds = [...new Set([...(agent.knownPlaceIds ?? []), discovered])].slice(-256);
+          // The new destination is observed; the next journey remains a fresh choice.
+          externalEffects.push({ channel: 'world:discovery', direction: 'better' });
+        } else if (mapped) externalEffects.push({ channel: 'world:discovery', direction: 'better' });
+        succeeded = true;
+      } else if (succeeded && !brain.learning?.methods.some(method =>
+          method.action === 'explore' && method.targetObjectId === agent.locationId && method.successes > 0)) {
         externalEffects.push({ channel: 'world:discovery', direction: 'better' });
       }
     } else if (intent.kind === 'reflect') {

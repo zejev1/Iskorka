@@ -147,6 +147,18 @@ try {
     const row = {
       kind: 'year', seed, year, alive: alive.length, aliveByGeneration,
       births: world.population.births, deaths: world.population.deaths,
+      homes: Object.values(world.places).filter(place => place.kind === 'home').length,
+      housingCapacity: Object.values(world.places).filter(place => place.kind === 'home').reduce((sum, place) => sum + place.capacity, 0),
+      regions: world.growth.discoveredRegionIds.length,
+      clothed: alive.filter(agent => agent.clothingV1?.worn &&
+        world.calendar.elapsedWorldMinutes - (agent.clothingV1.worn.wornSinceWorldMinute ?? world.calendar.elapsedWorldMinutes) < 3*YEAR).length,
+      garmentsMade: agents.reduce((sum,agent) => sum + (agent.clothingV1?.madeCount ?? 0), 0),
+      construction: Object.values(world.v16?.settlementEconomyById ?? {}).map(economy => ({
+        constructionEvents: economy.constructionEvents, wood: economy.stocks.wood,
+        project: economy.activeHumanHomeProject ? {
+          id: economy.activeHumanHomeProject.id, labor: economy.activeHumanHomeProject.laborCompletedPersonDays,
+          required: economy.activeHumanHomeProject.laborRequiredPersonDays } : null,
+      })),
       adultDescendants: adultDescendants.length, descendantsOver30: descendantsOver30.length,
       learnedDescendants: learnedDescendants.length,
       maxGeneration: Math.max(0, ...agents.map(agent => agent.life.generation)),

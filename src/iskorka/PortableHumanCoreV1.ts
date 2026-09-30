@@ -3,6 +3,9 @@ import type { HumanBrainLifePhaseV1 } from './BrainLifecycleV1';
 export const PORTABLE_HUMAN_CONTRACT_VERSION_V1 = 1 as const;
 
 export type PortableHumanActionKindV1 =
+  | 'gather_fibre'
+  | 'make_clothes'
+  | 'wear_clothes'
   | 'drink'
   | 'eat'
   | 'fetch_water'
@@ -50,7 +53,9 @@ export type HumanEnvironmentalCueKindV1 =
   | 'knownFoodSource'
   | 'waterHere'
   | 'knownWaterSource'
-  | 'socialOpportunity';
+  | 'socialOpportunity'
+  | 'clothingNeed'
+  | 'housingPressure';
 
 export type SubjectiveSignalV1 =
   | { availability: 'available'; intensity: number }

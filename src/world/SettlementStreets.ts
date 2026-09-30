@@ -128,12 +128,14 @@ export function nextUrbanHomeLot(places: Readonly<Record<string, WorldPlace>>, c
   const used=new Set(all.filter(p=>p.settlementId===settlementId && p.urbanLayoutVersion===3 && p.urbanLot!==undefined).map(p=>p.urbanLot!));
   const buildings=all.filter(p=>buildingRadius(p)>0 && (p.urbanLayoutVersion===3 || p.kind==='library'));
   const water=all.filter(p=>p.surface==='water'||p.waterPolygon);
+  const outdoor=all.filter(p=>['quiet_space','cemetery','well'].includes(p.kind));
   for(let lot=0;lot<used.size+1024;lot++) {
     if(used.has(lot))continue;
     const point=organicLotAddress(center,lot);
     if(!terrainPlotIsDry(places,point)||!dryBuildingPlot(point,.06,.05,water,point.rotation))continue;
     const candidate={kind:'home',mapX:point.x,mapY:point.y,rotation:point.rotation} as WorldPlace;
     if(buildings.some(p=>!buildingsHaveClearance(candidate,p)))continue;
+    if(outdoor.some(p=>Math.hypot(p.mapX-point.x,p.mapY-point.y)<0.15))continue;
     return {x:point.x,y:point.y,lot,rotation:point.rotation};
   }
   return undefined;

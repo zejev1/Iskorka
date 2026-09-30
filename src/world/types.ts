@@ -231,6 +231,7 @@ export interface AgentMovementState {
 }
 
 export interface AgentState {
+  clothingV1?: import('../iskorka/ClothingV1').ClothingStateV1;
   cartography?: import('./ResidentCartography').ResidentMapNotes;
   /** Lived attempts, predictions and revisable methods; absent in legacy saves. */
   learning?: import('./learning/index').ResidentLearningState;
@@ -380,6 +381,8 @@ export interface WorldPlace {
    * Physical medieval rooms and installed fixtures. A place name alone is not
    * proof that a resident can sleep, cook, wash or practise a craft there.
    */
+  /** Original surveyed point when an outdoor access marker overlapped a building. */
+  outdoorAccessOriginV1?: WorldPoint2D;
   medievalInfrastructureV1?: import('../iskorka/MedievalPlaceInfrastructureV1').MedievalPlaceInfrastructureV1;
   /** Potable groundwater state for explicit settlement wells. */
   wellWaterV1?: import('../iskorka/FoundationWaterV1').FoundationWellWaterV1;

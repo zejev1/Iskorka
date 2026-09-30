@@ -5,7 +5,7 @@ import type {
 } from './PortableHumanCoreV1';
 
 export const BRAIN_LEARNING_VERSION_V1 = 1 as const;
-export const MAX_BRAIN_LEARNED_METHODS_V1 = 12;
+export const MAX_BRAIN_LEARNED_METHODS_V1 = 24;
 
 export interface BrainLearnedMethodV1 {
   id: string;
@@ -22,7 +22,7 @@ export interface BrainLearnedMethodV1 {
   /** Generic value of observed world effects, learned without action rules. */
   expectedExternalReward?: number;
   /** World changes this person observed after this method, kept by channel. */
-  expectedWorldEffects?: Partial<Record<'world:food' | 'world:water', number>>;
+  expectedWorldEffects?: Partial<Record<'world:food' | 'world:water' | 'world:shelter' | 'world:materials' | 'world:clothing', number>>;
   confidence: number;
   lastWorldMinute: number;
   /** Bounded public diary: full action trials stay in this method, not the global log. */
@@ -33,6 +33,7 @@ export interface BrainLearningAttemptV1 {
   action: PortableHumanActionKindV1;
   targetObjectId?: string;
   startedWorldMinute: number;
+  executionPhase?: 'travel' | 'sleeping';
   beforeSignals: Partial<Record<HumanBodySignalKindV1, number>>;
   beforeCues?: Partial<Record<HumanEnvironmentalCueKindV1, number>>;
 }
