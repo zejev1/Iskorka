@@ -345,6 +345,10 @@ export function chooseLearnedBrainIntentV1(
       // hand is stronger evidence when food is presently in hand. The same
       // rule applies to any learned method with a hunger-relieving outcome.
       score += (current.hunger ?? 0) * (currentCues.foodAtHand ?? 0) *
+        // Availability amplifies a learned solution only in proportion to
+        // its current need. Otherwise a carried meal overwhelms much stronger
+        // thirst indefinitely, even after this person has learned water relief.
+        Math.pow((current.hunger ?? 0) / Math.max(0.001, currentPressure), 2) *
         Math.sqrt(Math.max(0, method.expectedSignalRelief.hunger ?? 0)) *
         Math.pow(Math.max(0, method.expectedSignalRelief.hunger ?? 0) /
           Math.max(strongestRelief, 1e-9), 2) *

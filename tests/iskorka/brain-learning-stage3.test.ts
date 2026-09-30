@@ -29,6 +29,23 @@ const SIGNALS: readonly HumanBodySignalKindV1[] = [
   'postPleasureRelaxation',
 ];
 
+test('food in hand cannot drown out a much stronger thirst with a personally learned remedy', () => {
+  const brain=createBrainStateV1('competing-needs',0,1234,0);
+  brain.learning={version:1,methods:[
+    {id:'eat',action:'eat',trials:1000,successes:1000,failures:0,
+      expectedSignalRelief:{hunger:0.09},confidence:0.999,lastWorldMinute:1},
+    {id:'drink@well_a',action:'drink',targetObjectId:'well_a',trials:1000,successes:1000,failures:0,
+      expectedSignalRelief:{thirst:0.2},confidence:0.999,lastWorldMinute:1},
+  ]};
+  const thirsty=percept(brain.ownerAgentId,10,{thirst:0.96,hunger:0.35},{foodAtHand:1});
+  const choices=Array.from({length:100},()=>chooseLearnedBrainIntentV1(brain,thirsty)?.action);
+  assert.ok(choices.filter(a=>a==='drink').length>=80,JSON.stringify(choices));
+  const hungry=percept(brain.ownerAgentId,11,{thirst:0.1,hunger:0.95},{foodAtHand:1});
+  assert.equal(chooseLearnedBrainIntentV1(brain,hungry)?.action,'eat');
+  brain.learning.methods=brain.learning.methods.filter(m=>m.action!=='drink');
+  assert.equal(chooseLearnedBrainIntentV1(brain,thirsty)?.action,'eat','unlearned water action was invented');
+});
+
 function percept(
   ownerAgentId: string,
   worldMinute: number,
