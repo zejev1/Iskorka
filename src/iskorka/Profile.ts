@@ -6,7 +6,7 @@ import {
 } from './FoundingMentorsV1';
 
 export const ISKORKA_PROFILE = 'iskorka-human-lab-v1' as const;
-export const ISKORKA_VERSION = '0.1.1-autonomy';
+export const ISKORKA_VERSION = '0.1.2-autonomy';
 export const ISKORKA_FOUNDER_NAMES = [
   'Андрей', 'Анна', 'Борис', 'Вера', 'Данил', 'Дарья', 'Иван', 'Мария', 'Лев', 'Софья',
 ] as const;

@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import {
   BRAIN_LOGICAL_BUDGET_BYTES_V1,
+  brainDatumLogicalBytesV1,
+  invalidateBrainLogicalByteCacheV1,
+  invalidateBrainTransientByteCacheV1,
+  type BrainDatumV1,
   brainBudgetRemainingBytesV1,
   createBrainStateV1,
   logicalBrainBytesV1,
@@ -23,6 +27,43 @@ import { ISKORKA_WORLD_ID } from '../../src/iskorka/Profile';
 import { createStandaloneWorldStore } from '../../src/persistence/IndexedDbPersistence';
 import { InMemoryWorldStore } from '../../src/world/InMemoryWorldStore';
 import type { MemoryRecord, WorldState } from '../../src/world/types';
+
+test('cached datum accounting remains exact after text edits, Unicode and cloning', () => {
+  const datum: BrainDatumV1 = {id: 'memory', section: 'recent', kind: 'experience',
+    source: 'self_observation', encoded: 'Русский текст 👋'};
+  const exact = () => 24 + [datum.id, datum.section, datum.kind, datum.source, datum.encoded]
+    .reduce((bytes, text) => bytes + new TextEncoder().encode(text).byteLength, 0);
+  for (let i = 0; i < 30; i++) {
+    assert.equal(brainDatumLogicalBytesV1(datum), exact());
+    assert.equal(brainDatumLogicalBytesV1(structuredClone(datum)), exact());
+    datum.encoded += i % 2 ? '\ud800' : '漢字';
+    datum.id += 'я';
+    datum.kind += 'x';
+  }
+  datum.section = 'knowledge';
+  datum.source = 'reading';
+  assert.equal(brainDatumLogicalBytesV1(datum), exact());
+});
+
+test('review, work, acquired-data edits and reload keep exact brain allocation', () => {
+  const brain = createBrainStateV1('cache-owner', 0, 123, 0);
+  tryStoreBrainDatumV1(brain, {id:'owned',section:'knowledge',kind:'memory',
+    source:'self_observation',encoded:'личный опыт 👋'.repeat(200)});
+  brain.learning = {version:1,methods:[]};
+  for (let minute = 0; minute < 20; minute++) {
+    brain.learning.lastReviewWorldMinute = minute;
+    brain.learning.nextReviewWorldMinute = minute + 240;
+    brain.lastNativeReviewWorldMinute = minute;
+    invalidateBrainTransientByteCacheV1(brain);
+    setBrainWorkingStepV1(brain, {stepId:'step-'+minute,startedWorldMinute:minute,
+      phase:'waiting_outcome',action:'native:drink',targetObjectId:'колодец'});
+    assert.equal(logicalBrainBytesV1(brain), logicalBrainBytesV1(structuredClone(brain)));
+    brain.data[0].encoded += 'новый опыт';
+    brain.migration.importedDatumIds.push('id-'+minute);
+    invalidateBrainLogicalByteCacheV1(brain);
+    assert.equal(logicalBrainBytesV1(brain), logicalBrainBytesV1(structuredClone(brain)));
+  }
+});
 
 async function fresh(seed = 'brain-stage2-seed') {
   const store = new InMemoryWorldStore();

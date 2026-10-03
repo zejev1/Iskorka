@@ -116,6 +116,13 @@ export interface BrainStateV1 {
 const encoder = new TextEncoder();
 const logicalByteCache = new WeakMap<object, number>();
 const logicalBaseByteCache = new WeakMap<object, number>();
+const acquiredByteCache = new WeakMap<object, number>();
+// Only an exact byte count and the fields of the still-owned datum are cached.
+// Weak keys do not keep forgotten or retired private memory alive. Check every
+// field so callers which edit a datum in place cannot bypass the allocator.
+const datumByteCache = new WeakMap<object, {
+  id: string; section: string; kind: string; source: string; encoded: string; bytes: number;
+}>();
 // A clone of the world gives every brain a new object identity, while the
 // identifiers and most acquired text remain identical. Cache exact UTF-8
 // lengths across those clones without retaining an unbounded text archive.
@@ -157,7 +164,11 @@ const utf8BytesV1 = (value: string): number => {
  * when the persistent representation later changes.
  */
 export function brainDatumLogicalBytesV1(datum: Readonly<BrainDatumV1>): number {
-  return (
+  const cached = datumByteCache.get(datum);
+  if (cached && cached.id === datum.id && cached.section === datum.section &&
+      cached.kind === datum.kind && cached.source === datum.source &&
+      cached.encoded === datum.encoded) return cached.bytes;
+  const bytes = (
     BRAIN_DATUM_FIXED_LOGICAL_BYTES_V1 +
     utf8BytesV1(datum.id) +
     utf8BytesV1(datum.section) +
@@ -165,6 +176,9 @@ export function brainDatumLogicalBytesV1(datum: Readonly<BrainDatumV1>): number 
     utf8BytesV1(datum.source) +
     utf8BytesV1(datum.encoded)
   );
+  datumByteCache.set(datum, {id: datum.id, section: datum.section,
+    kind: datum.kind, source: datum.source, encoded: datum.encoded, bytes});
+  return bytes;
 }
 
 function workingStepLogicalBytesV1(
@@ -208,6 +222,13 @@ function perceptionLogicalBytesV1(
 }
 
 export function invalidateBrainLogicalByteCacheV1(brain: Readonly<BrainStateV1>): void {
+  acquiredByteCache.delete(brain as object);
+  invalidateBrainTransientByteCacheV1(brain);
+}
+
+/** Review timers, working steps and learning change without rewriting acquired
+ * data or migration IDs. Their exact byte count can reuse those stable totals. */
+export function invalidateBrainTransientByteCacheV1(brain: Readonly<BrainStateV1>): void {
   logicalByteCache.delete(brain as object);
   logicalBaseByteCache.delete(brain as object);
 }
@@ -219,21 +240,22 @@ export function invalidateBrainPerceptionByteCacheV1(brain: Readonly<BrainStateV
 function logicalBrainBaseBytesV1(brain: Readonly<BrainStateV1>): number {
   const cached = logicalBaseByteCache.get(brain as object);
   if (cached !== undefined) return cached;
+  let acquiredBytes = acquiredByteCache.get(brain as object);
+  if (acquiredBytes === undefined) {
+    acquiredBytes = brain.data.reduce((sum, datum) => sum + brainDatumLogicalBytesV1(datum), 0) +
+      brain.migration.importedDatumIds.reduce((sum, id) =>
+        sum + BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 + utf8BytesV1(id), 0);
+    acquiredByteCache.set(brain as object, acquiredBytes);
+  }
   const bytes =
     BRAIN_PACKET_FIXED_LOGICAL_BYTES_V1 +
     utf8BytesV1(brain.ownerAgentId) +
     (brain.lastNativeReviewWorldMinute === undefined ? 0 : 8) +
     workingStepLogicalBytesV1(brain.workingStep) +
-    (brain.learning ? utf8BytesV1(JSON.stringify(brain.learning)) : 0) +
-    brain.data.reduce(
-      (sum, datum) => sum + brainDatumLogicalBytesV1(datum),
-      0,
-    ) +
-    brain.migration.importedDatumIds.reduce(
-      (sum, id) =>
-        sum + BRAIN_IMPORTED_ID_FIXED_LOGICAL_BYTES_V1 + utf8BytesV1(id),
-      0,
-    );
+    // This packet changes on every review. Caching its full JSON churns the
+    // bounded shared string cache and evicts stable acquired memory payloads.
+    (brain.learning ? encoder.encode(JSON.stringify(brain.learning)).byteLength : 0) +
+    acquiredBytes;
   logicalBaseByteCache.set(brain as object, bytes);
   return bytes;
 }
@@ -412,13 +434,13 @@ export function setBrainWorkingStepV1(
   step: BrainWorkingStepV1 | undefined,
 ): boolean {
   const previous = brain.workingStep;
-  invalidateBrainLogicalByteCacheV1(brain);
+  invalidateBrainTransientByteCacheV1(brain);
   if (step === undefined) delete brain.workingStep;
   else brain.workingStep = { ...step };
   if (logicalBrainBytesV1(brain) > BRAIN_LOGICAL_BUDGET_BYTES_V1) {
     if (previous === undefined) delete brain.workingStep;
     else brain.workingStep = previous;
-    invalidateBrainLogicalByteCacheV1(brain);
+    invalidateBrainTransientByteCacheV1(brain);
     logicalBrainBytesV1(brain);
     return false;
   }

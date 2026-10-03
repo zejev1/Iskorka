@@ -42,7 +42,7 @@ import {
   synchronizeLegacyOwnedStateV1,
 } from '../iskorka/BrainStateAdapterV1';
 import {
-  invalidateBrainLogicalByteCacheV1,
+  invalidateBrainTransientByteCacheV1,
   setBrainWorkingStepV1,
   tryStoreBrainDatumV1,
 } from '../iskorka/BrainStateV1';
@@ -17480,7 +17480,7 @@ export class WorldEngine {
       : STEADY_BRAIN_REVIEW_INTERVAL_WORLD_MINUTES_V1;
     learning.lastReviewWorldMinute = worldMinute;
     learning.nextReviewWorldMinute = worldMinute + reviewInterval;
-    invalidateBrainLogicalByteCacheV1(brain);
+    invalidateBrainTransientByteCacheV1(brain);
 
     // Deliberation cadence is independent for every person. If the body is
     // asleep, the person is traveling, or health prevents action, defer the
@@ -17923,7 +17923,7 @@ export class WorldEngine {
           worldMinute - learned.lastJournaledWorldMinute >= NATIVE_INTENT_JOURNAL_INTERVAL_WORLD_MINUTES_V1)
       ) {
         learned.lastJournaledWorldMinute = worldMinute;
-        invalidateBrainLogicalByteCacheV1(brain);
+        invalidateBrainTransientByteCacheV1(brain);
         journalOutcome = true;
       }
     }

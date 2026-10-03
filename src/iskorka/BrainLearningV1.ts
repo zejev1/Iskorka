@@ -5,7 +5,7 @@ import {
   type BrainLearningStateV1,
 } from './BrainLearningTypesV1';
 import {
-  invalidateBrainLogicalByteCacheV1,
+  invalidateBrainTransientByteCacheV1,
   type BrainStateV1,
 } from './BrainStateV1';
 import {
@@ -87,7 +87,7 @@ export function beginBrainActionAttemptV1(
     beforeSignals: availableSignals(batch),
     beforeCues: availableCues(batch),
   };
-  invalidateBrainLogicalByteCacheV1(brain);
+  invalidateBrainTransientByteCacheV1(brain);
 }
 
 function methodId(action: PortableHumanActionKindV1, targetObjectId?: string): string {
@@ -141,7 +141,7 @@ export function finishBrainActionAttemptV1(
   if (method && outcome.status === 'completed' && !meaningful &&
       externalReward === 0 && !relevantSensation) {
     delete state.pending;
-    invalidateBrainLogicalByteCacheV1(brain);
+    invalidateBrainTransientByteCacheV1(brain);
     return method;
   }
   if (!method) {
@@ -176,7 +176,7 @@ export function finishBrainActionAttemptV1(
       ) + Math.max(0, externalReward) * 0.05 : 0;
       if (firstValue <= rememberedValue(state.methods[leastUsefulIndex])) {
         delete state.pending;
-        invalidateBrainLogicalByteCacheV1(brain);
+        invalidateBrainTransientByteCacheV1(brain);
         return undefined;
       }
       state.methods.splice(leastUsefulIndex, 1);
@@ -242,7 +242,7 @@ export function finishBrainActionAttemptV1(
   method.confidence = clamp(method.trials / (method.trials + 1), 0, 1);
   method.lastWorldMinute = after.worldMinute;
   delete state.pending;
-  invalidateBrainLogicalByteCacheV1(brain);
+  invalidateBrainTransientByteCacheV1(brain);
   return method;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "iskorka",
-  "version": "0.1.1-autonomy",
+  "version": "0.1.2-autonomy",
   "private": true,
   "description": "Independent autonomous human world; physical F2 transplant, first stage.",
   "type": "module",

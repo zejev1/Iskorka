@@ -1,6 +1,7 @@
 import type { AgentState, WorldState } from '../world/types';
 import {
   invalidateBrainLogicalByteCacheV1,
+  invalidateBrainTransientByteCacheV1,
   setBrainWorkingStepV1,
   tryStoreBrainDatumV1,
   type BrainStateV1,
@@ -226,7 +227,7 @@ export function chooseReleasedSparkNativeIntentV1(
     context.worldMinute <= brain.lastNativeReviewWorldMinute + 1e-7
   ) return undefined;
   brain.lastNativeReviewWorldMinute = context.worldMinute;
-  invalidateBrainLogicalByteCacheV1(brain);
+  invalidateBrainTransientByteCacheV1(brain);
 
   const practice = guidedPracticeExperiencesV1(brain)
     .filter((experience) => experience.succeeded);
