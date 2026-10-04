@@ -17737,6 +17737,24 @@ export class WorldEngine {
         }
         if (foodYield > 0) {
           agent.skills.gathering = clamp01(agent.skills.gathering + 0.0025);
+          // Native foraging bypasses the legacy resident action loop. Keep
+          // knowledge used by the next harvest tied to this actual practice,
+          // without attaching a scripted lesson or granting prior experience.
+          const practicePolicy = learningStagePolicyV15(agent.life.ageYears);
+          if (practicePolicy.canPracticeSafely) {
+            const v15 = this.v15World();
+            applyIndependentPractice(this.v15LearningPerson(agent), {
+              practiceId: `practice:${this.state.id}:${++v15.learningSequence}`,
+              personId: agent.id,
+              domain: 'agriculture',
+              worldMinutes: worldMinute,
+              durationWorldMinutes: 45 * practicePolicy.practiceEfficiencyMultiplier,
+              activityVerified: true,
+              challenge: 0.48,
+            });
+            profile.verifiedPracticeSessions += 1;
+            profile.lastLearningWorldMinute = worldMinute;
+          }
           agent.resources = clamp01(agent.resources + personalShare);
           agent.energy = clamp01(agent.energy - 0.035);
           recordBodyMovementV1(this.state, agent, 45, 0.24);
