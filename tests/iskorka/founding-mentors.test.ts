@@ -462,8 +462,9 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
   assert.equal(probeAfter.lastDecision, undefined);
   assert.equal(probeAfter.plan, undefined);
 
-  // Before fatal deprivation, acquired mentor knowledge remains intact and
-  // no hidden adult task engine appears.
+  // Acquired mentor knowledge stays intact. Released adults may now earn
+  // agriculture through their own physical foraging, without another lesson
+  // or a hidden resident task engine.
   world = runtime.snapshot();
   assert.equal(world.population.births, birthsAtRelease);
   for (const spark of Object.values(world.agents).filter((candidate) => candidate.life.alive)) {
@@ -471,10 +472,24 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
     assert.equal(spark.lastAction, undefined);
     assert.equal(spark.plan, undefined);
     assert.equal(spark.agencyCadence, undefined);
-    assert.deepEqual(
-      world.v15!.knowledgeByAgentId[spark.id],
-      knowledgeAtRelease[spark.id],
-    );
+    const before = knowledgeAtRelease[spark.id];
+    const after = world.v15!.knowledgeByAgentId[spark.id];
+    const { agriculture: priorAgriculture, verifiedPracticeSessions: priorPractice,
+      lastLearningWorldMinute: priorMinute, ...priorRetained } = before;
+    const { agriculture, verifiedPracticeSessions,
+      lastLearningWorldMinute, ...retained } = after;
+    assert.deepEqual(retained, priorRetained,
+      'farewell replaced acquired mentor knowledge or supplied another lesson');
+    assert.ok(agriculture >= priorAgriculture, 'own practice erased prior knowledge');
+    assert.ok(verifiedPracticeSessions >= priorPractice);
+    if (verifiedPracticeSessions === priorPractice) {
+      assert.equal(agriculture, priorAgriculture, 'knowledge appeared without practice');
+      assert.equal(lastLearningWorldMinute, priorMinute);
+    } else {
+      assert.ok(lastLearningWorldMinute !== undefined &&
+        lastLearningWorldMinute >= releasedAt &&
+        lastLearningWorldMinute <= world.calendar.elapsedWorldMinutes);
+    }
   }
 
   // Native adult agency is tested separately.  This farewell test only guards
