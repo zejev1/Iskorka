@@ -17947,6 +17947,7 @@ export class WorldEngine {
     }
     setBrainWorkingStepV1(brain, undefined);
     delete agent.lastDecision;
+    delete agent.lastAction;
     delete agent.plan;
 
     if (!journalOutcome) return;

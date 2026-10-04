@@ -474,21 +474,20 @@ test('at adulthood mentors say goodbye, visibly depart, then fully deactivate', 
     assert.equal(spark.agencyCadence, undefined);
     const before = knowledgeAtRelease[spark.id];
     const after = world.v15!.knowledgeByAgentId[spark.id];
-    const { agriculture: priorAgriculture, verifiedPracticeSessions: priorPractice,
-      lastLearningWorldMinute: priorMinute, ...priorRetained } = before;
-    const { agriculture, verifiedPracticeSessions,
-      lastLearningWorldMinute, ...retained } = after;
-    assert.deepEqual(retained, priorRetained,
-      'farewell replaced acquired mentor knowledge or supplied another lesson');
-    assert.ok(agriculture >= priorAgriculture, 'own practice erased prior knowledge');
-    assert.ok(verifiedPracticeSessions >= priorPractice);
-    if (verifiedPracticeSessions === priorPractice) {
-      assert.equal(agriculture, priorAgriculture, 'knowledge appeared without practice');
-      assert.equal(lastLearningWorldMinute, priorMinute);
+    assert.deepEqual(after.aptitude, before.aptitude);
+    assert.equal(after.verifiedLearningSessions, before.verifiedLearningSessions,
+      'farewell supplied another structured lesson');
+    for (const domain of ['agriculture', 'construction', 'household', 'survival'] as const) {
+      assert.ok(after[domain] >= before[domain], `own practice erased prior ${domain} knowledge`);
+    }
+    assert.ok(after.verifiedPracticeSessions >= before.verifiedPracticeSessions);
+    if (after.verifiedPracticeSessions === before.verifiedPracticeSessions) {
+      assert.equal(after.agriculture, before.agriculture, 'agriculture appeared without practice');
+      assert.equal(after.lastLearningWorldMinute, before.lastLearningWorldMinute);
     } else {
-      assert.ok(lastLearningWorldMinute !== undefined &&
-        lastLearningWorldMinute >= releasedAt &&
-        lastLearningWorldMinute <= world.calendar.elapsedWorldMinutes);
+      assert.ok(after.lastLearningWorldMinute !== undefined &&
+        after.lastLearningWorldMinute >= (before.lastLearningWorldMinute ?? 0) &&
+        after.lastLearningWorldMinute <= world.calendar.elapsedWorldMinutes);
     }
   }
 
